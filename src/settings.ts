@@ -135,7 +135,7 @@ export class SettingsTab extends PluginSettingTab {
 	setup_note_table() {
 		let {containerEl} = this;
 		const plugin = (this as any).plugin
-		new Setting(containerEl).setName('Note type settings').setHeading()
+		new Setting(containerEl).setName('Note type').setHeading()
 		this.create_collapsible("Note Type Table")
 		let note_type_table = containerEl.createEl('table', {cls: "anki-settings-table"})
 		let head = note_type_table.createTHead()
@@ -295,7 +295,7 @@ export class SettingsTab extends PluginSettingTab {
 		let {containerEl} = this;
 		const plugin = (this as any).plugin
 		const folder_list = this.get_folders()
-		new Setting(containerEl).setName('Folder settings').setHeading()
+		new Setting(containerEl).setName('Folder profiles').setHeading()
 		this.create_collapsible("Folder Table")
 		let folder_table = containerEl.createEl('table', {cls: "anki-settings-table"})
 		let head = folder_table.createTHead()
