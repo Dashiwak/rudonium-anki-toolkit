@@ -13,7 +13,7 @@ export function installFolderTagSettings(container: HTMLElement, plugin: MyPlugi
     const t = uiFor(plugin.settings)
     // Some upstream layouts create the folder heading in display(), outside setup_folder_table().
     const previous = container.lastElementChild
-    if (previous?.tagName === 'H3' && /^folder (?:settings|table)$/i.test(previous.textContent?.trim() ?? '')) previous.remove()
+    if ((previous?.tagName === 'H3' || previous?.classList.contains('setting-item-heading')) && /^folder (?:settings|table)$/i.test(previous.textContent?.trim() ?? '')) previous.remove()
     const body = createSettingsGroup(container, plugin, 'folders', t('Folder tags', 'Теги папок'),
         t('Separate tags with spaces. Nested folders also use their parent folders’ tags.',
             'Разделяйте теги пробелами. Вложенные папки также наследуют теги родительских папок.'))
@@ -45,15 +45,15 @@ export function installFolderTagSettings(container: HTMLElement, plugin: MyPlugi
         createFolderTree(body, {
             entries: vaultFolderEntries(plugin.app.vault), t, viewState: view,
             renderAction: (row, label, entry) => {
-                Object.assign(label.style, { display: 'flex', alignItems: 'center', gap: '.35em' })
+                label.classList.add('rudonium-settings-search-label')
                 const icon = label.createSpan({ attr: { 'aria-hidden': 'true' } })
                 setIcon(icon, 'folder')
-                icon.style.color = 'var(--text-muted)'
+                icon.classList.add('rudonium-text-muted')
                 label.prepend(icon)
                 const input = row.createEl('input', { attr: { type: 'text', autocomplete: 'off', spellcheck: 'false',
                     'aria-label': t(`Tags for ${entry.path}`, `Теги папки ${entry.path}`) } })
-                row.style.gridTemplateColumns = '1.4rem minmax(0, 1fr) minmax(4rem, .85fr)'
-                Object.assign(input.style, { minWidth: '0', width: '100%' })
+                row.classList.add('rudonium-settings-search-row')
+                input.classList.add('rudonium-settings-search-input')
                 const tags = settings[tagKey]
                 input.value = tags && Object.prototype.hasOwnProperty.call(tags, entry.path) ? tags[entry.path] : ''
                 input.oninput = () => {

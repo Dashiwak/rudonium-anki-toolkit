@@ -106,11 +106,10 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
 
     const search = parent.createEl('label', { text: options.searchLabel ?? t('Search folders', 'Поиск папок') })
         .createEl('input', { attr: { type: 'search', autocomplete: 'off' } })
-    Object.assign(search.style, { display: 'block', width: '100%', marginBlock: '0.25em 0.5em' })
+    search.classList.add('rudonium-folder-tree-search')
     const status = parent.createEl('small', { attr: { role: 'status' } })
     const viewport = parent.createDiv({ attr: { role: 'group', 'aria-label': options.label ?? t('Folder tree', 'Дерево папок'), tabindex: '0' } })
-    Object.assign(viewport.style, { maxHeight: 'min(38vh, 19rem)', overflowY: 'auto', scrollbarGutter: 'stable',
-        border: '1px solid var(--background-modifier-border)', borderRadius: 'var(--radius-m)', padding: '0.3em', marginBlock: '0.35em' })
+    viewport.classList.add('rudonium-folder-tree-viewport')
     const pager = parent.createDiv()
     let more: HTMLButtonElement | undefined
     const rendered = new Map<string, RenderedRow<Action>>()
@@ -123,7 +122,8 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
 
     const makeList = (container: HTMLElement, indent = false) => {
         const list = container.createEl('ul', { attr: { role: 'list' } })
-        Object.assign(list.style, { margin: '0', padding: '0', paddingInlineStart: indent ? '0.8rem' : '0', listStyle: 'none' })
+        list.classList.add('rudonium-folder-tree-list')
+        list.classList.toggle('rudonium-folder-list-indented', indent)
         return list
     }
     const isOpen = (path: string) => query ? !searchCollapsed.has(path) : expanded.has(path)
@@ -174,8 +174,7 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
             const list = parentRow ? parentRow.childList ??= makeList(parentRow.item, node.depth <= 10) : rootList
             const item = list.createEl('li')
             const row = item.createDiv({ attr: { 'data-folder-path': node.path, tabindex: '-1' } })
-            Object.assign(row.style, { display: 'grid', gridTemplateColumns: '1.4rem minmax(0, 1fr) auto',
-                alignItems: 'center', gap: '0.35rem', padding: '0.16rem 0.2rem' })
+            row.classList.add('rudonium-folder-tree-row')
             const hasChildren = filtered ? node.children.some(child => filtered!.has(child.path)) : node.children.length > 0
             const open = hasChildren && isOpen(node.path)
             let toggle: HTMLButtonElement | undefined
@@ -183,7 +182,7 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
                 const ariaLabel = open ? t(`Collapse ${node.path}`, `Свернуть ${node.path}`) : t(`Expand ${node.path}`, `Развернуть ${node.path}`)
                 toggle = row.createEl('button', { text: open ? '▾' : '▸', title: ariaLabel,
                     attr: { type: 'button', 'aria-label': ariaLabel, 'aria-expanded': String(open) } })
-                Object.assign(toggle.style, { padding: '0', boxShadow: 'none', background: 'transparent' })
+                toggle.classList.add('rudonium-folder-tree-toggle')
                 toggle.disabled = disabled
                 toggle.onclick = () => {
                     if (query) {
@@ -202,7 +201,7 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
                 }
             } else row.createSpan({ attr: { 'aria-hidden': 'true' } })
             const label = row.createDiv({ title: node.path })
-            label.style.overflowWrap = 'anywhere'
+            label.classList.add('rudonium-wrap-anywhere')
             label.createSpan({ text: node.name })
             const action = node.entry && options.renderAction(row, label, node.entry)
             if (action) action.disabled = disabled

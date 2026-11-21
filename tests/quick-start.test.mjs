@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import createClassList from './dom-class-list.cjs'
 import assert from 'node:assert/strict'
 import overlay from '../Build/overlay-source.cjs'
 import { readFileSync } from 'node:fs'
@@ -16,9 +17,10 @@ function register(name, code) {
     }))
 }
 register('obsidian', `
+const createClassList = ${createClassList}
 export const modals = []
 export class Element {
-    constructor(tag = 'div', options = {}) { this.tag = tag; this.text = options.text; this.attr = options.attr || {}; this.children = []; this.style = {}; this.options = []; this.isConnected = true; this.classList = { add() {} }; this.value = options.value || '' }
+    constructor(tag = 'div', options = {}) { this.tag = tag; this.text = options.text; this.attr = options.attr || {}; this.children = []; this.classList = createClassList(); this.options = []; this.isConnected = true; this.value = options.value || '' }
     empty() { this.children = [] }
     setText(value) { this.text = value }
     createEl(tag, options) { const child = new Element(tag, options); child.parent = this; this.children.push(child); return child }
@@ -312,7 +314,7 @@ test('failed and interrupted conversions keep the wizard open for a fresh previe
     click(modal.contentEl,'Check again'); await settle()
     assert.ok(row(modal.contentEl,'Already converted (1)'))
     assert.equal(row(modal.contentEl,'Back up and convert').hidden,true)
-    assert.equal(row(modal.contentEl,'Full vault ZIP · backup folder outside the vault').parent.style.display,'none')
+    assert.equal(row(modal.contentEl,'Full vault ZIP · backup folder outside the vault').parent.classList.contains('rudonium-hidden'), true)
     modal.close()
 })
 

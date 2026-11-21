@@ -176,7 +176,7 @@ class LostIdReview extends ReviewModal {
             list.empty()
             for (const row of rows.slice(page * pageSize, (page + 1) * pageSize)) {
                 const item = list.createEl('li')
-                item.style.overflowWrap = 'anywhere'
+                item.classList.add('rudonium-wrap-anywhere')
                 const text = (html: string) => previewFieldText(item.ownerDocument, html, t('[image]', '[изображение]'))
                 const title = text(row.front)
                 if (row.id !== undefined && selectionChanged) {
@@ -204,7 +204,7 @@ class LostIdReview extends ReviewModal {
                 details.ontoggle = () => {
                     if (!details.open) return
                     details.ontoggle = null
-                    details.createEl('p', { text: text(row.back) }).style.whiteSpace = 'pre-wrap'
+                    details.createEl('p', { text: text(row.back) }).classList.add('rudonium-pre-wrap')
                     details.createEl('p', { text: t(`Note type · ${row.model} · Deck · ${row.deck}`, `Тип записи · ${row.model} · Колода · ${row.deck}`) })
                 }
             }
@@ -230,7 +230,7 @@ class LostIdReview extends ReviewModal {
             body.empty()
             body.createEl('p', { text: t(`Restored IDs · ${result.restored}.`, `Восстановлено ID — ${result.restored}.`), attr: { role: 'status' } })
             if (result.stopped) body.createEl('p', { text: result.stopped })
-            if (result.archive) body.createEl('p', { text: t(`Vault ZIP · ${result.archive}`, `ZIP хранилища · ${result.archive}`) }).style.overflowWrap = 'anywhere'
+            if (result.archive) body.createEl('p', { text: t(`Vault ZIP · ${result.archive}`, `ZIP хранилища · ${result.archive}`) }).classList.add('rudonium-wrap-anywhere')
             const footer = body.createDiv({ cls: 'modal-button-container' })
             if (result.stopped) button(footer, t('Check again', 'Проверить снова'), () => { void this.scan() })
             this.finishButton(footer)

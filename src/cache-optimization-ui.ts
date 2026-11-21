@@ -35,7 +35,7 @@ class CacheOptimizationModal extends Modal {
     onOpen(): void {
         const t = uiFor(this.plugin.settings)
         this.titleEl.setText(t('Optimize Cache', 'Оптимизация кэша'))
-        this.modalEl.style.width = 'min(38rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-38rem')
         installModalLayout(this, t)
         void this.run()
     }
@@ -49,7 +49,7 @@ class CacheOptimizationModal extends Modal {
     private footer(recheck = false): HTMLElement {
         const t = uiFor(this.plugin.settings)
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         if (recheck) footer.createEl('button', { text: t('Recheck', 'Проверить снова') }).onclick = () => { void this.run() }
         return footer
     }
@@ -59,8 +59,8 @@ class CacheOptimizationModal extends Modal {
             text: message,
             attr: failed ? { role: 'alert' } : { role: 'status', 'aria-live': 'polite' },
         })
-        status.style.overflowWrap = 'anywhere'
-        if (failed) status.style.color = 'var(--text-error)'
+        status.classList.add('rudonium-wrap-anywhere')
+        if (failed) status.classList.add('rudonium-text-error')
     }
 
     private showResult(plan: CacheOptimizationPlan, applied: boolean): void {
@@ -94,7 +94,7 @@ class CacheOptimizationModal extends Modal {
             details.createEl('summary', { text: t(`Obsolete paths · ${paths.length.toLocaleString()}`, `Устаревшие пути · ${paths.length.toLocaleString()}`) })
             const pathList = details.createEl('ul')
             for (const path of paths.slice(0, pathLimit)) {
-                pathList.createEl('li', { text: path }).style.overflowWrap = 'anywhere'
+                pathList.createEl('li', { text: path }).classList.add('rudonium-wrap-anywhere')
             }
             if (paths.length > pathLimit) {
                 pathList.createEl('li', { text: t(`And ${(paths.length - pathLimit).toLocaleString()} more paths`, `Остальные пути: ${(paths.length - pathLimit).toLocaleString()}`) })

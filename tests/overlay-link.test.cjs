@@ -24,7 +24,7 @@ test("All desktop overlay modules link with their real local exports", async () 
         "./files-manager": ["FileManager", "frontmatterTags", "mergeTags"],
         "./setting-to-data": ["settingToData"],
         "obsidian": ["ItemView", "MarkdownView", "Modal", "Notice", "Setting", "TFile", "TFolder",
-            "editorInfoField", "parseLinktext", "parseYaml", "setIcon"],
+            "editorInfoField", "parseLinktext", "parseYaml", "sanitizeHTMLToDom", "setIcon"],
         "ts-md5": ["Md5"],
     };
     const hosts = new Map(Object.entries(externals).map(([id, names]) => [id, new SyntheticModule(names, () => {}, { identifier: id })]));

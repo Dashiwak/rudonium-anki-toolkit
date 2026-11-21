@@ -13,7 +13,7 @@ export function installDefaultDeckSetting(parent: HTMLElement, plugin: MyPlugin)
         'Для записей без назначенной колоды.'))
     const status = row.descEl.createDiv({ attr: { role: 'status' } })
     const list = row.controlEl.createEl('select', { cls: 'dropdown', attr: { 'aria-label': title } })
-    list.style.maxWidth = 'min(22rem, 45vw)'
+    list.classList.add('rudonium-default-deck-setting-list')
     const refreshText = t('Refresh Anki decks', 'Обновить список колод Anki')
     const refresh = row.controlEl.createEl('button', { cls: 'clickable-icon', attr: {
         type: 'button', title: refreshText, 'aria-label': refreshText,

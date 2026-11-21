@@ -49,21 +49,6 @@ function readingSpans(text: string): ReadingSpan[] {
 function registerReadingView(plugin: MyPlugin): void {
     if (typeof plugin.registerMarkdownPostProcessor !== 'function') return
     const cache = new Map<string, { text: string; spans: ReadingSpan[] }>()
-    const styles = new Map<Document, () => void>()
-    const styleFor = (doc: Document) => {
-        if (styles.has(doc)) return
-        const style = doc.createElement('style')
-        style.textContent = `.${bodyClass} { text-decoration-line: line-through; text-decoration-color: var(--text-muted); }
-            .${bodyClass} .${statusClass} { display: inline-block; text-decoration-line: none; }`
-        doc.head.appendChild(style)
-        const remove = () => {
-            doc.defaultView?.removeEventListener('pagehide', remove)
-            style.remove()
-            styles.delete(doc)
-        }
-        styles.set(doc, remove)
-        doc.defaultView?.addEventListener('pagehide', remove, { once: true })
-    }
     plugin.registerMarkdownPostProcessor((element: HTMLElement, context: MarkdownPostProcessorContext) => {
         if (element.classList.contains(bodyClass)) {
             element.classList.remove(bodyClass)
@@ -91,11 +76,9 @@ function registerReadingView(plugin: MyPlugin): void {
             if (!status || status.textContent?.trim() !== r.label) return
             status.classList.add(statusClass)
         }
-        styleFor(element.ownerDocument)
         element.classList.add(bodyClass)
     })
     plugin.register(() => {
-        for (const remove of styles.values()) remove()
         cache.clear()
     })
 }
@@ -127,7 +110,7 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
         const live = (require('obsidian') as { editorLivePreviewField?: StateField<boolean> }).editorLivePreviewField
         if (!live) return
         const cm = require('@codemirror/state') as typeof import('@codemirror/state')
-        const { Decoration, ViewPlugin, EditorView: View } = require('@codemirror/view') as typeof import('@codemirror/view')
+        const { Decoration, ViewPlugin } = require('@codemirror/view') as typeof import('@codemirror/view')
         const refresh = cm.StateEffect.define<void>()
         const mark = Decoration.mark({ class: bodyClass })
         class ArchiveView {
@@ -172,8 +155,7 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
             }
             destroy(): void { if (this.timer !== undefined) clearTimeout(this.timer); this.timer = undefined }
         }
-        plugin.registerEditorExtension([ViewPlugin.fromClass(ArchiveView, { decorations: view => view.decorations }),
-            View.baseTheme({ ['.' + bodyClass]: { textDecorationLine: 'line-through', textDecorationColor: 'var(--text-muted)' } })])
+        plugin.registerEditorExtension(ViewPlugin.fromClass(ArchiveView, { decorations: view => view.decorations }))
     } catch (error) {
         console.warn('[Rudonium Anki Toolkit] Archive formatting is unavailable in the editor.', error)
     }

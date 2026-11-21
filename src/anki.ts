@@ -1,6 +1,6 @@
 const ANKI_PORT: number = 8765
 
-import { AnkiConnectNote } from './interfaces/note-interface'
+import type { AnkiConnectNote } from './interfaces/note-interface'
 
 export interface AnkiConnectRequest {
 	action: string,
@@ -8,51 +8,45 @@ export interface AnkiConnectRequest {
 	params: any
 }
 
-export function invoke(action: string, params={}) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest()
-        xhr.addEventListener('error', () => reject('failed to issue request'));
-        xhr.addEventListener('load', () => {
-            try {
-                const response = JSON.parse(xhr.responseText);
-                if (Object.getOwnPropertyNames(response).length != 2) {
-                    throw 'response has an unexpected number of fields';
-                }
-                if (!response.hasOwnProperty('error')) {
-                    throw 'response is missing required error field';
-                }
-                if (!response.hasOwnProperty('result')) {
-                    throw 'response is missing required result field';
-                }
-                if (response.error) {
-                    throw response.error;
-                }
-                resolve(response.result);
-            } catch (e) {
-                reject(e);
-            }
-        });
-
-        xhr.open('POST', 'http://127.0.0.1:' + ANKI_PORT.toString());
-        xhr.send(JSON.stringify({action, version: 6, params}));
-    });
+// Helper function for parsing the result of a multi, also used for the top-level envelope.
+export function parse<T>(response: { error: string | null; result: T }): T
+export function parse(response: unknown): unknown
+export function parse(response: unknown): unknown {
+    if (typeof response !== 'object' || response === null || Array.isArray(response) ||
+        Object.getOwnPropertyNames(response).length !== 2) {
+        throw new Error('response has an unexpected number of fields')
+    }
+    if (!('error' in response) || !Object.prototype.hasOwnProperty.call(response, 'error')) {
+        throw new Error('response is missing required error field')
+    }
+    if (!('result' in response) || !Object.prototype.hasOwnProperty.call(response, 'result')) {
+        throw new Error('response is missing required result field')
+    }
+    if (response.error !== null) {
+        if (typeof response.error === 'string' && response.error) throw new Error(response.error)
+        throw new Error('response contains an invalid error field')
+    }
+    return response.result
 }
 
-export function parse<T>(response: {error: string, result: T}): T {
-	//Helper function for parsing the result of a multi
-	if (Object.getOwnPropertyNames(response).length != 2) {
-		throw 'response has an unexpected number of fields'
-	}
-	if (!(response.hasOwnProperty('error'))) {
-		throw 'response is missing required error field'
-	}
-	if (!(response.hasOwnProperty('result'))) {
-		throw 'response is missing required result field';
-	}
-	if (response.error) {
-		throw response.error
-	}
-	return response.result
+export function invoke(action: string, params = {}): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.addEventListener('error', () => reject(new Error('failed to issue request')))
+        xhr.addEventListener('abort', () => reject(new Error('AnkiConnect request aborted')))
+        xhr.addEventListener('load', () => {
+            try {
+                if (xhr.status < 200 || xhr.status >= 300) throw new Error('AnkiConnect HTTP ' + xhr.status)
+                const response: unknown = JSON.parse(xhr.responseText)
+                resolve(parse(response))
+            } catch (error) {
+                reject(error instanceof Error ? error : new Error(String(error)))
+            }
+        })
+
+        xhr.open('POST', 'http://127.0.0.1:' + ANKI_PORT.toString())
+        xhr.send(JSON.stringify({action, version: 6, params}))
+    })
 }
 
 // All the rest of these functions only return request objects as opposed to actually carrying out the action. For efficiency!

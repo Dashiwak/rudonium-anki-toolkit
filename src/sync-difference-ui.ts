@@ -171,23 +171,15 @@ export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnki
 /** Для читаемого предпросмотра и исходного форматированного текста используем текстовые узлы DOM. */
 function renderPair(container: HTMLElement, expected: string, actual: string | undefined, t: UiText): void {
     const pair = container.createDiv()
-    pair.style.display = 'grid'
-    pair.style.gridTemplateColumns = 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))'
-    pair.style.gap = '0.8em'
-    pair.style.marginBlock = '0.7em'
+    pair.classList.add('rudonium-sync-difference-pair')
     const difference = actual !== undefined && expected !== actual ? splitField(expected, actual) : undefined
     const panes = [t('Obsidian export value', 'Значение из Obsidian'), t('Anki stored value', 'Значение в Anki')]
     for (const [index, value] of [expected, actual].entries()) {
         const pane = pair.createDiv()
-        pane.style.border = '1px solid var(--background-modifier-border)'
-        pane.style.borderRadius = 'var(--radius-m)'
-        pane.style.padding = '0.7em'
-        pane.style.minWidth = '0'
+        pane.classList.add('rudonium-sync-difference-pane')
         pane.createEl('strong', { text: panes[index] })
         const text = pane.createEl('div')
-        text.style.whiteSpace = 'pre-wrap'
-        text.style.overflowWrap = 'anywhere'
-        text.style.marginBlockStart = '0.45em'
+        text.classList.add('rudonium-sync-difference-text')
         if (difference) {
             for (const chunk of difference) {
                 if ('shared' in chunk) {
@@ -254,14 +246,13 @@ class SyncDifferenceModal extends ReviewModal {
     onOpen(): void {
         const t = this.t
         this.titleEl.setText(t('Compare Obsidian and Anki', 'Сравнение Obsidian и Anki'))
-        this.modalEl.style.width = 'min(56rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-56rem')
         installModalLayout(this, t)
         if (this.differences.length) {
             const label = this.contentEl.createEl('label', { text: t('Anki note', 'Запись Anki') })
             const select = label.createEl('select', { cls: 'dropdown' })
             this.selector = select
-            select.style.marginInlineStart = '0.6em'
-            select.style.maxWidth = '100%'
+            select.classList.add('rudonium-sync-difference-select')
             for (const note of this.differences) {
                 select.createEl('option', { text: `${note.id} · ${note.path}`, value: String(note.id) })
             }
@@ -277,7 +268,7 @@ class SyncDifferenceModal extends ReviewModal {
             this.contentEl.createEl('p', { text: t('No differences appear in these audit results.', 'При проверке не найдено различий.') })
         }
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         footer.createEl('button', { text: t('Recheck', 'Проверить повторно'), cls: 'mod-cta' }).onclick = () => {
             if (this.busy) return
             this.close()
@@ -300,11 +291,9 @@ class SyncDifferenceModal extends ReviewModal {
     private show(container: HTMLElement, note: SyncAuditDifference): void {
         container.empty()
         const t = this.t
-        container.createEl('p', { text: location(note, t) }).style.overflowWrap = 'anywhere'
+        container.createEl('p', { text: location(note, t) }).classList.add('rudonium-wrap-anywhere')
         const actions = container.createDiv()
-        actions.style.display = 'flex'
-        actions.style.gap = '0.5em'
-        actions.style.flexWrap = 'wrap'
+        actions.classList.add('rudonium-sync-difference-actions')
         const openSource = actions.createEl('button', { text: t('Open in Obsidian', 'Открыть в Obsidian') })
         const openAnki = actions.createEl('button', { text: t('Open in Anki', 'Открыть в Anki') })
         const status = container.createEl('p', { attr: { role: 'status' } })

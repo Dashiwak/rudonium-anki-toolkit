@@ -118,12 +118,9 @@ const activeReview = new WeakMap<App, Modal>()
 
 function fileLabel(parent: HTMLElement, path: string, openFile: () => void, t: UiText): void {
     const line = parent.createDiv()
-    line.style.display = 'flex'
-    line.style.flexWrap = 'wrap'
-    line.style.alignItems = 'center'
-    line.style.gap = '0.5em'
+    line.classList.add('rudonium-export-review-line')
     const label = line.createEl('strong', { text: path })
-    label.style.overflowWrap = 'anywhere'
+    label.classList.add('rudonium-wrap-anywhere')
     line.createEl('button', {
         text: t('Open in Obsidian', 'Открыть в Obsidian'),
         attr: { 'aria-label': t(`Open ${path} in Obsidian`, `Открыть ${path} в Obsidian`) },
@@ -135,8 +132,7 @@ function showErrors(parent: HTMLElement, errors: readonly string[], t: UiText): 
     const list = parent.createEl('ul')
     for (const text of new Set(errors.map(error => localizeExportError(error, t)))) {
         const row = list.createEl('li', { text })
-        row.style.color = 'var(--text-error)'
-        row.style.overflowWrap = 'anywhere'
+        row.classList.add('rudonium-export-error-item')
     }
 }
 
@@ -214,7 +210,7 @@ function showCardNotice(path: string, issue: ExportCardIssue, t: UiText, details
     fragment.append(heading)
     const location = document.createElement('div')
     location.textContent = cardIssueLocation(path, issue, t)
-    location.style.overflowWrap = 'anywhere'
+    location.classList.add('rudonium-wrap-anywhere')
     fragment.append(location)
     if (details) {
         const more = document.createElement('small')
@@ -222,7 +218,7 @@ function showCardNotice(path: string, issue: ExportCardIssue, t: UiText, details
         fragment.append(more)
     }
     const actions = document.createElement('div')
-    Object.assign(actions.style, { display: 'flex', flexWrap: 'wrap', gap: '0.4em', marginBlockStart: '0.6em' })
+    actions.classList.add('rudonium-notice-actions')
     fragment.append(actions)
     const notice = new CardIssueNotice(fragment, duration)
     for (const [label, action, keepOpen] of buttons) {
@@ -326,7 +322,7 @@ function showRows(container: HTMLElement, length: number, renderRow: (row: HTMLE
         const end = Math.min(length, displayed + rowsPerPage)
         for (; displayed < end; displayed++) {
             const row = list.createEl('li')
-            row.style.marginBlock = '0.65em'
+            row.classList.add('rudonium-export-list-item')
             renderRow(row, displayed)
         }
         if (more) {
@@ -339,14 +335,14 @@ function showRows(container: HTMLElement, length: number, renderRow: (row: HTMLE
     next()
 }
 
-function showFieldStatus(parent: HTMLElement, notes: readonly ExportFieldPreview[] | undefined, title: string, color: string, t: UiText): void {
+function showFieldStatus(parent: HTMLElement, notes: readonly ExportFieldPreview[] | undefined, title: string, t: UiText): void {
     if (!notes?.length) return
     const section = parent.createDiv({ attr: { role: 'group', 'aria-label': title } })
-    section.createEl('strong', { text: title }).style.color = color
+    section.createEl('strong', { text: title }).classList.add('rudonium-text-muted')
     showRows(section, notes.length, (item, index) => {
         const { id, fields } = notes[index]
         item.textContent = `Anki ID ${id} · ${fields.join(', ')}`
-        item.style.overflowWrap = 'anywhere'
+        item.classList.add('rudonium-wrap-anywhere')
     }, t)
 }
 
@@ -369,7 +365,7 @@ class ExportReviewModal extends ReviewModal {
     }
 
     onOpen(): void {
-        this.modalEl.style.width = 'min(52rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-52rem')
         installModalLayout(this, this.t)
         const review = this.review
         if ('rows' in review) this.showPreview(review.rows, review.apply, review.scopeLabel)
@@ -400,7 +396,7 @@ class ExportReviewModal extends ReviewModal {
 
     private footer(): HTMLElement {
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         return footer
     }
 
@@ -427,8 +423,7 @@ class ExportReviewModal extends ReviewModal {
             for (const issue of issues) {
                 const item = list.createEl('li')
                 const message = item.createEl('p', { text: exportCardIssueText(issue, this.t) })
-                message.style.color = 'var(--text-error)'
-                message.style.overflowWrap = 'anywhere'
+                message.classList.add('rudonium-export-review-message')
                 const duplicate = issue.code === 'duplicate-first-field'
                 const label = duplicate ? this.t('Show Note', 'Показать запись') : this.t(`Open line ${issue.line}`, `Открыть строку ${issue.line}`)
                 item.createEl('button', { text: label }).onclick = () => {
@@ -456,9 +451,9 @@ class ExportReviewModal extends ReviewModal {
             for (const field of note.fieldChanges) {
                 details.createEl('strong', { text: field.name })
                 details.createEl('p', { text: t('In Anki', 'В Anki') })
-                details.createEl('pre', { text: field.anki ?? t('(Unavailable)', '(Нет данных)') }).style.whiteSpace = 'pre-wrap'
+                details.createEl('pre', { text: field.anki ?? t('(Unavailable)', '(Нет данных)') }).classList.add('rudonium-pre-wrap')
                 details.createEl('p', { text: t('In Obsidian', 'В Obsidian') })
-                details.createEl('pre', { text: field.source ?? t('(Unavailable)', '(Нет данных)') }).style.whiteSpace = 'pre-wrap'
+                details.createEl('pre', { text: field.source ?? t('(Unavailable)', '(Нет данных)') }).classList.add('rudonium-pre-wrap')
             }
             if (profile) details.createEl('button', { text: t('Open in Anki', 'Открыть в Anki') }).onclick = async () => {
                 try { await openAuditAnkiNote(note.id, { active: profile }, t) }
@@ -475,7 +470,7 @@ class ExportReviewModal extends ReviewModal {
             'У этих карточек первое поле совпало с записью в Anki или с другой карточкой в этом экспорте.') })
         showRows(this.contentEl, cards.length, (item, index) => {
             const { path, issue, deck } = cards[index]
-            item.createEl('strong', { text: cardIssueLocation(path, issue, t) }).style.overflowWrap = 'anywhere'
+            item.createEl('strong', { text: cardIssueLocation(path, issue, t) }).classList.add('rudonium-wrap-anywhere')
             item.createEl('button', { text: t('Show Note', 'Показать запись') }).onclick = () => this.openFile(path, issue.line, issue)
             this.showDuplicateEvidence(item, issue)
             this.addAuditButton(item, issue.deck ?? deck)
@@ -527,10 +522,10 @@ class ExportReviewModal extends ReviewModal {
                         'Исправьте указанные проблемы и повторите предпросмотр.') : t('No changes to export.', 'Изменений для экспорта нет.'),
             attr: { role: 'status' },
         })
-        if (errors && !changed) summary.style.color = 'var(--text-error)'
+        if (errors && !changed) summary.classList.add('rudonium-text-error')
         if (errors && changed) {
             this.contentEl.createEl('p', { text: t('Some files need attention. Review their messages below.',
-                'В некоторых файлах есть проблемы. Проверьте сообщения под этими файлами.') }).style.color = 'var(--text-error)'
+                'В некоторых файлах есть проблемы. Проверьте сообщения под этими файлами.') }).classList.add('rudonium-text-error')
         }
         if (rows.some(row => row.added)) {
             this.contentEl.createEl('p', { text: t(
@@ -587,11 +582,11 @@ class ExportReviewModal extends ReviewModal {
                     breakdown.createEl('strong', { text: name })
                     if (value.before !== undefined) {
                         breakdown.createEl('p', { text: t('Before', 'До') })
-                        breakdown.createEl('pre', { text: value.before || t('(Empty)', '(Пусто)') }).style.whiteSpace = 'pre-wrap'
+                        breakdown.createEl('pre', { text: value.before || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
                     }
                     if (value.after !== undefined) {
                         breakdown.createEl('p', { text: t('After', 'После') })
-                        breakdown.createEl('pre', { text: value.after || t('(Empty)', '(Пусто)') }).style.whiteSpace = 'pre-wrap'
+                        breakdown.createEl('pre', { text: value.after || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
                     }
                 }
                 const line = operation.line
@@ -600,7 +595,7 @@ class ExportReviewModal extends ReviewModal {
                         () => this.openFile(row.path, line)
                 }
             }, t)
-            showFieldStatus(item, row.keptAnkiFields, t('Changes in Anki kept', 'Сохранить правки из Anki'), 'var(--text-muted)', t)
+            showFieldStatus(item, row.keptAnkiFields, t('Changes in Anki kept', 'Сохранить правки из Anki'), t)
             if (row.optimizedImages?.length) {
                 const images = item.createEl('ul', { attr: { 'aria-label': t('Planned image optimization', 'Оптимизация изображений при экспорте') } })
                 for (const image of row.optimizedImages) {
@@ -634,14 +629,14 @@ class ExportReviewModal extends ReviewModal {
                 const choice = oneWayFieldChoice(field)
                 const details = item.createEl('details')
                 details.createEl('summary', { text: `Anki ID ${field.id} · ${field.name} · ${t('Review differing values', 'Сравнить значения')}` })
-                    .style.color = 'var(--text-error)'
+                    .classList.add('rudonium-text-error')
                 details.createEl('p', { text: field.kind === 'untracked' ? t('No confirmed previous value is available.',
                     'Подтверждённое предыдущее значение недоступно.') :
                     t('Obsidian and Anki both changed this field.', 'Это поле изменилось и в Obsidian, и в Anki.') })
                 details.createEl('strong', { text: t('In Anki', 'В Anki') })
-                details.createEl('pre', { text: field.actual || t('(Empty)', '(Пусто)') }).style.whiteSpace = 'pre-wrap'
+                details.createEl('pre', { text: field.actual || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
                 details.createEl('strong', { text: t('In Obsidian', 'В Obsidian') })
-                details.createEl('pre', { text: field.source || t('(Empty)', '(Пусто)') }).style.whiteSpace = 'pre-wrap'
+                details.createEl('pre', { text: field.source || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
                 if (field.cardImpact) renderReviewedCardImpact(details, field.cardImpact, t)
                 const label = details.createEl('label')
                 const checkbox = label.createEl('input', { attr: { type: 'checkbox',
@@ -702,7 +697,7 @@ class ExportReviewModal extends ReviewModal {
             const warnings = this.contentEl.createEl('details')
             warnings.createEl('summary', { text: t(`Warnings · ${report.warnings.length}`, `Предупреждения · ${report.warnings.length}`) })
             const list = warnings.createEl('ul')
-            for (const warning of report.warnings) list.createEl('li', { text: warning }).style.color = 'var(--text-warning)'
+            for (const warning of report.warnings) list.createEl('li', { text: warning }).classList.add('rudonium-text-warning')
         }
         showErrors(this.contentEl, report.messages ?? [], t)
         if (!report.files.length) {
@@ -720,7 +715,7 @@ class ExportReviewModal extends ReviewModal {
         const search = label.createEl('input', { attr: { type: 'search', 'aria-label': findLabel } })
         const status = this.contentEl.createEl('p', { attr: { role: 'status' } })
         const tools = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        tools.style.flexWrap = 'wrap'
+        tools.classList.add('rudonium-wrap-controls')
         const select = tools.createEl('button', { text: t('Select Matching Files', 'Выбрать найденные файлы') })
         const clear = tools.createEl('button', { text: t('Clear Selection', 'Снять выделение') })
         const list = this.contentEl.createDiv()
@@ -798,7 +793,7 @@ class ExportReviewModal extends ReviewModal {
                     recheck(new Set([path]), profile)
                 }
             } else {
-                item.createEl('strong', { text: row.path }).style.overflowWrap = 'anywhere'
+                item.createEl('strong', { text: row.path }).classList.add('rudonium-wrap-anywhere')
                 item.createEl('p', { text: t('The current source could not be confirmed.', 'Не удалось подтвердить исходный файл.') })
             }
             item.createEl('p', { text: row.ankiProfile ? t(`Anki profile: ${row.ankiProfile}`, `Профиль Anki · ${row.ankiProfile}`) :
@@ -815,7 +810,7 @@ class ExportReviewModal extends ReviewModal {
                         const label = entry.createEl('strong', {
                             text: [line ? t(`Line ${line}`, `Строка ${line}`) : '', card.prompt].filter(Boolean).join(' · '),
                         })
-                        label.style.overflowWrap = 'anywhere'
+                        label.classList.add('rudonium-wrap-anywhere')
                     }
                     entry.createEl('p', { text: card.state })
                     if (path && line) entry.createEl('button', { text: t(`Open line ${line} in Obsidian`, `Открыть строку ${line} в Obsidian`) }).onclick = () => {
@@ -844,7 +839,7 @@ class ExportReviewModal extends ReviewModal {
             if (cleaning) return
             cleaning = button.disabled = true
             status.setText(t('Checking saved Anki IDs and cleaning tags…', 'Проверка сохранённых Anki ID и очистка тегов…'))
-            status.style.color = ''
+            status.classList.remove('rudonium-text-error')
             try {
                 const count = await cleanup()
                 const message = count === 0 ? t('No recovery tags are ready to clean.', 'Тегов, готовых к очистке, нет.') :
@@ -856,7 +851,7 @@ class ExportReviewModal extends ReviewModal {
                 if (this.closed) new Notice(message)
                 else {
                     status.setText(message)
-                    status.style.color = 'var(--text-error)'
+                    status.classList.add('rudonium-text-error')
                 }
             } finally {
                 cleaning = button.disabled = false
@@ -952,10 +947,10 @@ class ExportProgressModal extends Modal {
         this.titleEl.setText(t('Anki Export Progress', 'Ход экспорта в Anki'))
         this.stage = this.contentEl.createEl('p', { attr: { role: 'status' } })
         this.bar = this.contentEl.createEl('progress', { attr: { 'aria-label': t('Confirmed files', 'Подтверждённые файлы') } })
-        this.bar.style.width = '100%'
+        this.bar.classList.add('rudonium-full-width')
         this.counts = this.contentEl.createEl('p')
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         this.stop = footer.createEl('button', { text: t('Stop After Current Batch', 'Остановить после текущего пакета') })
         this.stop.onclick = () => {
             if (this.stopping) return

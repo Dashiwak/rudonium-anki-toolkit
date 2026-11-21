@@ -24,7 +24,7 @@ import { PluginSettings } from './src/interfaces/settings-interface'
 import { SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 
-export default class MyPlugin extends Plugin {
+export default class RudoniumAnkiPlugin extends Plugin {
 
 	settings: PluginSettings
 	note_types: Array<string>
@@ -94,7 +94,7 @@ export default class MyPlugin extends Plugin {
 
 	async saveDefault(): Promise<void> {
 		const default_sets = await this.getDefaultSettings()
-		this.saveData(
+		await this.saveData(
 			{
 				settings: default_sets,
 				"Added Media": [],
@@ -302,7 +302,12 @@ this.file_hashes = await this.loadFileHashes()
         if (!this.rudoniumInitialized) return
 
 		console.log("Saving settings for Obsidian_to_Anki...")
-		this.saveAllData()
+		try {
+			await this.saveAllData()
+		} catch (error) {
+			console.error('[Rudonium] Could not save plugin data during unload', error)
+			new Notice(uiFor(this.settings)('Could not save Rudonium settings.', 'Не удалось сохранить настройки Rudonium.'))
+		}
 		console.log('unloading Obsidian_to_Anki...');
 	}
 }

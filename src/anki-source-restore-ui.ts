@@ -34,7 +34,7 @@ class AnkiSourceRestoreModal extends Modal {
     }
 
     onOpen(): void {
-        this.modalEl.style.width = 'min(48rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-48rem')
         installModalLayout(this, this.t)
         this.titleEl.setText(this.t('Restore Source in Obsidian', 'Восстановить источник в Obsidian'))
         void this.load()
@@ -47,12 +47,12 @@ class AnkiSourceRestoreModal extends Modal {
 
     private header(): void {
         this.contentEl.createEl('p', { text: this.t(`Anki note ${this.id} · Profile ${this.profile}`,
-            `Запись Anki ${this.id} · Профиль «${this.profile}»`) }).style.overflowWrap = 'anywhere'
+            `Запись Anki ${this.id} · Профиль «${this.profile}»`) }).classList.add('rudonium-wrap-anywhere')
     }
 
     private footer(showCancel = true): HTMLElement {
         const buttons = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        buttons.style.flexWrap = 'wrap'
+        buttons.classList.add('rudonium-wrap-controls')
         if (showCancel) buttons.createEl('button', { text: this.t('Cancel', 'Отмена') }).onclick = () => this.close()
         return buttons
     }
@@ -91,7 +91,7 @@ class AnkiSourceRestoreModal extends Modal {
         this.contentEl.empty()
         this.header()
         if (error) {
-            this.contentEl.createEl('p', { text: error, attr: { role: 'alert' } }).style.color = 'var(--text-error)'
+            this.contentEl.createEl('p', { text: error, attr: { role: 'alert' } }).classList.add('rudonium-text-error')
         }
         const plan = this.plan
         if (!plan) {
@@ -110,7 +110,7 @@ class AnkiSourceRestoreModal extends Modal {
         }
         const facts = [plan.modelName]
         if (plan.tags.length) facts.push(t(`Tags · ${plan.tags.join(', ')}`, `Теги · ${plan.tags.join(', ')}`))
-        this.contentEl.createEl('p', { text: facts.join(' · ') }).style.overflowWrap = 'anywhere'
+        this.contentEl.createEl('p', { text: facts.join(' · ') }).classList.add('rudonium-wrap-anywhere')
         if (this.choosingFile) {
             this.filePicker(plan.suggestedPaths, failedPath ?? plan.path)
             return
@@ -118,17 +118,17 @@ class AnkiSourceRestoreModal extends Modal {
         if (plan.path === undefined || plan.line === undefined || plan.block === undefined) return
         const path = plan.path
         this.contentEl.createEl('p', { text: t(`Destination · ${path}, line ${plan.line}`,
-            `Куда добавить · ${path}, строка ${plan.line}`) }).style.overflowWrap = 'anywhere'
+            `Куда добавить · ${path}, строка ${plan.line}`) }).classList.add('rudonium-wrap-anywhere')
         if (plan.targetReason === 'file-link') this.contentEl.createEl('p', { text: t('Found using the Anki File link.', 'Файл найден по ссылке File в Anki.') })
         else if (plan.targetReason === 'context') this.contentEl.createEl('p', { text: t('Found using the path in Anki Context.', 'Файл найден по пути из Context в Anki.') })
         if (plan.targetDeck && syncAuditDeckKey(plan.targetDeck) !== syncAuditDeckKey(this.auditDeck)) {
             this.contentEl.createEl('p', { text: t(`File export deck · ${plan.targetDeck}. Audited deck · ${this.auditDeck}.`,
-                `Колода для экспорта этого файла · ${plan.targetDeck}. Проверяемая колода · ${this.auditDeck}.`) }).style.overflowWrap = 'anywhere'
+                `Колода для экспорта этого файла · ${plan.targetDeck}. Проверяемая колода · ${this.auditDeck}.`) }).classList.add('rudonium-wrap-anywhere')
         }
         for (const warning of plan.warnings ?? []) this.contentEl.createEl('p', { text: warning })
         const preview = this.contentEl.createEl('pre', { text: plan.block, attr: { tabindex: '0', 'aria-label':
             t('Markdown to append', 'Markdown для добавления в конец файла') } })
-        Object.assign(preview.style, { maxHeight: 'min(35vh, 18rem)', overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' })
+        preview.classList.add('rudonium-anki-source-restore-preview')
         this.showOriginalFields(plan)
         this.contentEl.createEl('p', { text: t('The block will be appended to this file with the existing Anki ID.',
             'Блок будет добавлен в конец этого файла с существующим ID Anki.') })
@@ -147,7 +147,7 @@ class AnkiSourceRestoreModal extends Modal {
         const details = this.contentEl.createEl('details')
         details.createEl('summary', { text: this.t('Original Anki Fields', 'Исходные поля Anki') })
         const fields = details.createEl('dl')
-        Object.assign(fields.style, { maxHeight: 'min(30vh, 15rem)', overflow: 'auto', overflowWrap: 'anywhere' })
+        fields.classList.add('rudonium-anki-source-restore-fields')
         for (const [name, value] of Object.entries(plan.fields)) {
             fields.createEl('dt', { text: name })
             fields.createEl('dd', { text: value.length > 4000 ? `${value.slice(0, 4000)}…` : value })
@@ -161,9 +161,9 @@ class AnkiSourceRestoreModal extends Modal {
         if (this.plan) this.showOriginalFields(this.plan)
         const label = this.contentEl.createEl('label', { text: t('Search Markdown Files', 'Поиск Markdown-файлов') })
         const search = label.createEl('input', { attr: { type: 'search', autocomplete: 'off', placeholder: t('File or folder name', 'Имя файла или папки') } })
-        Object.assign(search.style, { display: 'block', width: '100%' })
+        search.classList.add('rudonium-full-width-field')
         const list = this.contentEl.createEl('select', { attr: { size: 10, 'aria-label': t('Markdown files', 'Файлы Markdown') } })
-        Object.assign(list.style, { display: 'block', width: '100%', maxHeight: '34vh', overflowY: 'auto' })
+        list.classList.add('rudonium-anki-source-restore-list')
         const feedback = this.contentEl.createEl('p', { attr: { role: 'status' } })
         const footer = this.footer()
         if (this.plan?.path) {
@@ -229,7 +229,7 @@ class AnkiSourceRestoreModal extends Modal {
             this.contentEl.empty()
             this.header()
             this.contentEl.createEl('p', { text: t(`Restored in ${source.path}, line ${source.line}.`,
-                `Восстановлено в файле ${source.path}, строка ${source.line}.`), attr: { role: 'status' } }).style.overflowWrap = 'anywhere'
+                `Восстановлено в файле ${source.path}, строка ${source.line}.`), attr: { role: 'status' } }).classList.add('rudonium-wrap-anywhere')
             const buttons = this.footer(false)
             buttons.createEl('button', { text: t('Recheck Deck', 'Перепроверить колоду') }).onclick = () => {
                 this.close()

@@ -2376,10 +2376,10 @@ function showExportIssueNotice(message: string, t: ReturnType<typeof uiFor>, aud
     const fragment = document.createDocumentFragment()
     const description = document.createElement('div')
     description.textContent = message
-    description.style.whiteSpace = 'pre-line'
+    description.classList.add('rudonium-pre-line')
     fragment.append(description)
     const actions = document.createElement('div')
-    Object.assign(actions.style, { display: 'flex', flexWrap: 'wrap', gap: '0.4em', marginBlockStart: '0.6em' })
+    actions.classList.add('rudonium-notice-actions')
     fragment.append(actions)
     const notice = new Notice(fragment, 15000)
     const action = (label: string, run: () => void, primary = false) => {

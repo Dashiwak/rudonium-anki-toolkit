@@ -183,7 +183,7 @@ class CloudFolderModal extends Modal {
 
     onOpen(): void {
         this.titleEl.setText(this.t('Check Folder after Cloud Sync', 'Проверка папки после облачной синхронизации'))
-        this.modalEl.style.width = 'min(48rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-48rem')
         installModalLayout(this, this.t)
         this.showPicker()
     }
@@ -206,7 +206,7 @@ class CloudFolderModal extends Modal {
         })
         const search = this.contentEl.createEl('input', { attr: { type: 'search', placeholder: this.t('Search folders', 'Поиск папок'), 'aria-label': this.t('Search folders', 'Поиск папок') } })
         const list = this.contentEl.createEl('select', { attr: { size: 10, 'aria-label': this.t('Folder to check', 'Папка для проверки') } })
-        Object.assign(list.style, { display: 'block', width: '100%', height: 'min(38vh, 18rem)', marginBlockStart: '0.5em' })
+        list.classList.add('rudonium-cloud-folder-check-list')
         const footer = this.footer()
         const check = footer.createEl('button', { text: this.t('Check Folder', 'Проверить папку'), cls: 'mod-cta' })
         let selected = folders.includes(this.preferred) ? this.preferred : ''
@@ -277,7 +277,7 @@ class CloudFolderModal extends Modal {
             for (; displayed < end; displayed++) {
                 const { path, reason } = rows[displayed]
                 const entry = list.createEl('li')
-                entry.style.overflowWrap = 'anywhere'
+                entry.classList.add('rudonium-wrap-anywhere')
                 entry.createEl('strong', { text: path })
                 entry.createEl('div', { text: reason })
                 if (this.app.vault.getAbstractFileByPath(path) instanceof TFile) {

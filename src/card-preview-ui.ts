@@ -4,7 +4,7 @@
  * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
  * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
  */
-import { Notice, Modal } from 'obsidian'
+import { Notice, Modal, sanitizeHTMLToDom } from 'obsidian'
 import type { App } from 'obsidian'
 import type { CardPreviewResult } from './card-preview'
 import { englishUi } from './interface-language'
@@ -39,7 +39,8 @@ function parseStaticMarkup(owner: Document | undefined, html: string): HTMLTempl
     if (!owner) return undefined
     // Отдельный документ шаблона не имеет контекста просмотра и не запрашивает изображения по URL.
     const template = owner.createElement('template')
-    template.innerHTML = html
+    // Sanitize Anki HTML with the host API before applying the stricter offline preview allowlist.
+    template.content.append(sanitizeHTMLToDom(html))
     for (const element of Array.from(template.content.querySelectorAll('*'))) {
         const name = element.localName.toLowerCase()
         if (activeMarkup.has(name)) {
@@ -96,40 +97,35 @@ class CardPreviewModal extends Modal {
     onOpen(): void {
         const { t } = this
         this.titleEl.setText(t('Preview Anki Card', 'Предпросмотр карточки Anki'))
-        this.modalEl.style.width = 'min(48rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-48rem')
         installModalLayout(this, t)
         const { source, line, unsaved, modelName, deck, deckReason, id, cautions,
             fields, variants, previewNotice } = this.result
         const location = t(`Line ${line}`, `Строка ${line}`)
         const edits = unsaved ? t(' · Unsaved edits', ' · Несохранённые правки') : ''
         const path = this.contentEl.createEl('p', { text: `${source} · ${location}${edits}` })
-        path.style.overflowWrap = 'anywhere'
+        path.classList.add('rudonium-wrap-anywhere')
         this.contentEl.createEl('p', { text: t('Read-only preview', 'Предпросмотр без записи') })
-            .style.color = 'var(--text-muted)'
+            .classList.add('rudonium-text-muted')
 
         const metadata = this.contentEl.createEl('dl')
-        metadata.style.display = 'grid'
-        metadata.style.gridTemplateColumns = 'max-content minmax(0, 1fr)'
-        metadata.style.gap = '0.3rem 1rem'
+        metadata.classList.add('rudonium-card-preview-metadata')
         for (const [label, value] of [
             [t('Note Type', 'Тип записи'), modelName],
             [t('Deck', 'Колода'), deckReason ? `${deck} · ${deckReason}` : deck],
             ['Anki ID', id === undefined ? t('New note', 'Новая запись') : String(id)],
         ]) {
-            metadata.createEl('dt', { text: label }).style.fontWeight = '600'
+            metadata.createEl('dt', { text: label }).classList.add('rudonium-semibold')
             const description = metadata.createEl('dd', { text: value })
-            description.style.margin = '0'
-            description.style.overflowWrap = 'anywhere'
+            description.classList.add('rudonium-card-preview-description')
         }
         for (const message of cautions ?? []) {
             const warning = this.contentEl.createEl('p', { text: message, attr: { role: 'status' } })
-            warning.style.color = 'var(--text-warning)'
+            warning.classList.add('rudonium-text-warning')
         }
 
         const tabs = this.contentEl.createDiv({ attr: { role: 'group', 'aria-label': t('Preview mode', 'Режим предпросмотра') } })
-        tabs.style.display = 'flex'
-        tabs.style.flexWrap = 'wrap'
-        tabs.style.gap = '0.5rem'
+        tabs.classList.add('rudonium-card-preview-tabs')
         const fieldTab = tabs.createEl('button', { text: t('Fields', 'Поля'), attr: { type: 'button' } })
         const cardTab = tabs.createEl('button', { text: t('Card View', 'Вид карточки'), attr: { type: 'button' } })
         const fieldPanel = this.contentEl.createDiv()
@@ -139,14 +135,11 @@ class CardPreviewModal extends Modal {
             const field = fieldPanel.createEl('section')
             field.createEl('h3', { text: name })
             const value = field.createEl('pre', { text: fieldText(this.contentEl.ownerDocument, html, t('[Image]', '[Изображение]')) || '—' })
-            value.style.whiteSpace = 'pre-wrap'
-            value.style.overflowWrap = 'anywhere'
-            value.style.marginBlock = '0.35em'
+            value.classList.add('rudonium-card-preview-value')
             const details = field.createEl('details')
             details.createEl('summary', { text: t('Exported HTML', 'HTML для экспорта') })
             const raw = details.createEl('pre', { text: html })
-            raw.style.whiteSpace = 'pre-wrap'
-            raw.style.overflowWrap = 'anywhere'
+            raw.classList.add('rudonium-wrapped-text')
         }
 
         let preparedCardView = false
@@ -191,18 +184,12 @@ class CardPreviewModal extends Modal {
             return
         }
         const controls = parent.createDiv({ attr: { role: 'group', 'aria-label': t('Card direction and side', 'Направление и сторона карточки') } })
-        controls.style.display = 'flex'
-        controls.style.flexWrap = 'wrap'
-        controls.style.gap = '0.5rem'
-        controls.style.marginBlock = '0.75rem'
+        controls.classList.add('rudonium-card-preview-controls')
         const choices = variants.length > 1 ? variants.map(({ name }) =>
             controls.createEl('button', { text: name, attr: { type: 'button' } })) : []
         const flip = controls.createEl('button', { attr: { type: 'button' } })
         const frame = parent.createEl('iframe', { attr: { sandbox: '', referrerpolicy: 'no-referrer' } })
-        frame.style.width = '100%'
-        frame.style.height = 'clamp(12rem, 40vh, 25rem)'
-        frame.style.border = '1px solid var(--background-modifier-border)'
-        frame.style.borderRadius = 'var(--radius-s, 4px)'
+        frame.classList.add('rudonium-card-preview-frame')
         let selected = 0
         let back = false
         const render = () => {

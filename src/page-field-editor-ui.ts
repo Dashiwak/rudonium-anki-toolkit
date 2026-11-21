@@ -32,8 +32,7 @@ function openPageFieldEditor(plugin: MyPlugin, editor: Editor, view: MarkdownVie
     const input = valueLabel.createEl('textarea')
     input.rows = 4
     input.required = true
-    input.style.display = 'block'
-    input.style.width = '100%'
+    input.classList.add('rudonium-full-width-field')
     const status = form.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
     const buttons = form.createDiv({ cls: 'modal-button-container' })
     buttons.createEl('button', { text: t('Cancel', 'Отмена'), attr: { type: 'button' } }).onclick = () => modal.close()

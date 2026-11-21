@@ -193,7 +193,8 @@ export function replaceRenderedNoteTypeTable(container: HTMLElement, plugin: MyP
         const toggle = table.previousElementSibling
         const heading = toggle?.previousElementSibling
         if (toggle?.classList.contains('collapsible-item')) {
-            if (heading?.tagName === 'H3') heading.remove()
+            if (heading?.tagName === 'H3' || heading?.classList.contains('setting-item-heading') &&
+                heading.textContent?.trim() === 'Note type settings') heading.remove()
             toggle.remove()
         }
         table.before(mount)

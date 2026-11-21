@@ -4,7 +4,7 @@ This is an independently maintained, modified derivative of **Obsidian_to_Anki /
 
 - Upstream repository: https://github.com/ObsidianToAnki/Obsidian_to_Anki
 - Build base: release 3.6.0; expected commit `2dd39fefd26f3141a4e02105b1172a5a3eb2611f`.
-- The fork builds on the earlier v16–v17 modifications to Export to Anki. The project adopted the Rudonium Anki Toolkit name in version 1.6.0. Version **0.10.3** is part of the first public beta series, prepared on **2026-11-21**.
+- The fork builds on the earlier v16–v17 modifications to Export to Anki. The project adopted the Rudonium Anki Toolkit name in version 1.6.0. Version **0.10.4** is part of the first public beta series, prepared on **2026-11-21**.
 - Rudonium additions copyright © 2026 **dashiwak** <dashiwak@yandex.ru>.
 
 ## License chosen for this distribution
@@ -14,6 +14,8 @@ The Rudonium additions and this derivative distribution are offered under **GNU 
 The upstream currently presents conflicting indicators: a GPLv3 `LICENSE` and an MIT field in `package.json`. These have not been confirmed as an intentional dual-license grant. The exact historical files of the expected commit were not retrieved in preparing this source kit. Do not describe this audit as an upstream relicensing permission or as a resolution of that ambiguity. See `LICENSING-ru.md` and the snapshots produced by a successful build.
 
 The build records the exact upstream legal files, metadata, and source hashes before modifying its temporary copy. These records are stored in `UPSTREAM-SNAPSHOT`; `PROVENANCE.json` identifies the expected source, observed metadata, and modifications. A supplied Git checkout lets the builder export the tracked files from that commit and record the Git-object verification. For a plain source directory it records the acquisition and hashes without authenticating the revision. Identifying the Git commit establishes neither authorship nor licensing authority.
+
+Match the version in `PROVENANCE.json` under `release.version` to the version in `manifest.json` when inspecting a distribution. A source checkout can still carry the previous release’s evidence until a new build has recorded the candidate’s source and artifact hashes. The prepared release directory contains the new record.
 
 ## Changes and acknowledgements
 

@@ -35,8 +35,7 @@ class PageIdBulkModal extends Modal {
             'Перед первой правкой будет сохранён и проверен ZIP всего хранилища. Перенос сохраняет каждый ID Anki и меняет только выбранные Markdown-страницы.') })
         this.controls = this.contentEl.createDiv()
         this.status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
-        this.status.style.whiteSpace = 'pre-wrap'
-        this.status.style.overflowWrap = 'anywhere'
+        this.status.classList.add('rudonium-wrapped-text')
         this.results = this.contentEl.createDiv()
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
         this.applyButton = footer.createEl('button', { cls: 'mod-cta' })
@@ -89,7 +88,7 @@ class PageIdBulkModal extends Modal {
     private failure(error: unknown): void {
         const message = uiDiagnostic(error, uiFor(this.plugin.settings))
         if (this.closed) { new Notice(message, 15000); return }
-        this.status.style.color = 'var(--text-error)'
+        this.status.classList.add('rudonium-text-error')
         this.status.setText(message)
     }
 
@@ -98,7 +97,7 @@ class PageIdBulkModal extends Modal {
         const t = uiFor(this.plugin.settings)
         this.busy = true
         this.clearPlan()
-        this.status.style.color = ''
+        this.status.classList.remove('rudonium-text-error')
         this.status.setText(t('Checking the vault…', 'Проверяем хранилище…'))
         try {
             const plan = await previewPageIdBulk(this.plugin, this.source, this.target, (done, total) => {
@@ -149,7 +148,7 @@ class PageIdBulkModal extends Modal {
     private showPage<T>(container: HTMLElement, rows: readonly T[], render: (list: HTMLElement, item: T) => void): void {
         const t = uiFor(this.plugin.settings)
         const list = container.createDiv()
-        list.style.overflowWrap = 'anywhere'
+        list.classList.add('rudonium-wrap-anywhere')
         let page = 0
         const pages = Math.ceil(rows.length / pageSize)
         const draw = () => {
@@ -174,7 +173,7 @@ class PageIdBulkModal extends Modal {
         const t = uiFor(this.plugin.settings)
         this.busy = true
         this.update()
-        this.status.style.color = ''
+        this.status.classList.remove('rudonium-text-error')
         this.status.setText(t('Backing up the vault, verifying the ZIP and moving IDs…', 'Создаём копию хранилища, проверяем ZIP и переносим ID…'))
         try {
             const result = await applyPageIdBulk(this.plugin, plan, new Set(this.selected))

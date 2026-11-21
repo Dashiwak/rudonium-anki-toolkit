@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 'use strict'
+const createClassList = require('./dom-class-list.cjs');
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { load } = require('./benchmark/migration-modules.cjs')
@@ -11,7 +12,7 @@ class Element {
         this.text = options.text
         this.value = options.value ?? ''
         this.type = options.attr?.type
-        this.style = {}
+        this.classList = createClassList()
         this.children = []
     }
     createEl(tag, options) {

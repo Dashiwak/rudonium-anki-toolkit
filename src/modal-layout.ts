@@ -19,42 +19,22 @@ export function installModalLayout(modal: Modal, t: UiText): void {
     // Крестик и обработчики закрытия принадлежат Obsidian.
     const close = modalEl.querySelector('.modal-close-button')
     if (close?.parentElement === modalEl) modalEl.insertBefore(control, close)
-    Object.assign(control.style, {
-        position: 'absolute',
-        insetBlockStart: 'var(--size-4-2, 8px)',
-        insetInlineEnd: 'var(--size-4-9, 36px)',
-        inlineSize: 'var(--size-4-6, 24px)',
-        blockSize: 'var(--size-4-6, 24px)',
-        padding: '0',
-    })
-    titleEl.style.paddingInlineEnd = 'var(--size-4-12, 48px)'
+    control.classList.add('rudonium-modal-layout-control')
+    titleEl.classList.add('rudonium-modal-title')
 
-    const style = modalEl.style
-    let previousSize: { width: string; maxWidth: string; height: string; maxHeight: string } | undefined
+    let expanded = false
     const update = () => {
-        const label = previousSize ? t('Restore Window Size', 'Восстановить размер окна')
+        const label = expanded ? t('Restore Window Size', 'Восстановить размер окна')
             : t('Expand Window', 'Развернуть окно')
         control.title = label
         control.setAttribute('aria-label', label)
-        setIcon(control, previousSize ? 'minimize-2' : 'maximize-2')
+        control.setAttribute('aria-pressed', String(expanded))
+        setIcon(control, expanded ? 'minimize-2' : 'maximize-2')
     }
     control.onclick = () => {
         const { scrollTop, scrollLeft } = contentEl
-        if (previousSize) {
-            Object.assign(style, previousSize)
-            previousSize = undefined
-        } else {
-            previousSize = {
-                width: style.width ?? '',
-                maxWidth: style.maxWidth ?? '',
-                height: style.height ?? '',
-                maxHeight: style.maxHeight ?? '',
-            }
-            Object.assign(style, {
-                width: 'calc(100vw - 1rem)', maxWidth: 'calc(100vw - 1rem)',
-                height: 'calc(100vh - 1rem)', maxHeight: 'calc(100vh - 1rem)',
-            })
-        }
+        expanded = !expanded
+        modalEl.classList.toggle('rudonium-modal-expanded', expanded)
         // Смена размера сохраняет содержимое, фокус и прокрутку в пределах окна.
         contentEl.scrollTop = scrollTop
         contentEl.scrollLeft = scrollLeft

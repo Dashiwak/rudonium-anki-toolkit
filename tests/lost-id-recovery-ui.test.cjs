@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 "use strict";
+const createClassList = require('./dom-class-list.cjs');
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { setImmediate: settle } = require("node:timers/promises");
@@ -7,7 +8,7 @@ const { test } = require("node:test");
 const { load } = require("./benchmark/migration-modules.cjs");
 const overlay = require("../Build/overlay-source.cjs");
 class Element {
-    constructor(tag, opts = {}) { this.tag = tag; this.children = []; this.text = opts.text; this.style = {}; this.classList = { add() {} }; }
+    constructor(tag, opts = {}) { this.tag = tag; this.children = []; this.text = opts.text; this.classList = createClassList(); }
     empty() { this.children = []; }
     setAttribute() {}
     setText(value) { this.text = value; }

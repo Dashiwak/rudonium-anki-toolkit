@@ -5,7 +5,7 @@
  * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
  */
 import type MyPlugin from '../main'
-import type { TFile } from 'obsidian'
+import { TFile } from 'obsidian'
 import { withFastScanReadLock } from './fast-scan'
 import { findIdMarkers } from './duplicate-markers'
 import { sameEditorText } from './markdown-pipeline'
@@ -248,6 +248,13 @@ function editorTexts(plugin: MyPlugin): Map<string, string[]> {
     return values
 }
 
+function indexedFile(plugin: MyPlugin, path: string): TFile {
+    const file = plugin.app.vault.getAbstractFileByPath(path)
+    if (!(file instanceof TFile)) throw failure(plugin,
+        `Obsidian has not indexed this file yet: ${path}`, `Obsidian ещё не проиндексировал этот файл: ${path}`)
+    return file
+}
+
 async function currentBytes(plugin: MyPlugin, path: string, prepared?: Awaited<ReturnType<typeof context>>): Promise<Uint8Array | undefined> {
     const ctx = prepared ?? await context(plugin)
     const absolute = await checkedPath(ctx.root, path, false, ctx.names)
@@ -258,10 +265,7 @@ async function currentBytes(plugin: MyPlugin, path: string, prepared?: Awaited<R
     if (!info) return undefined
     if (!info.isFile()) throw failure(plugin, `The target is a folder: ${path}`, `По этому пути находится папка: ${path}`)
     if (info.size > 128 * 1024 * 1024) throw failure(plugin, `The current file is too large to import: ${path}`, `Текущий файл слишком большой для импорта: ${path}`)
-    const file = plugin.app.vault.getAbstractFileByPath(path)
-    if (!file || !('extension' in file)) throw failure(plugin,
-        `Obsidian has not indexed this file yet: ${path}`, `Obsidian ещё не проиндексировал этот файл: ${path}`)
-    return new Uint8Array(await plugin.app.vault.readBinary(file as TFile))
+    return new Uint8Array(await plugin.app.vault.readBinary(indexedFile(plugin, path)))
 }
 
 function tick(progress: Progress | undefined, phase: string, files: number, totalFiles: number, path?: string): void {
@@ -470,7 +474,7 @@ async function writeVaultFile(plugin: MyPlugin, entry: JournalEntry, bytes: Uint
         else await vault.createBinary(entry.path, asArrayBuffer(bytes))
         await rememberCreatedPath(ctx, entry.path)
     } else {
-        const file = vault.getAbstractFileByPath(entry.path) as TFile
+        const file = indexedFile(plugin, entry.path)
         if (entry.markdown) {
             await vault.process(file, text => {
                 if (hash(Buffer.from(text, 'utf8')) !== expected || dirtyPaths(plugin).has(entry.path)) {
@@ -610,7 +614,13 @@ export async function recoverZipImport(plugin: MyPlugin, progress?: Progress): P
                     const current = await currentBytes(plugin, item.entry.path, ctx)
                     if (!current || hash(current) !== item.entry.after || dirtyPaths(plugin).has(item.entry.path)) throw failure(plugin,
                         'A new file changed during recovery.', 'Новый файл изменился во время восстановления.')
-                    await plugin.app.vault.delete(plugin.app.vault.getAbstractFileByPath(item.entry.path) as TFile)
+                    const file = indexedFile(plugin, item.entry.path)
+                    const manager: typeof plugin.app.fileManager & { trashFile?: (value: TFile) => Promise<void> } = plugin.app.fileManager
+                    if (typeof manager.trashFile !== 'function') throw failure(plugin,
+                        'Obsidian cannot apply its file deletion preference.', 'Не удалось применить настройку удаления файлов Obsidian.')
+                    await manager.trashFile(file)
+                    if (plugin.app.vault.getAbstractFileByPath(item.entry.path)) throw failure(plugin,
+                        'The new file is still present after recovery.', 'Новый файл всё ещё существует после восстановления.')
                 }
             }
             tick(progress, 'recover', index + 1, changes.length, item.entry.path)

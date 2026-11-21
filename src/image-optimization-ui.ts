@@ -36,7 +36,7 @@ export function installImageOptimizationSettings(container: HTMLElement, plugin:
     const t = uiFor(plugin.settings)
     const fields = limitFields(t)
     const section = container.createDiv({ cls: 'anki-image-optimization' })
-    section.createEl('h3', { text: t('Image Optimization', 'Оптимизация изображений') })
+    new Setting(section).setName(t('Image Optimization', 'Оптимизация изображений')).setHeading()
     const toggles = new Map<ToggleKey, ToggleComponent>()
     const entries = new Map<LimitKey, HTMLInputElement>()
     let busy = false
@@ -197,7 +197,7 @@ export function installImageOptimizationSettings(container: HTMLElement, plugin:
         saveButton.disabled = busy || !valid || !edited
         previewButton.disabled = busy || openingPreview || !valid || edited
         const invalid = !valid && !busy
-        status.style.color = invalid || invalidFolder || feedback?.error ? 'var(--text-error)' : ''
+        status.classList.toggle('rudonium-text-error', Boolean(invalid || invalidFolder || feedback?.error))
         status.setText(busy ? t('Saving…', 'Сохранение…') : invalid ? t('Enter whole numbers within the limits for each field.', 'Введите целые числа в пределах, указанных для каждого поля.')
             : feedback?.text ?? (invalidFolder ? t('Enter a full folder path to keep originals.', 'Введите полный путь к папке для оригиналов.')
                 : pendingFolder ? t('Save the folder to apply this choice.', 'Сохраните папку, чтобы применить настройку.')

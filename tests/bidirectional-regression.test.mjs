@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import createClassList from './dom-class-list.cjs'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { test } from 'node:test'
@@ -27,7 +28,7 @@ test('the preview closes once after a completed apply; partial writes and failur
     const { load } = await import('./benchmark/migration-modules.cjs').then(module => module.default)
     const notices = [], dialogs = []
     class Element {
-        style = {}
+        classList = createClassList()
         children = []
         constructor(text) { this.text = text }
         setText(text) { this.text = text }

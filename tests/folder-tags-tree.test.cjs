@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 'use strict'
+const createClassList = require('./dom-class-list.cjs');
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { folderTagStorageKey } = require('../Build/install.cjs')
@@ -18,7 +19,7 @@ class Element {
         this.attr = options.attr ?? {}
         this.textContent = options.text ?? ''
         this.children = []
-        this.style = {}
+        this.classList = createClassList()
         this.value = ''
     }
     createEl(tag, opts) {

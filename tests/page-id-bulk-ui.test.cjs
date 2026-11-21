@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+const createClassList = require('./dom-class-list.cjs');
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const { setImmediate: settle } = require('node:timers/promises')
@@ -6,7 +7,7 @@ const { load } = require('./benchmark/migration-modules.cjs')
 
 class Element {
     constructor(tag, options = {}) {
-        this.tag = tag; this.text = options.text || ''; this.children = []; this.style = {}
+        this.tag = tag; this.text = options.text || ''; this.children = []; this.classList = createClassList()
     }
     createEl(tag, options) { const el = new Element(tag, options); this.children.push(el); return el }
     createDiv(options) { return this.createEl('div', options) }

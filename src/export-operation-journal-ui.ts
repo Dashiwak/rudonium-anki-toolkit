@@ -43,7 +43,7 @@ class ExportOperationJournalModal extends Modal {
 
     onOpen(): void {
         this.titleEl.setText(this.t('Anki Export Journal', 'Журнал экспорта Anki'))
-        this.modalEl.style.width = 'min(60rem, 94vw)'
+        this.modalEl.classList.add('rudonium-export-journal-dialog')
         installModalLayout(this, this.t)
         void this.reload()
     }
@@ -157,9 +157,9 @@ class ExportOperationJournalModal extends Modal {
             const row = panel.createEl('section')
             row.createEl('strong', { text: name })
             row.createEl('div', { text: t('Current in Anki', 'Сейчас в Anki') })
-            row.createEl('pre', { text: current || t('(Empty)', '(Пусто)') }).style.whiteSpace = 'pre-wrap'
+            row.createEl('pre', { text: current || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
             row.createEl('div', { text: t('Restore in Anki', 'Восстановить в Anki') })
-            row.createEl('pre', { text: previous || t('(Empty)', '(Пусто)') }).style.whiteSpace = 'pre-wrap'
+            row.createEl('pre', { text: previous || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
         }
         const actions = panel.createDiv({ cls: 'modal-button-container' })
         actions.createEl('button', { text: t('Cancel', 'Отмена') }).onclick = () => {
@@ -245,11 +245,11 @@ class ExportOperationJournalModal extends Modal {
             item.createEl('strong', { text: header })
             item.createDiv({
                 text: [new Date(row.at).toLocaleString(), row.profile, row.path, row.destination].filter(Boolean).join(' · '),
-            }).style.overflowWrap = 'anywhere'
+            }).classList.add('rudonium-wrap-anywhere')
             const names = row.fields?.map(([name]) => name) ?? row.tags
             if (names?.length) item.createDiv({ text: names.join(', ') })
             if (row.reason) item.createDiv({ text: row.reason === 'Undo was not sent.'
-                ? t(row.reason, 'Отмена до Anki не отправлена.') : uiDiagnostic(row.reason, t) }).style.color = 'var(--text-error)'
+                ? t(row.reason, 'Отмена до Anki не отправлена.') : uiDiagnostic(row.reason, t) }).classList.add('rudonium-text-error')
             if (canOfferExportUndo(row, this.rows)) {
                 const undo = item.createEl('button', { text: t('Review Undo', 'Проверить отмену') })
                 undo.disabled = this.running

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.4 · Obsidian review candidate
+
+- Use the Obsidian settings heading API and the supplied stylesheet across settings, previews and dialogs.
+- Sanitize card preview markup and render settings labels as text.
+- Preserve the plugin identifier, commands, note formats and sync-state files.
+
+[Review and build notes](docs/releases/0.10.4.md)
+
 ## 0.10.3 · GitFlic preparation on Windows
 
 - Exclude workspace state in nested upstream test vaults while preserving Markdown fixtures.

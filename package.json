@@ -1,6 +1,6 @@
 {
   "name": "rudonium-anki-toolkit",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "This is an Anki integration plugin! Designed for efficient bulk exporting.",
   "main": "main.js",
   "scripts": {

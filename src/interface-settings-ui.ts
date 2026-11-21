@@ -22,7 +22,7 @@ export function registerSupportCommand(plugin: MyPlugin): void {
 
 export function installSettingsHeader(container: HTMLElement, plugin: MyPlugin, redraw: () => void): void {
     const t = uiFor(plugin.settings)
-    const heading = container.querySelector('h1, h2, h3, h4')
+    const heading = container.querySelector('.setting-item-heading')
     const top = container.createDiv()
     if (heading) heading.after(top)
     else container.prepend(top)
@@ -65,7 +65,7 @@ export function installSettingsHeader(container: HTMLElement, plugin: MyPlugin, 
 export function installProjectInfo(container: HTMLElement, plugin: MyPlugin, buildVersion: string): void {
     const t = uiFor(plugin.settings)
     const section = container.createEl('section', { cls: 'rudonium-settings-about' })
-    section.createEl('h3', { text: t('About the plugin', 'О плагине') })
+    new Setting(section).setName(t('About the plugin', 'О плагине')).setHeading()
     section.createEl('p', { text: `Rudonium Anki Toolkit ${buildVersion}` })
     if (plugin.manifest.version !== buildVersion) {
         section.createEl('p', { text: t(

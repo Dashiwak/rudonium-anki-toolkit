@@ -227,7 +227,13 @@ async function main(args) {
         console.log("3/3 GitFlic files ready: " + output);
         console.log("Repository (" + fileCount + " files): " + path.join(output, "repository"));
         console.log("FreeFileSync: " + path.join(output, "Compare.ffs_gui"));
-        console.log("Compiled plugin: " + path.join(output, "install", manifest.id, "main.js"));
+        const install = path.join(output, "install", manifest.id);
+        console.log("GitFlic release ZIP: " + path.join(output, "release", "Rudonium-" + manifest.version + ".zip"));
+        console.log("GitHub release attachments (upload these separately):");
+        for (const asset of ["main.js", "manifest.json", "styles.css"]) {
+            const filename = path.join(install, asset);
+            if (fs.existsSync(filename)) console.log("  " + filename);
+        }
         console.log("Release description: repository/docs/releases/" + manifest.version + ".md");
     } catch (error) {
         // The source tree has passed its checks. A later rebuild or ZIP failure

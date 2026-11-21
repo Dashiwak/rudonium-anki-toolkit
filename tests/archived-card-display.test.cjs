@@ -60,7 +60,7 @@ test('Reading View strikes only proven legacy sections and preserves the status,
             assert.equal(element.classList.contains(bodyClass), false, mode + ' has its own native presentation')
         }
     }
-    assert.equal(attached, 1)
+    assert.equal(attached, 0, 'the bundled stylesheet handles every document without inserting a style node')
     unload()
     assert.equal(attached, 0)
 })

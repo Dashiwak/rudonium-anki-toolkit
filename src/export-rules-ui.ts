@@ -29,7 +29,7 @@ class ExportRulesModal extends Modal {
     }
 
     onOpen(): void {
-        this.modalEl.style.width = 'min(58rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-58rem')
         installModalLayout(this, uiFor(this.plugin.settings))
         this.render()
     }
@@ -123,7 +123,7 @@ class ExportRulesModal extends Modal {
             'dictionary de')
         for (const field of rule.fields) this.renderField(section, rule, field, t)
         const controls = section.createDiv({ cls: 'modal-button-container' })
-        controls.style.flexWrap = 'wrap'
+        controls.classList.add('rudonium-wrap-controls')
         const addField = controls.createEl('button', { text: t('Map Field', 'Сопоставить поле') })
         addField.disabled = rule.fields.length >= 64
         addField.onclick = () => {

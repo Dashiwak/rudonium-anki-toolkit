@@ -113,34 +113,35 @@ export class SettingsTab extends PluginSettingTab {
 	create_collapsible(name: string) {
 		let {containerEl} = this;
 		let div = containerEl.createEl('div', {cls: "collapsible-item"})
-		div.innerHTML = `
-			<div class="collapsible-item-self"><div class="collapsible-item-collapse collapse-icon anki-rotated"><svg viewBox="0 0 100 100" width="8" height="8" class="right-triangle"><path fill="currentColor" stroke="currentColor" d="M94.9,20.8c-1.4-2.5-4.1-4.1-7.1-4.1H12.2c-3,0-5.7,1.6-7.1,4.1c-1.3,2.4-1.2,5.2,0.2,7.6L43.1,88c1.5,2.3,4,3.7,6.9,3.7 s5.4-1.4,6.9-3.7l37.8-59.6C96.1,26,96.2,23.2,94.9,20.8L94.9,20.8z"></path></svg></div><div class="collapsible-item-inner"></div><header>${name}</header></div>
-		`
+		const row = div.createDiv({ cls: "collapsible-item-self" })
+		const arrow = row.createDiv({ cls: ["collapsible-item-collapse", "collapse-icon", "anki-rotated"] })
+		const svg = arrow.createSvg("svg", { cls: "right-triangle", attr: {
+			viewBox: "0 0 100 100", width: "8", height: "8", "aria-hidden": "true"
+		} })
+		svg.createSvg("path", { attr: { fill: "currentColor", stroke: "currentColor",
+			d: "M94.9,20.8c-1.4-2.5-4.1-4.1-7.1-4.1H12.2c-3,0-5.7,1.6-7.1,4.1c-1.3,2.4-1.2,5.2,0.2,7.6L43.1,88c1.5,2.3,4,3.7,6.9,3.7 s5.4-1.4,6.9-3.7l37.8-59.6C96.1,26,96.2,23.2,94.9,20.8L94.9,20.8z"
+		} })
+		row.createDiv({ cls: "collapsible-item-inner" })
+		row.createEl("header", { text: name })
 		div.addEventListener('click', function () {
 			this.classList.toggle("active")
 			let icon = this.firstElementChild.firstElementChild as HTMLElement
 			icon.classList.toggle("anki-rotated")
 			let content = this.nextElementSibling as HTMLElement
-			if (content.style.display === "block") {
-				content.style.display = "none"
-			} else {
-				content.style.display = "block"
-			}
+			content.classList.toggle('rudonium-settings-expanded')
 		})
 	}
 
 	setup_note_table() {
 		let {containerEl} = this;
 		const plugin = (this as any).plugin
-		containerEl.createEl('h3', {text: 'Note type settings'})
+		new Setting(containerEl).setName('Note type settings').setHeading()
 		this.create_collapsible("Note Type Table")
 		let note_type_table = containerEl.createEl('table', {cls: "anki-settings-table"})
 		let head = note_type_table.createTHead()
 		let header_row = head.insertRow()
 		for (let header of ["Note Type", "Custom Regexp", "File Link Field", "Context Field"]) {
-			let th = document.createElement("th")
-			th.appendChild(document.createTextNode(header))
-			header_row.appendChild(th)
+			header_row.createEl("th", { text: header })
 		}
 		let main_body = note_type_table.createTBody()
 		if (!(plugin.settings.hasOwnProperty("CONTEXT_FIELDS"))) {
@@ -201,7 +202,7 @@ export class SettingsTab extends PluginSettingTab {
 		}
 		plugin.settings["Defaults"]["Add Date to Anki IDs"] ??= false
         const t = uiFor(plugin.settings)
-        this.containerEl.createEl('h3', { text: t('Defaults', 'Параметры по умолчанию') })
+        new Setting(this.containerEl).setName(t('Defaults', 'Параметры по умолчанию')).setHeading()
         const defaults_settings = this.containerEl.createDiv()
         installDefaultDeckSetting(defaults_settings, plugin)
         for (let key of Object.keys(plugin.settings["Defaults"])) {
@@ -294,15 +295,13 @@ export class SettingsTab extends PluginSettingTab {
 		let {containerEl} = this;
 		const plugin = (this as any).plugin
 		const folder_list = this.get_folders()
-		containerEl.createEl('h3', {text: 'Folder settings'})
+		new Setting(containerEl).setName('Folder settings').setHeading()
 		this.create_collapsible("Folder Table")
 		let folder_table = containerEl.createEl('table', {cls: "anki-settings-table"})
 		let head = folder_table.createTHead()
 		let header_row = head.insertRow()
 		for (let header of ["Folder", "Folder Tags"]) {
-			let th = document.createElement("th")
-			th.appendChild(document.createTextNode(header))
-			header_row.appendChild(th)
+			header_row.createEl("th", { text: header })
 		}
 		let main_body = folder_table.createTBody()
 		if (!(plugin.settings.hasOwnProperty("FOLDER_DECKS"))) {
@@ -329,7 +328,7 @@ export class SettingsTab extends PluginSettingTab {
         const {containerEl} = this
         const plugin = (this as any).plugin
         const t = uiFor(plugin.settings)
-        containerEl.createEl('h3', { text: t('Additional tools', 'Дополнительные инструменты') })
+        new Setting(containerEl).setName(t('Additional tools', 'Дополнительные инструменты')).setHeading()
         const connectionBody = createSettingsGroup(containerEl, plugin, 'connection', t('Anki Connection', 'Подключение к Anki'))
         installFirstRunSetting(connectionBody, plugin, task => withFastScanReadLock(plugin, task), () => this.setup_display())
         installPageMigrationSetting(connectionBody, plugin)
@@ -366,7 +365,7 @@ export class SettingsTab extends PluginSettingTab {
 		const plugin = (this as any).plugin
 		
         const t = uiFor(plugin.settings)
-        containerEl.createEl('h3', { text: t('Actions', 'Обслуживание') })
+        new Setting(containerEl).setName(t('Actions', 'Обслуживание')).setHeading()
         let action_buttons = containerEl.createDiv()
 		installNoteTypeRefresh(containerEl, action_buttons, plugin, () => this.setup_display())
         new Setting(action_buttons)
@@ -402,7 +401,7 @@ export class SettingsTab extends PluginSettingTab {
 		let {containerEl} = this
 
 		containerEl.empty()
-		containerEl.createEl('h2', {text: uiFor((this as any).plugin.settings)('Rudonium Anki Toolkit settings', 'Настройки Rudonium Anki Toolkit')})
+		new Setting(containerEl).setName(uiFor((this as any).plugin.settings)('Rudonium Anki Toolkit settings', 'Настройки Rudonium Anki Toolkit')).setHeading()
 		containerEl.createEl('a', {text: 'For more information check the wiki', href: "https://github.com/Pseudonium/Obsidian_to_Anki/wiki"})
 		installNoteTypeRules(containerEl, (this as any).plugin)
 		installFolderTagSettings(containerEl, (this as any).plugin, "FOLDER_TAGS")

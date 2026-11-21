@@ -17,6 +17,7 @@ const hostModule = asModule(`
         constructor(host) { host.setting = this }
         setName(label) { this.label = label; return this }
         setDesc() { return this }
+        setHeading() { this.heading = true; return this }
         addDropdown(configure) {
             const row = this
             configure({
@@ -59,7 +60,7 @@ test('Settings header follows the title, rewrites the original support target an
         const top = { createEl(tag, options) { return { tag, ...options } } }
         const oldLink = { textContent: 'For more information check the wiki', replaceWith(anchor) { replacement = anchor } }
         const title = { after(node) { placed = node } }
-        const root = { querySelector: query => query.startsWith('h1') ? title : null, createDiv: () => top,
+        const root = { querySelector: query => query === '.setting-item-heading' ? title : null, createDiv: () => top,
             querySelectorAll: query => query === 'a' ? [oldLink] : [] }
         const plugin = { settings: { INTERFACE_LANGUAGE: initial }, async saveAllData() { saved = this.settings.INTERFACE_LANGUAGE } }
         installSettingsHeader(root, plugin, () => { redrawn = true })
@@ -94,7 +95,8 @@ test('About, the help command and both public guides share a single support dest
         let command
         const plugin = { settings: { INTERFACE_LANGUAGE: language }, manifest: { version: '1.6.6' }, addCommand(value) { command = value } }
         installProjectInfo(root, plugin, release.version)
-        assert.ok(elements.some(el => el.text === about))
+        assert.equal(root.setting.label, about)
+        assert.equal(root.setting.heading, true)
         assert.ok(elements.some(el => el.text === 'Rudonium Anki Toolkit ' + release.version))
         assert.ok(elements.some(el => el.text?.includes('manifest.json') && el.text.includes('1.6.6')))
         assert.ok(elements.some(el => el.text?.includes('Obsidian to Anki') &&

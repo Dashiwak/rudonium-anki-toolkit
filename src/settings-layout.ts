@@ -27,27 +27,9 @@ function rememberGroup(details: HTMLDetailsElement, plugin: LayoutSettings, key:
     }
 }
 
-function installStyles(container: HTMLElement): void {
-    if (container.querySelector('style.rudonium-settings-layout')) return
-    container.createEl('style', { cls: 'rudonium-settings-layout', text: `
-        .rudonium-settings-group { margin-block: .6rem; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m, 8px); }
-        .rudonium-settings-group > summary { cursor: pointer; font-weight: var(--font-semibold, 600); padding: .65rem .8rem; }
-        .rudonium-settings-group > summary:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
-        .rudonium-settings-group > .rudonium-settings-group-body { padding: 0 .8rem .5rem; }
-        .rudonium-settings-group-body > p:first-child { color: var(--text-muted); margin-block: .25rem .6rem; }
-        .rudonium-settings-about { margin-block-start: 1.2rem; padding-block-start: .4rem; border-top: 1px solid var(--background-modifier-border); }
-        .rudonium-settings-about .setting-item { padding-block: .55rem; }
-        .anki-settings-disclosure { margin-block: .75rem 1.25rem; }
-        .anki-settings-disclosure > summary { cursor: pointer; font-weight: var(--font-medium, 500); }
-        .anki-note-type-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-block: .6rem; }
-        .anki-note-type-refresh:empty { display: none; }
-    ` })
-}
-
 /** Оборачивает существующий раздел, не пересоздавая его элементы и обработчики. */
 export function createSettingsGroup(container: HTMLElement, plugin: LayoutSettings, key: string,
     title: string, description?: string, open = false): HTMLElement {
-    installStyles(container)
     const details = container.createEl('details', { cls: ['rudonium-settings-group', 'anki-settings-disclosure'] })
     details.createEl('summary', { text: title })
     const body = details.createDiv({ cls: 'rudonium-settings-group-body' })
@@ -61,7 +43,7 @@ export function renderSettingsGroup(container: HTMLElement, plugin: LayoutSettin
     render: (body: HTMLElement) => void, description?: string, open = false): HTMLElement {
     const body = createSettingsGroup(container, plugin, key, title, description, open)
     render(body)
-    const heading = Array.from(body.querySelectorAll<HTMLElement>('h3, h4'))
+    const heading = Array.from(body.querySelectorAll<HTMLElement>('.setting-item-heading, h3, h4'))
         .find(element => element.textContent?.trim() === title)
     heading?.remove()
     return body
@@ -69,7 +51,6 @@ export function renderSettingsGroup(container: HTMLElement, plugin: LayoutSettin
 
 /** Запоминаем раскрытие разделов, созданных штатными настройками. */
 export function finalizeSettingsLayout(container: HTMLElement, plugin: LayoutSettings): void {
-    installStyles(container)
     let other = 0
     for (const details of Array.from(container.querySelectorAll<HTMLDetailsElement>('details.anki-settings-disclosure'))) {
         rememberGroup(details, plugin, `syntax-and-defaults-${other++}`, false)

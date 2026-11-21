@@ -112,7 +112,7 @@ class DuplicateReviewModal extends Modal {
 
     onOpen(): void {
         this.titleEl.setText(this.t('Duplicate Anki IDs', 'Повторяющиеся ID Anki'))
-        this.modalEl.style.width = 'min(54rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-54rem')
         installModalLayout(this, this.t)
         void this.recheck()
     }
@@ -125,7 +125,7 @@ class DuplicateReviewModal extends Modal {
 
     private footer(container: HTMLElement, checking: boolean): void {
         const actions = container.createDiv({ cls: 'modal-button-container' })
-        actions.style.flexWrap = 'wrap'
+        actions.classList.add('rudonium-wrap-controls')
         const recheck = actions.createEl('button', { text: this.t('Recheck', 'Проверить повторно'), cls: 'mod-cta', attr: { type: 'button' } })
         recheck.disabled = checking
         recheck.onclick = () => { if (!this.opening) void this.recheck() }
@@ -182,7 +182,7 @@ class DuplicateReviewModal extends Modal {
 
             const label = this.contentEl.createEl('label', { text: t('Anki note ID', 'ID записи Anki') })
             const select = label.createEl('select', { cls: 'dropdown' })
-            select.style.marginInlineStart = '0.6em'
+            select.classList.add('rudonium-duplicate-review-select')
             for (const conflict of conflicts) {
                 select.createEl('option', {
                     text: t(`${conflict.id} · ${conflict.occurrences.length} locations`,
@@ -223,22 +223,15 @@ class DuplicateReviewModal extends Modal {
             container.createEl('p', { text: t('The displayed fields match.', 'Показанные поля совпадают.') })
         }
         const grid = container.createDiv()
-        grid.style.display = 'grid'
-        grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))'
-        grid.style.gap = '0.8em'
-        grid.style.marginBlock = '0.8em'
+        grid.classList.add('rudonium-duplicate-review-grid')
 
         const navigationStatus = statusLine(container)
 
         for (const occurrence of occurrences) {
             const card = grid.createEl('section')
-            card.style.border = '1px solid var(--background-modifier-border)'
-            card.style.borderRadius = 'var(--radius-m)'
-            card.style.padding = '0.8em'
-            card.style.overflowWrap = 'anywhere'
+            card.classList.add('rudonium-duplicate-review-card')
             const heading = card.createEl('h3', { text: occurrence.path })
-            heading.style.fontSize = '1em'
-            heading.style.marginBlock = '0 0.3em'
+            heading.classList.add('rudonium-duplicate-review-heading')
             card.createEl('div', { text: t(`Line ${occurrence.line}`, `Строка ${occurrence.line}`), cls: 'setting-item-description' })
 
             if (occurrence.front === undefined || occurrence.back === undefined) {
@@ -252,8 +245,7 @@ class DuplicateReviewModal extends Modal {
                     const term = list.createEl('dt')
                     term.createEl('strong', { text: changed ? t(`${label} · Differs`, `${label} · отличается`) : label })
                     const description = list.createEl('dd')
-                    description.style.marginInlineStart = '0'
-                    description.style.whiteSpace = 'pre-wrap'
+                    description.classList.add('rudonium-duplicate-review-description')
                     const diff = exactDiffs.get(key)
                     if (diff) {
                         const changedText = diff.changes[parsed.indexOf(occurrence)]
@@ -267,8 +259,7 @@ class DuplicateReviewModal extends Modal {
                         description.setText(occurrence[key] ?? t('None', 'Нет значения'))
                     }
                     if (changed) {
-                        description.style.borderInlineStart = '3px solid var(--interactive-accent)'
-                        description.style.paddingInlineStart = '0.5em'
+                        description.classList.add('rudonium-duplicate-highlight')
                     }
                 }
                 const details = card.createEl('details')
@@ -280,7 +271,7 @@ class DuplicateReviewModal extends Modal {
                 type: 'button', 'aria-label': t(`Open ${occurrence.path} at line ${occurrence.line}`,
                     `Открыть ${occurrence.path} на строке ${occurrence.line}`),
             } })
-            open.style.marginBlockStart = '0.7em'
+            open.classList.add('rudonium-duplicate-review-open')
             open.onclick = async () => {
                 if (this.opening) return
                 this.opening = true
@@ -303,8 +294,7 @@ class DuplicateReviewModal extends Modal {
         if (label) container.createEl('strong', { text: 'Markdown' })
         const preview = container.createEl('pre', { text: value || this.t(
             'The Markdown preview is unavailable. Recheck the note.', 'Предпросмотр Markdown недоступен. Проверьте заметку повторно.') })
-        preview.style.whiteSpace = 'pre-wrap'
-        preview.style.overflowWrap = 'anywhere'
+        preview.classList.add('rudonium-wrapped-text')
     }
 }
 

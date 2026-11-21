@@ -38,12 +38,12 @@ function errorText(error: unknown, t: UiText): string {
 
 function addStatus(container: HTMLElement): HTMLElement {
     const status = container.createDiv({ attr: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' } })
-    status.style.overflowWrap = 'anywhere'
+    status.classList.add('rudonium-wrap-anywhere')
     return status
 }
 
 function showStatus(status: HTMLElement, message: string, error = false): void {
-    status.style.color = error ? 'var(--text-error)' : ''
+    status.classList.toggle('rudonium-text-error', Boolean(error))
     status.setText(message)
 }
 
@@ -67,14 +67,10 @@ function automaticProfileText(plugin: MyPlugin, t: UiText, active: string): stri
 
 function addProfileField(list: HTMLDListElement, label: string): HTMLElement {
     const field = list.createDiv()
-    field.style.padding = '0.75rem'
-    field.style.borderRadius = 'var(--radius-s)'
-    field.style.backgroundColor = 'var(--background-secondary)'
-    field.createEl('dt', { text: label }).style.color = 'var(--text-muted)'
+    field.classList.add('rudonium-anki-profile-field')
+    field.createEl('dt', { text: label }).classList.add('rudonium-text-muted')
     const value = field.createEl('dd')
-    value.style.margin = '0'
-    value.style.fontWeight = '600'
-    value.style.overflowWrap = 'anywhere'
+    value.classList.add('rudonium-anki-profile-value')
     return value
 }
 
@@ -96,19 +92,17 @@ class AnkiProfileSettingsModal extends Modal {
     onOpen(): void {
         const t = uiFor(this.plugin.settings)
         this.titleEl.setText(t('Anki Profile Settings', 'Настройки профиля Anki'))
-        this.modalEl.style.width = 'min(38rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-38rem')
         installModalLayout(this, t)
         this.contentEl.createEl('p', { text: t('Open the profile for this vault in Anki. Its name appears here once AnkiConnect verifies it.',
             'Откройте в Anki профиль для этого хранилища. Его имя появится здесь после проверки через AnkiConnect.') })
         const profileList = this.contentEl.createEl('dl')
-        profileList.style.display = 'grid'
-        profileList.style.gridTemplateColumns = 'repeat(auto-fit, minmax(min(12rem, 100%), 1fr))'
-        profileList.style.gap = '0.75rem'
+        profileList.classList.add('rudonium-anki-profile-profile-list')
         const savedName = addProfileField(profileList, t('Saved for This Vault', 'Привязан к хранилищу'))
         const activeName = addProfileField(profileList, t('Active in Anki', 'Открыт в Anki'))
         const status = addStatus(this.contentEl)
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         const recheck = footer.createEl('button', { text: t('Check Again', 'Проверить ещё раз') })
         const confirm = footer.createEl('button', { cls: 'mod-cta' })
 
@@ -209,7 +203,7 @@ export function installAnkiProfileSettings(container: HTMLElement, plugin: MyPlu
         .setDesc(t('By default, export uses the profile open in Anki. Turn on this switch to use only a specific profile for this vault.',
             'По умолчанию экспорт использует открытый профиль Anki. Включите переключатель, чтобы закрепить профиль за этим хранилищем.'))
     const status = addStatus(setting.descEl)
-    status.style.whiteSpace = 'pre-line'
+    status.classList.add('rudonium-pre-line')
     let changing = false
     let updateBindingButton = () => {}
     const showMode = () => showStatus(status, profileModeText(plugin, t))
@@ -298,8 +292,7 @@ export function showAnkiProfileProblem(plugin: MyPlugin, error: AnkiProfileError
             this.titleEl.setText(title)
             installModalLayout(this, t)
             const names = this.contentEl.createEl('p')
-            names.style.whiteSpace = 'pre-line'
-            names.style.overflowWrap = 'anywhere'
+            names.classList.add('rudonium-anki-profile-names')
             const status = addStatus(this.contentEl)
             const show = (problem: AnkiProfileError) => {
                 names.setText(profileNames(t, problem.expected ?? expectedAnkiProfile(plugin), problem.actual))
@@ -308,7 +301,7 @@ export function showAnkiProfileProblem(plugin: MyPlugin, error: AnkiProfileError
             show(error)
             if (details) this.contentEl.createEl('p', { text: details })
             const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-            footer.style.flexWrap = 'wrap'
+            footer.classList.add('rudonium-wrap-controls')
             const canCheck = !isAnkiProfileLockEnabled(plugin) || !!expectedAnkiProfile(plugin)
             const check = canCheck ? footer.createEl('button', { text: t('Check Again', 'Проверить ещё раз'), cls: 'mod-cta' }) : undefined
             const settings = footer.createEl('button', { text: t('Open Profile Settings', 'Открыть настройки профиля'),

@@ -70,7 +70,9 @@ export function setImageReceiptDirectory(app: App, pluginDirectory: string): voi
 
 function receiptPath(files: DesktopFiles, app: App, vaultPath: string): string {
     const key = files.crypto.createHash('sha256').update(vaultPath).digest('hex')
-    const directory = receiptDirectories.get(app) ?? `${app.vault.configDir || '.obsidian'}/plugins/${rudoniumPluginId}`
+    const configured = receiptDirectories.get(app)
+    if (!configured && !app.vault.configDir) throw new Error('The vault configuration directory is unavailable.')
+    const directory = configured ?? `${app.vault.configDir}/plugins/${rudoniumPluginId}`
     return childPath(files, files.root, `${directory}/image-replacements/${key}.json`)
 }
 

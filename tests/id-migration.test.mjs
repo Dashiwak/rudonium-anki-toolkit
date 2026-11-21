@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import createClassList from './dom-class-list.cjs'
 // Реальные временные файлы, исходный код переноса и модель окна Obsidian.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -19,11 +20,12 @@ const hostFile = join(temporary, 'obsidian.mjs');
 const linkedFile = join(temporary, 'image-receipts.mjs');
 writeFileSync(linkedFile, 'export const setImageReceiptDirectory = (app, folder) => { app.receiptDirectory = folder };');
 writeFileSync(hostFile, `
+const createClassList = ${createClassList}
 export const modals = [];
 export const notices = [];
 export class FileSystemAdapter { constructor(root) { this.root = root } getBasePath() { return this.root } }
 class Element {
-    constructor(tag, attr = {}) { this.tag = tag; this.attr = attr; this.children = []; this.style = {}; this.text = attr.text ?? ''; }
+    constructor(tag, attr = {}) { this.tag = tag; this.attr = attr; this.children = []; this.classList = createClassList(); this.text = attr.text ?? ''; }
     get textContent() { return this.text + this.children.map(child => child.textContent).join(''); }
     setText(text) { this.text = text; }
     empty() { this.children.length = 0; }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 "use strict";
+const createClassList = require('./dom-class-list.cjs');
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { load } = require("./benchmark/migration-modules.cjs");
@@ -106,7 +107,7 @@ test("archived examples are excluded from shared fields, mixed live blocks prese
 });
 
 class Element {
-    constructor(tag, opts = {}) { this.tag = tag; this.children = []; this.value = opts.value || ""; this.text = opts.text; this.style = {}; }
+    constructor(tag, opts = {}) { this.tag = tag; this.children = []; this.value = opts.value || ""; this.text = opts.text; this.classList = createClassList(); }
     setText(text) { this.text = text; }
     addClass() {}
     focus() {}
@@ -218,7 +219,7 @@ test("the real two-way field mapper excludes composed Front/Back and keeps a sha
     const { readFileSync } = require("node:fs");
     const overlay = require("../Build/overlay-source.cjs");
     const bidirectional = readFileSync(overlay.file("bidirectional-sync.ts"), "utf8") + "\nexport { readLocalCard }\n";
-    const production = await load(["anki", "bidirectional-sync", "bidirectional-markdown"], {
+    const production = await load(["anki", "bidirectional-sync", "bidirectional-markdown", "card-format-presets"], {
         mergeTags: (...groups) => groups.flat(), normalizeSyncTags: tags => tags, portableCardExportRule: () => undefined,
     }, { anki: "", "bidirectional-sync": bidirectional });
     const block = { id: 42, model: "Basic", front: "Question", back: "Answer", end: 0,

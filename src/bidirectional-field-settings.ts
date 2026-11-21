@@ -90,7 +90,7 @@ class BidirectionalFieldSettingsModal extends Modal {
         })
         const available = selectableDirectionFields(plugin.fields_dict ?? {}, plugin.settings)
         const controls = contentEl.createDiv({ cls: 'modal-button-container' })
-        controls.style.flexWrap = 'wrap'
+        controls.classList.add('rudonium-wrap-controls')
         const model = controls.createEl('select', { attr: { 'aria-label': t('Anki note type', 'Тип записи Anki') } })
         const field = controls.createEl('select', { attr: { 'aria-label': t('Additional Anki field', 'Дополнительное поле Anki') } })
         const direction = controls.createEl('select', { attr: { 'aria-label': t('Sync direction', 'Направление синхронизации') } })

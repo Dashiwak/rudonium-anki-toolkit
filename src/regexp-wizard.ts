@@ -92,7 +92,7 @@ export function addRegexpWizard(container: HTMLElement, app: App, t: UiText, fie
             for (let i = 0; i < count; i++) {
                 list.createEl('dt', { text: fields[i] })
                 const value = list.createEl('dd', { text: values[i] })
-                if (multiline) value.style.whiteSpace = 'pre-wrap'
+                if (multiline) value.classList.add('rudonium-pre-wrap')
             }
             use.disabled = false
             use.onclick = () => { dialog.close(); accept(pattern, sample, values) }

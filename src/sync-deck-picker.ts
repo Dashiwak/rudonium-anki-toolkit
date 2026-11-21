@@ -29,7 +29,7 @@ export class SyncAuditDeckPicker extends Modal {
     onOpen(): void {
         const t = this.t
         this.titleEl.setText(t('Choose Anki Deck to Check', 'Выбор колоды Anki для проверки'))
-        this.modalEl.style.width = 'min(42rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-42rem')
         installModalLayout(this, t)
 
         const label = this.contentEl.createEl('label', { text: t('Search Decks', 'Поиск колод') })
@@ -37,23 +37,16 @@ export class SyncAuditDeckPicker extends Modal {
             type: 'search', autocomplete: 'off', placeholder: t('Deck name', 'Название колоды'),
         } })
         search.value = ''
-        search.style.display = 'block'
-        search.style.width = '100%'
-        search.style.marginBlockStart = '0.4em'
+        search.classList.add('rudonium-sync-deck-picker-search')
 
         const count = this.contentEl.createEl('p', { attr: { role: 'status' } })
         const list = this.contentEl.createEl('select', { attr: { size: 12, 'aria-label': t('Decks', 'Колоды') } })
-        Object.assign(list.style, {
-            display: 'block', width: '100%', height: 'min(42vh, 20rem)', maxHeight: '42vh',
-            overflowY: 'scroll', scrollbarGutter: 'stable',
-            padding: '0.25em', color: 'var(--text-normal)', backgroundColor: 'var(--background-primary)',
-            border: '1px solid var(--background-modifier-border)', borderRadius: 'var(--radius-m)',
-        })
+        list.classList.add('rudonium-sync-deck-picker-list')
         const selected = this.contentEl.createEl('p')
-        selected.style.overflowWrap = 'anywhere'
+        selected.classList.add('rudonium-wrap-anywhere')
         const status = this.contentEl.createEl('p', { text: t('Loading deck names from Anki…', 'Загружаю список колод из Anki…'), attr: { role: 'status' } })
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         const typed = footer.createEl('button', { text: t('Check Typed Name', 'Проверить введённую колоду') })
         const check = footer.createEl('button', { text: t('Check Deck', 'Проверить колоду'), cls: 'mod-cta' })
         footer.createEl('button', { text: t('Cancel', 'Отмена') }).onclick = () => this.close()

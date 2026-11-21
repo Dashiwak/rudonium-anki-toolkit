@@ -355,7 +355,7 @@ class MigrationModal extends Modal {
                 const message = error instanceof Error ? error.message : String(error)
                 status.setText(t('Migration could not finish. Check the previous plugin and open the migration preview again.',
                     'Перенос не завершился. Проверьте прежний плагин и заново откройте окно переноса.') + ' ' + message)
-                status.style.color = 'var(--text-error)'
+                status.classList.add('rudonium-text-error')
             } finally { this.busy = false }
         }
         controls.createEl('button', { text: t('Check again', 'Проверить ещё раз') }).onclick =

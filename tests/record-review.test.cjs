@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Exercise production review controllers with a small desktop host and isolated Anki data.
 "use strict";
+const createClassList = require('./dom-class-list.cjs');
 const assert = require("node:assert/strict");
 const overlay = require("../Build/overlay-source.cjs");
 const { readFileSync } = require("node:fs");
@@ -14,7 +15,7 @@ class Element {
         this.tag = tag;
         this.text = options.text || "";
         this.children = [];
-        this.style = {};
+        this.classList = createClassList();
         this.ownerDocument = page;
         this.disabled = false;
         this.isConnected = true;

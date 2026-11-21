@@ -1,0 +1,60 @@
+name: Build review candidate
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/obsidian-review-0.10.4']
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - name: Run Rudonium regression tests
+        run: npm test
+      - name: Build from lockfile and compare two clean rebuilds
+        shell: pwsh
+        run: node Build/prepare-gitflic.cjs - "$env:RUNNER_TEMP/review-candidate"
+      - name: Retain verified candidate for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: rudonium-candidate-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/review-candidate/release/
+            ${{ runner.temp }}/review-candidate/install/
+          if-no-files-found: error
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - name: Install plugin dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install the official lint preset separately from the runtime lockfile
+        run: |
+          mkdir -p "$RUNNER_TEMP/review-tools"
+          npm install --prefix "$RUNNER_TEMP/review-tools" --ignore-scripts --no-audit --no-fund eslint@9.39.1 eslint-plugin-obsidianmd@0.4.2
+          cp eslint.config.mjs "$RUNNER_TEMP/review-tools/"
+      - name: Lint plugin sources, manifest and license
+        run: |
+          node "$RUNNER_TEMP/review-tools/node_modules/eslint/bin/eslint.js" --config "$RUNNER_TEMP/review-tools/eslint.config.mjs" main.ts 'src/**/*.ts' manifest.json LICENSE --format json --output-file "$RUNNER_TEMP/obsidian-eslint.json"
+      - name: Retain diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-eslint-${{ github.sha }}
+          path: ${{ runner.temp }}/obsidian-eslint.json
+          if-no-files-found: warn

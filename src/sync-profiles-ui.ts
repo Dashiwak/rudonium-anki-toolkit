@@ -87,7 +87,7 @@ class SyncProfilesModal extends Modal {
     }
 
     onOpen(): void {
-        this.modalEl.style.width = 'min(50rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-50rem')
         installModalLayout(this, uiFor(this.plugin.settings))
         this.showProfiles()
     }
@@ -119,10 +119,10 @@ class SyncProfilesModal extends Modal {
                         this.onChange()
                     })
                 }))
-            setting.descEl.style.overflowWrap = 'anywhere'
+            setting.descEl.classList.add('rudonium-wrap-anywhere')
         }
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         footer.createEl('button', { text: t('New Profile', 'Создать профиль'), cls: 'mod-cta' }).onclick = () => this.editProfile()
     }
 
@@ -133,7 +133,7 @@ class SyncProfilesModal extends Modal {
         this.contentEl.empty()
         const name = this.contentEl.createEl('label', { text: t('Profile name', 'Название профиля') }).createEl('input', { attr: { type: 'text' } })
         name.value = profile?.name ?? ''
-        Object.assign(name.style, { display: 'block', width: '100%', marginBlock: '0.3em 1em' })
+        name.classList.add('rudonium-sync-profiles-name')
         const rules = new Map<string, FolderRule>()
         for (const path of profile?.folders ?? []) rules.set(path, 'include')
         for (const path of profile?.excludedFolders ?? []) rules.set(path, 'exclude')
@@ -142,14 +142,13 @@ class SyncProfilesModal extends Modal {
                 'Выберите «Включить» или «Исключить» рядом с папкой. Правила действуют и для вложенных папок. Исключения имеют приоритет.'),
         })
         const summary = this.contentEl.createDiv()
-        Object.assign(summary.style, { display: 'grid', gap: '0.75em',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 14rem), 1fr))' })
+        summary.classList.add('rudonium-sync-profiles-summary')
         const included = summary.createDiv()
         const excluded = summary.createDiv()
         const treeHost = this.contentEl.createDiv()
         const status = this.contentEl.createEl('p', { attr: { role: 'status' } })
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         const save = footer.createEl('button', { text: t('Save Profile', 'Сохранить профиль'), cls: 'mod-cta' })
         const cancel = footer.createEl('button', { text: t('Cancel', 'Отмена') })
         const remove = profile ? footer.createEl('button', { text: t('Delete Profile', 'Удалить профиль'), cls: 'mod-warning' }) : undefined
@@ -165,16 +164,16 @@ class SyncProfilesModal extends Modal {
                 return
             }
             const selected = panel.createEl('ul')
-            Object.assign(selected.style, { maxHeight: 'min(19vh, 10rem)', overflowY: 'auto' })
+            selected.classList.add('rudonium-sync-profiles-selected')
             for (const path of paths) {
                 const missing = missingFolders(this.plugin, [path]).length > 0
                 const row = selected.createEl('li')
-                row.style.overflowWrap = 'anywhere'
+                row.classList.add('rudonium-wrap-anywhere')
                 row.createSpan({ text: `${path}${missing ? t(' (missing)', ' (отсутствует)') : ''} ` })
                 const parent = rule === 'include' ? excludingParent(path, rules) : undefined
                 if (parent) {
                     const detail = row.createEl('small', { text: t(`Excluded by ${parent} `, `Исключено правилом папки ${parent} `) })
-                    detail.style.color = 'var(--text-muted)'
+                    detail.classList.add('rudonium-text-muted')
                 }
                 const removal = rule === 'include' ? 'inclusion' : 'exclusion'
                 row.createEl('button', { text: t('Remove', 'Убрать'),
@@ -254,7 +253,7 @@ class SyncProfilesModal extends Modal {
         }
         const status = this.contentEl.createEl('p', { attr: { role: 'status' } })
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         const remove = footer.createEl('button', { text: t('Delete Profile', 'Удалить профиль'), cls: 'mod-warning' })
         const cancel = footer.createEl('button', { text: t('Cancel', 'Отмена') })
         cancel.onclick = () => this.editProfile(profile)
@@ -302,8 +301,8 @@ export function installSyncProfileSettings(container: HTMLElement, plugin: MyPlu
             : missing.length ? t(`Missing folders · ${missing.slice(0, 3).join(' · ')}`,
                 `Отсутствуют папки · ${missing.slice(0, 3).join(' · ')}`) : profileDescription(plugin, active, t)
         const setting = new Setting(root).setName(t('Sync Profile', 'Профиль папок')).setDesc(summary)
-        setting.descEl.style.overflowWrap = 'anywhere'
-        if (missing.length || (activeId && !active)) setting.descEl.style.color = 'var(--text-error)'
+        setting.descEl.classList.add('rudonium-wrap-anywhere')
+        if (missing.length || (activeId && !active)) setting.descEl.classList.add('rudonium-text-error')
         setting.addDropdown(dropdown => {
             dropdown.addOption('', t('Off (all folders)', 'Без профиля (все папки)'))
             for (const { id, name } of profiles) dropdown.addOption(id, name)

@@ -1,4 +1,7 @@
-# Building and releasing Rudonium 0.10.3 / Сборка и публикация
+# Building and releasing Rudonium / Сборка и публикация
+
+For the 0.10.4 review branch use the checked-out repository and its production lockfile. The public 0.10.3 installation instructions below refer to the previous release. [Review build / Сборка для проверки](docs/releases/0.10.4.md)
+
 
 Use Node.js 22.18 or later and npm. The project uses Obsidian to Anki 3.6.0 at commit `2dd39fefd26f3141a4e02105b1172a5a3eb2611f`. [Upstream source](https://github.com/ObsidianToAnki/Obsidian_to_Anki/tree/2dd39fefd26f3141a4e02105b1172a5a3eb2611f) · [Release notes](docs/releases/0.10.3.md)
 

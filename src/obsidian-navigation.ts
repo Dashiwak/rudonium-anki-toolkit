@@ -92,8 +92,8 @@ class RecordReviewView extends ItemView {
         this.contentEl.empty()
         this.settingsButton = undefined
         this.contentEl.append(review.titleEl, review.contentEl)
-        review.titleEl.style.paddingInlineEnd = '0'
-        Object.assign(review.contentEl.style, { maxHeight: 'none', overflow: 'visible' })
+        review.titleEl.classList.add('rudonium-docked-title')
+        review.contentEl.classList.add('rudonium-docked-content')
     }
 
     offerSettings(dialog?: SettingsDialog): void {

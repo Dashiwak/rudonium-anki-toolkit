@@ -17,3 +17,717 @@
 .anki-rotated {
     transform: rotate(-90deg);
 }
+
+/* Rudonium settings, review dialogs and notices. */
+.rudonium-settings-group { margin-block: .6rem; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m, 8px); }
+.rudonium-settings-group > summary { cursor: pointer; font-weight: var(--font-semibold, 600); padding: .65rem .8rem; }
+.rudonium-settings-group > summary:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.rudonium-settings-group > .rudonium-settings-group-body { padding: 0 .8rem .5rem; }
+.rudonium-settings-group-body > p:first-child { color: var(--text-muted); margin-block: .25rem .6rem; }
+.rudonium-settings-about { margin-block-start: 1.2rem; padding-block-start: .4rem; border-top: 1px solid var(--background-modifier-border); }
+.rudonium-settings-about .setting-item { padding-block: .55rem; }
+.anki-settings-disclosure[data-rudonium-settings-group] { margin-block: .75rem 1.25rem; }
+.anki-settings-disclosure[data-rudonium-settings-group] > summary { cursor: pointer; font-weight: var(--font-medium, 500); }
+.rudonium-settings-group-body .anki-note-type-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-block: .6rem; }
+.rudonium-settings-group-body .anki-note-type-refresh:empty { display: none; }
+
+.rudonium-wrap-anywhere {
+  overflow-wrap: anywhere;
+}
+
+.rudonium-anki-profile-field {
+  padding: 0.75rem;
+  border-radius: var(--radius-s);
+  background-color: var(--background-secondary);
+}
+
+.rudonium-anki-profile-value {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-modal-38rem {
+  width: min(38rem, calc(100vw - 2rem));
+}
+
+.rudonium-anki-profile-profile-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.rudonium-wrap-controls {
+  flex-wrap: wrap;
+}
+
+.rudonium-pre-line {
+  white-space: pre-line;
+}
+
+.rudonium-anki-profile-names {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-text-muted {
+  color: var(--text-muted);
+}
+
+.rudonium-anki-source-restore-preview {
+  max-height: min(35vh, 18rem);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-anki-source-restore-fields {
+  max-height: min(30vh, 15rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-full-width-field {
+  display: block;
+  width: 100%;
+}
+
+.rudonium-anki-source-restore-list {
+  display: block;
+  width: 100%;
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.rudonium-modal-48rem {
+  width: min(48rem, calc(100vw - 2rem));
+}
+
+.rudonium-text-error {
+  color: var(--text-error);
+}
+
+.rudonium-modal-56rem {
+  width: min(56rem, calc(100vw - 2rem));
+}
+
+.rudonium-block {
+  display: block;
+}
+
+.rudonium-audit-repair-group {
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+
+.rudonium-repair-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.rudonium-repair-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7em;
+  align-items: center;
+}
+
+.rudonium-audit-repair-viewport {
+  max-height: min(32vh, 18rem);
+  overflow: auto;
+  margin-block: 0.5em;
+}
+
+.rudonium-audit-repair-status {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+}
+
+.rudonium-audit-repair-pairs {
+  display: grid;
+  gap: 0.6em;
+  grid-template-columns: repeat(auto-fit,minmax(min(100%, 14rem),1fr));
+}
+
+.rudonium-audit-repair-pane {
+  padding: 0.5em;
+  min-width: 0;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.rudonium-repair-fields-list {
+  max-height: 12rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-repair-paged-list {
+  max-height: min(43vh, 25rem);
+  overflow: auto;
+}
+
+.rudonium-modal-62rem {
+  width: min(62rem, calc(100vw - 2rem));
+}
+
+.rudonium-full-width {
+  width: 100%;
+}
+
+.rudonium-max-full-width {
+  max-width: 100%;
+}
+
+.rudonium-selected-row {
+  background-color: var(--background-modifier-hover);
+}
+
+.rudonium-backup-list {
+  display: block;
+  width: 100%;
+  margin-block: 0.5rem;
+}
+
+.rudonium-backup-input {
+  display: block;
+  width: 100%;
+  margin-block: 0.35rem;
+}
+
+.rudonium-bidirectional-row {
+  color: var(--text-error);
+  overflow-wrap: anywhere;
+}
+
+.rudonium-bidirectional-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.65em;
+  margin-block: 0.5em;
+}
+
+.rudonium-bidirectional-pane {
+  min-width: 0;
+  padding: 0.65em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.rudonium-bidirectional-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-block-start: 0.35em;
+}
+
+.rudonium-bidirectional-item {
+  margin-block: 0.7em;
+}
+
+.rudonium-bidirectional-title {
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.rudonium-bidirectional-location {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-pre-wrap {
+  white-space: pre-wrap;
+}
+
+.rudonium-card-preview-metadata {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.3rem 1rem;
+}
+
+.rudonium-card-preview-description {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-text-warning {
+  color: var(--text-warning);
+}
+
+.rudonium-card-preview-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.rudonium-card-preview-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-block: 0.35em;
+}
+
+.rudonium-wrapped-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-card-preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+}
+
+.rudonium-card-preview-frame {
+  width: 100%;
+  height: clamp(12rem, 40vh, 25rem);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+}
+
+.rudonium-semibold {
+  font-weight: 600;
+}
+
+.rudonium-cloud-folder-check-list {
+  display: block;
+  width: 100%;
+  height: min(38vh, 18rem);
+  margin-block-start: 0.5em;
+}
+
+.rudonium-deck-routes-search {
+  display: block;
+  width: 100%;
+  margin-block: 0.25em;
+}
+
+.rudonium-deck-routes-list {
+  display: block;
+  width: 100%;
+  height: min(29vh, 12rem);
+  overflow-y: auto;
+  margin-block: 0.35em;
+  scrollbar-gutter: stable;
+}
+
+.rudonium-deck-routes-mode-select {
+  display: block;
+  max-width: 100%;
+  margin-block: 0.25em 0.6em;
+}
+
+.rudonium-deck-routes-folder-heading {
+  margin-block-start: 0;
+}
+
+.rudonium-default-deck-setting-list {
+  max-width: min(22rem, 45vw);
+}
+
+.rudonium-modal-54rem {
+  width: min(54rem, calc(100vw - 2rem));
+}
+
+.rudonium-duplicate-review-select {
+  margin-inline-start: 0.6em;
+}
+
+.rudonium-duplicate-review-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.8em;
+  margin-block: 0.8em;
+}
+
+.rudonium-duplicate-review-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 0.8em;
+  overflow-wrap: anywhere;
+}
+
+.rudonium-duplicate-review-heading {
+  font-size: 1em;
+  margin-block: 0 0.3em;
+}
+
+.rudonium-duplicate-review-description {
+  margin-inline-start: 0;
+  white-space: pre-wrap;
+}
+
+.rudonium-duplicate-highlight {
+  border-inline-start: 3px solid var(--interactive-accent);
+  padding-inline-start: 0.5em;
+}
+
+.rudonium-duplicate-review-open {
+  margin-block-start: 0.7em;
+}
+
+.rudonium-export-journal-dialog {
+  width: min(60rem, 94vw);
+}
+
+.rudonium-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-block-start: 0.6em;
+}
+
+.rudonium-export-review-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.rudonium-export-error-item {
+  color: var(--text-error);
+  overflow-wrap: anywhere;
+}
+
+.rudonium-export-list-item {
+  margin-block: 0.65em;
+}
+
+.rudonium-modal-52rem {
+  width: min(52rem, calc(100vw - 2rem));
+}
+
+.rudonium-export-review-message {
+  color: var(--text-error);
+  overflow-wrap: anywhere;
+}
+
+.rudonium-modal-58rem {
+  width: min(58rem, calc(100vw - 2rem));
+}
+
+.rudonium-first-connection-card {
+  margin: .8rem 0;
+  padding: .8rem 1rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.rudonium-first-connection-form {
+  border: 0;
+  padding: 0;
+}
+
+.rudonium-folder-tree-search {
+  display: block;
+  width: 100%;
+  margin-block: 0.25em 0.5em;
+}
+
+.rudonium-folder-tree-viewport {
+  max-height: min(38vh, 19rem);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 0.3em;
+  margin-block: 0.35em;
+}
+
+.rudonium-folder-tree-list {
+  margin: 0;
+  padding: 0;
+  padding-inline-start: 0;
+  list-style: none;
+}
+
+.rudonium-folder-tree-row {
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.16rem 0.2rem;
+}
+
+.rudonium-folder-tree-toggle {
+  padding: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.rudonium-frozen-fields-holder {
+  flex-wrap: wrap;
+  gap: .5em;
+}
+
+.rudonium-local-image-optimization-list {
+  display: block;
+  width: 100%;
+  margin-block: 0.35em;
+}
+
+.rudonium-image-results {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.rudonium-local-image-optimization-label {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-block: 0.45em;
+}
+
+.rudonium-local-image-optimization-scope {
+  margin-inline-start: 0.5em;
+}
+
+.rudonium-local-image-optimization-search {
+  margin-inline-start: 0.5em;
+}
+
+.rudonium-local-image-optimization-select-all {
+  margin-inline-end: 0.4em;
+}
+
+.rudonium-modal-layout-control {
+  position: absolute;
+  inset-block-start: var(--size-4-2, 8px);
+  inset-inline-end: var(--size-4-9, 36px);
+  inline-size: var(--size-4-6, 24px);
+  block-size: var(--size-4-6, 24px);
+  padding: 0;
+}
+
+.rudonium-modal-title {
+  padding-inline-end: var(--size-4-12, 48px);
+}
+
+.rudonium-docked-content {
+  max-height: none;
+  overflow: visible;
+}
+
+.rudonium-docked-title {
+  padding-inline-end: 0;
+}
+
+.rudonium-page-migration-pre {
+  white-space: pre-wrap;
+  max-height: 16em;
+  overflow: auto;
+}
+
+.rudonium-page-migration-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14em;
+  overflow: auto;
+}
+
+.rudonium-page-migration-row {
+  display: block;
+  margin-block: .65em;
+}
+
+.rudonium-page-migration-line {
+  margin-block: .5em;
+}
+
+.rudonium-hidden,
+button.rudonium-hidden,
+[hidden].rudonium-hidden {
+  display: none;
+}
+
+.rudonium-settings-search-label {
+  display: flex;
+  align-items: center;
+  gap: .35em;
+}
+
+.rudonium-settings-search-input {
+  min-width: 0;
+  width: 100%;
+}
+
+.rudonium-folder-tree-row.rudonium-settings-search-row {
+  grid-template-columns: 1.4rem minmax(0, 1fr) minmax(4rem, .85fr);
+}
+
+.rudonium-modal-50rem {
+  width: min(50rem, calc(100vw - 2rem));
+}
+
+.rudonium-sync-audit-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+  margin-block-start: 0.3em;
+}
+
+.rudonium-sync-audit-details {
+  margin-block: 0.6em;
+}
+
+.rudonium-sync-audit-heading {
+  color: var(--text-error);
+  font-weight: var(--font-semibold);
+}
+
+.rudonium-sync-audit-row {
+  margin-block: 0.65em;
+}
+
+.rudonium-sync-audit-status {
+  border-inline-start: 4px solid var(--text-error);
+  padding-inline-start: 0.7em;
+}
+
+.rudonium-sync-deck-picker-list {
+  display: block;
+  width: 100%;
+  height: min(42vh, 20rem);
+  max-height: 42vh;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 0.25em;
+  color: var(--text-normal);
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.rudonium-modal-42rem {
+  width: min(42rem, calc(100vw - 2rem));
+}
+
+.rudonium-sync-deck-picker-search {
+  display: block;
+  width: 100%;
+  margin-block-start: 0.4em;
+}
+
+.rudonium-sync-difference-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.8em;
+  margin-block: 0.7em;
+}
+
+.rudonium-sync-difference-pane {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 0.7em;
+  min-width: 0;
+}
+
+.rudonium-sync-difference-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-block-start: 0.45em;
+}
+
+.rudonium-sync-difference-select {
+  margin-inline-start: 0.6em;
+  max-width: 100%;
+}
+
+.rudonium-sync-difference-actions {
+  display: flex;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+
+.rudonium-sync-profiles-name {
+  display: block;
+  width: 100%;
+  margin-block: 0.3em 1em;
+}
+
+.rudonium-sync-profiles-summary {
+  display: grid;
+  gap: 0.75em;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+}
+
+.rudonium-sync-profiles-selected {
+  max-height: min(19vh, 10rem);
+  overflow-y: auto;
+}
+
+.rudonium-zip-import-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 55vh;
+  overflow: auto;
+}
+
+.rudonium-zip-import-panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: 1rem;
+}
+
+.rudonium-zip-import-image {
+  max-width: 100%;
+  max-height: 45vh;
+  object-fit: contain;
+}
+
+.rudonium-zip-import-folder {
+  display: block;
+  width: 100%;
+  margin-block: 0.4rem 1rem;
+}
+
+.rudonium-zip-import-output {
+  display: block;
+  width: 100%;
+  margin-block: 0.4rem 1rem;
+}
+
+.rudonium-zip-import-filter {
+  width: 100%;
+  margin-block: 0.5rem;
+}
+
+.rudonium-zip-import-scroll {
+  overflow: auto;
+  max-height: 45vh;
+}
+
+.rudonium-shrink {
+  min-width: 0;
+}
+
+.rudonium-zip-import-line {
+  background-color: var(--background-modifier-error);
+}
+
+.rudonium-modal-72rem {
+  width: min(72rem, calc(100vw - 2rem));
+}
+
+.rudonium-modal-64rem {
+  width: min(64rem, calc(100vw - 2rem));
+}
+
+.rudonium-zip-import-source {
+  width: min(26rem, 60vw);
+}
+
+
+/* Preserve the table's original block layout when the disclosure opens. */
+.anki-settings-table.rudonium-settings-expanded { display: block; }
+.rudonium-folder-list-indented.rudonium-folder-tree-list { padding-inline-start: 0.8rem; }
+.rudonium-ignore-pointer { pointer-events: none; }
+/* This state overrides the normal role-specific modal width until the user restores it. */
+.modal.rudonium-modal-expanded {
+  width: calc(100vw - 1rem);
+  max-width: calc(100vw - 1rem);
+  height: calc(100vh - 1rem);
+  max-height: calc(100vh - 1rem);
+}
+.rudonium-archived-card-body { text-decoration-line: line-through; text-decoration-color: var(--text-muted); }
+.rudonium-archived-card-body .rudonium-archived-card-status { display: inline-block; text-decoration-line: none; }

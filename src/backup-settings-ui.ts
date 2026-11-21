@@ -47,21 +47,21 @@ class VaultRestoreModal extends Modal {
             text: t('Use the same Obsidian ZIP for file transfer or restore it to a new folder. Transfer opens a comparison and never replaces files automatically. Anki.zip is a separate collection backup and is restored in Anki.', 'Один ZIP Obsidian подходит и для переноса файлов, и для восстановления в новую папку. Перенос открывает сравнение и не заменяет файлы автоматически. Anki.zip — отдельная копия коллекции для восстановления в Anki.'),
         })
         const list = this.contentEl.createEl('select', { attr: { 'aria-label': t('Available vault backups', 'Доступные резервные копии') } })
-        Object.assign(list.style, { display: 'block', width: '100%', marginBlock: '0.5rem' })
+        list.classList.add('rudonium-backup-list')
         list.disabled = true
         list.createEl('option', { text: t('Loading vault backups…', 'Загрузка списка резервных копий…'), value: '' })
         const label = this.contentEl.createEl('label', { text: t('Backup ZIP path', 'Путь к ZIP-архиву') })
         const input = label.createEl('input', {
             attr: { type: 'text', placeholder: t('Paste an absolute path to the ZIP file', 'Вставьте полный путь к ZIP-файлу'), spellcheck: 'false' },
         })
-        Object.assign(input.style, { display: 'block', width: '100%', marginBlock: '0.35rem' })
+        input.classList.add('rudonium-backup-input')
         const status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
-        status.style.overflowWrap = 'anywhere'
+        status.classList.add('rudonium-wrap-anywhere')
         const details = this.contentEl.createEl('p')
-        details.style.overflowWrap = 'anywhere'
+        details.classList.add('rudonium-wrap-anywhere')
         const saved = new Map<string, SavedVaultBackup>()
         const actions = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        actions.style.flexWrap = 'wrap'
+        actions.classList.add('rudonium-wrap-controls')
         const restore = actions.createEl('button', { text: t('Restore to New Folder', 'Восстановить в новую папку'), cls: 'mod-cta' })
         const transfer = this.actions.transfer ? actions.createEl('button', { text: t('Use for Transfer', 'Использовать для переноса') }) : undefined
         let restoring = false
@@ -95,7 +95,7 @@ class VaultRestoreModal extends Modal {
             if (restore.disabled) return
             restoring = true
             const path = unpackPath(input.value)
-            status.style.color = ''
+            status.classList.remove('rudonium-text-error')
             status.setText(t('Restoring and verifying your ZIP…', 'Восстановление и проверка ZIP-архива…'))
             update()
             try {
@@ -107,7 +107,7 @@ class VaultRestoreModal extends Modal {
                 this.contentEl.empty()
                 this.contentEl.createEl('p', { text: t('Open the restored folder in Obsidian using Open folder as vault.', 'Откройте восстановленную папку командой Obsidian «Открыть папку как хранилище».') })
                 const result = this.contentEl.createEl('p', { text: folder, attr: { role: 'status' } })
-                result.style.overflowWrap = 'anywhere'
+                result.classList.add('rudonium-wrap-anywhere')
                 const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
                 const copy = footer.createEl('button', { text: t('Copy Folder Path', 'Скопировать путь к папке') })
                 copy.onclick = async () => {
@@ -124,7 +124,7 @@ class VaultRestoreModal extends Modal {
                     new Notice(t(`Could not restore the vault. ${reason}`, `Не удалось восстановить хранилище. ${reason}`), 12000)
                     return
                 }
-                status.style.color = 'var(--text-error)'
+                status.classList.add('rudonium-text-error')
                 status.setText(reason)
             } finally {
                 restoring = false
@@ -180,7 +180,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
         ? createSettingsGroup(container, plugin, 'backup-recovery', t('Backup and Recovery', 'Резервное копирование и восстановление'))
         : container.createDiv({ cls: 'anki-vault-backup' })
     section.addClass('anki-vault-backup')
-    if (!embedded) section.createEl('h3', { text: t('Backup and Recovery', 'Резервное копирование и восстановление') })
+    if (!embedded) new Setting(section).setName(t('Backup and Recovery', 'Резервное копирование и восстановление')).setHeading()
     section.createEl('p', { text: t('Obsidian.zip is also a transfer archive. It is a complete snapshot of its saved scope, even when transfer packages use Only changed files.',
         'Obsidian.zip подходит и для переноса. Копия содержит полный снимок выбранной области, даже если для переносимых пакетов включено «Только изменённые файлы».') })
     let auto!: ToggleComponent
@@ -268,7 +268,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
             button.onClick(() => { if (latestBackupPath && !transferButton?.disabled) actions.transfer?.(latestBackupPath) })
         })
     const status = section.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
-    status.style.overflowWrap = 'anywhere'
+    status.classList.add('rudonium-wrap-anywhere')
 
     for (const input of [interval, directory]) {
         input.oninput = () => { feedback = undefined; render() }
@@ -306,7 +306,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
             const archive = readArchiveSettings(plugin.settings.ARCHIVE_TRANSFER)
             selectedScope.setValue(archive.useForBackups)
             selectedScope.setDisabled(busy)
-            scopeDescription.style.color = ''
+            scopeDescription.classList.remove('rudonium-text-error')
             scopeDescription.setText(archive.useForBackups ? t(
                 `Selected backup · ${archive.includeFolders.length ? archive.includeFolders.join(', ') : 'all visible folders'} · exclusions ${archive.excludeFolders.length} · ${archive.includeAttachments ? 'with attachments' : 'Markdown only'}. Restore and transfer can use only these saved files.`,
                 `Выборочная копия · ${archive.includeFolders.length ? archive.includeFolders.join(', ') : 'все обычные папки'} · исключений ${archive.excludeFolders.length} · ${archive.includeAttachments ? 'с вложениями' : 'только Markdown'}. Для восстановления и переноса доступны только вошедшие в копию файлы.`)
@@ -314,7 +314,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
                     'Полная копия · все файлы и настройки хранилища. При переносе импортируются заметки и поддерживаемые вложения без замены настроек.'))
         } catch (error) {
             selectedScope.setDisabled(true)
-            scopeDescription.style.color = 'var(--text-error)'
+            scopeDescription.classList.add('rudonium-text-error')
             scopeDescription.setText(uiDiagnostic(error, t))
         }
         interval.disabled = directory.disabled = busy
@@ -323,7 +323,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
         saveButton.disabled = busy || !valid || !edited
         backupButton.disabled = restoreButton.disabled = busy || !valid || edited
         if (transferButton) transferButton.disabled = busy || !latestBackupPath
-        status.style.color = (!valid || feedback?.error) && !busy ? 'var(--text-error)' : ''
+        status.classList.toggle('rudonium-text-error', Boolean((!valid || feedback?.error) && !busy))
         status.setText(saving ? t('Saving…', 'Сохранение…') : backingUp ? t('Creating and verifying the backup…', 'Создание и проверка резервной копии…')
             : !valid ? t(`Enter a whole number from 1 to ${maxDays} and use an absolute folder path.`, `Введите целое число от 1 до ${maxDays} и полный путь к папке.`)
                 : feedback?.message ?? (edited ? t('Save the backup options before running a backup or restore.', 'Сохраните параметры перед копированием или восстановлением.') : ''))

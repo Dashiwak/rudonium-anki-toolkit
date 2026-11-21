@@ -245,8 +245,7 @@ class FirstConnectionModal extends Modal {
         }
         const form = contentEl.createEl('fieldset')
         form.disabled = busy
-        form.style.border = '0'
-        form.style.padding = '0'
+        form.classList.add('rudonium-first-connection-form')
         form.createEl('legend', { text: t(`Anki profile · ${connection.profile}`, `Профиль Anki · ${connection.profile}`) })
         const dropdown = (label: string, items: readonly string[], value: string, change: (value: string) => void) =>
             new Setting(form).setName(label).addDropdown(control => {
@@ -312,7 +311,7 @@ class FirstConnectionModal extends Modal {
                 exampleBlock(this.plugin.settings?.Syntax, choice.model, connection.fields[choice.model], choice.front, choice.back) })
         }
         const card = form.createEl('section')
-        card.style.cssText = 'margin: .8rem 0; padding: .8rem 1rem; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m);'
+        card.classList.add('rudonium-first-connection-card')
         const refreshCard = () => {
             card.empty()
             const values = this.exampleValues(choice)

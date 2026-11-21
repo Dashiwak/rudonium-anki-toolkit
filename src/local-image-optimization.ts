@@ -281,7 +281,7 @@ class LocalImageModal extends Modal {
     onOpen(): void {
         const { t } = this
         this.titleEl.setText(t('Optimize Images in Obsidian', 'Оптимизация изображений в Obsidian'))
-        this.modalEl.style.width = 'min(52rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-52rem')
         installModalLayout(this, t)
         this.picker()
     }
@@ -294,7 +294,7 @@ class LocalImageModal extends Modal {
 
     private footer(): HTMLElement {
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         return footer
     }
 
@@ -312,14 +312,14 @@ class LocalImageModal extends Modal {
         scope.createEl('option', { value: 'profile', text: t('Linked from the current Sync Profile', 'Связаны с заметками текущего профиля синхронизации') })
         scope.createEl('option', { value: 'folder', text: t('Stored in a folder and its subfolders', 'Лежат в выбранной папке и её подпапках') })
         scope.value = 'profile'
-        scope.style.marginInlineStart = '0.5em'
+        scope.classList.add('rudonium-local-image-optimization-scope')
         const folderPanel = this.contentEl.createDiv()
         folderPanel.hidden = true
         const search = folderPanel.createEl('label', { text: t('Search folders', 'Поиск папок') })
             .createEl('input', { attr: { type: 'search', autocomplete: 'off' } })
-        search.style.marginInlineStart = '0.5em'
+        search.classList.add('rudonium-local-image-optimization-search')
         const list = folderPanel.createEl('select', { attr: { size: 7, 'aria-label': t('Folder', 'Папка') } })
-        Object.assign(list.style, { display: 'block', width: '100%', marginBlock: '0.35em' })
+        list.classList.add('rudonium-local-image-optimization-list')
         const more = folderPanel.createEl('button', { text: t('Show More Folders', 'Показать ещё папки') })
         const footer = this.footer()
         const preview = footer.createEl('button', { text: t('Preview Images', 'Предпросмотр изображений'), cls: 'mod-cta' })
@@ -378,11 +378,11 @@ class LocalImageModal extends Modal {
         const controls = this.contentEl.createDiv()
         const selectAll = controls.createEl('button', { text: t('Select All', 'Выбрать все') })
         const clear = controls.createEl('button', { text: t('Clear Selection', 'Снять выделение') })
-        selectAll.style.marginInlineEnd = '0.4em'
+        selectAll.classList.add('rudonium-local-image-optimization-select-all')
         controls.hidden = !preview.rows.length
         const status = this.contentEl.createEl('p', { attr: { role: 'status' } })
         const list = this.contentEl.createDiv()
-        Object.assign(list.style, { maxHeight: '45vh', overflowY: 'auto' })
+        list.classList.add('rudonium-image-results')
         const more = this.contentEl.createEl('button', { text: t('Show More Images', 'Показать ещё изображения') })
         const footer = this.footer()
         footer.createEl('button', { text: t('Back', 'Назад') }).onclick = () => this.picker()
@@ -402,12 +402,12 @@ class LocalImageModal extends Modal {
             for (; shown < limit; shown++) {
                 const row = preview.rows[shown]
                 const label = list.createEl('label')
-                Object.assign(label.style, { display: 'block', overflowWrap: 'anywhere', marginBlock: '0.45em' })
+                label.classList.add('rudonium-local-image-optimization-label')
                 const input = label.createEl('input', { attr: { type: 'checkbox', 'aria-label': row.path } })
                 label.createEl('strong', { text: ` ${row.path}` })
                 label.createEl('span', {
                     text: `${row.originalWidth} × ${row.originalHeight} → ${row.width} × ${row.height} · ${formatBytes(row.before)} → ${formatBytes(row.after)}`,
-                }).style.display = 'block'
+                }).classList.add('rudonium-block')
                 if (row.references.length) {
                     const uses = label.createEl('small', { text: t(`${row.references.length} linked notes · ${row.references.slice(0, 5).join(' · ')}`, `Связанных заметок: ${row.references.length} · ${row.references.slice(0, 5).join(' · ')}`) })
                     uses.title = row.references.length > 5 ? t('First five linked notes shown', 'Показаны первые пять связанных заметок') : ''
@@ -453,7 +453,7 @@ class LocalImageModal extends Modal {
         confirm.createEl('h3', { text: t(`Replace ${selected.length} original ${selected.length === 1 ? 'image' : 'images'}?`, `Заменить оригиналы? Выбрано изображений: ${selected.length}.`) })
         confirm.createEl('p', { text: t('Obsidian will keep the existing paths. The backup folder will be created beside the vault.', 'Исходные пути сохранятся. Папка резервных копий будет создана рядом с хранилищем.') })
         const footer = confirm.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         const back = footer.createEl('button', { text: t('Back to Selection', 'Вернуться к выбору') })
         back.onclick = () => {
             confirm.remove()
@@ -478,7 +478,7 @@ class LocalImageModal extends Modal {
             }
             this.contentEl.empty()
             this.contentEl.createEl('p', { text: summary })
-            if (result.backup) this.contentEl.createEl('p', { text: t(`Backups: ${result.backup}`, `Резервные копии: ${result.backup}`) }).style.overflowWrap = 'anywhere'
+            if (result.backup) this.contentEl.createEl('p', { text: t(`Backups: ${result.backup}`, `Резервные копии: ${result.backup}`) }).classList.add('rudonium-wrap-anywhere')
             this.showIssues(result.issues)
             const footer = this.footer()
             footer.createEl('button', { text: t('Check More Images', 'Проверить другие изображения') }).onclick = () => this.picker()
@@ -499,7 +499,7 @@ class LocalImageModal extends Modal {
             const limit = Math.min(shown + pageSize, issues.length)
             for (; shown < limit; shown++) {
                 const issue = issues[shown]
-                list.createEl('li', { text: `${issue.path} · ${issue.message}` }).style.overflowWrap = 'anywhere'
+                list.createEl('li', { text: `${issue.path} · ${issue.message}` }).classList.add('rudonium-wrap-anywhere')
             }
             more.hidden = shown === issues.length
         }

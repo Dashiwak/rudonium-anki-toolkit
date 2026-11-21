@@ -57,7 +57,7 @@ class ArchiveFoldersModal extends Modal {
         const { plugin, contentEl, draft } = this
         const t = uiFor(plugin.settings)
         this.titleEl.setText(t('Archive Folder Selection', 'Папки для архивирования'))
-        this.modalEl.style.width = 'min(56rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-56rem')
         installModalLayout(this, t)
         contentEl.createEl('p', { text: t(
             'Include several folders and exclude subfolders such as Photos. An included folder includes its descendants. Exclusions always take precedence. With no included folders, all vault folders are considered.',
@@ -65,7 +65,7 @@ class ArchiveFoldersModal extends Modal {
         const summary = contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
         const preview = contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
         const feedback = contentEl.createEl('p', { attr: { role: 'alert' } })
-        feedback.style.overflowWrap = 'anywhere'
+        feedback.classList.add('rudonium-wrap-anywhere')
         const found = vaultFolderEntries(plugin.app.vault)
         const known = new Set(found.map(entry => entry.path))
         const entries = [...found]
@@ -112,7 +112,7 @@ class ArchiveFoldersModal extends Modal {
                     control.createEl('option', { value: 'exclude', text: t('Exclude', 'Исключить') })
                     control.value = draft.excludeFolders.includes(entry.path) ? 'exclude' : draft.includeFolders.includes(entry.path) ? 'include' : 'inherit'
                     const indicator = label.createEl('small')
-                    indicator.style.display = 'block'
+                    indicator.classList.add('rudonium-block')
                     indicator.setText(archivePathIncluded(`${entry.path}/archive-example.md`, draft)
                         ? t('Included', 'Входит в архив') : t('Excluded', 'Пропускается'))
                     indicators.set(entry.path, { select: control, label: indicator })
@@ -192,11 +192,11 @@ export function installArchiveSettings(container: HTMLElement, plugin: MyPlugin,
     }
     const render = () => {
         section.empty()
-        section.createEl('h4', { text: t('Transfer contents', 'Состав переноса') })
+        new Setting(section).setName(t('Transfer contents', 'Состав переноса')).setHeading()
         let current: ArchiveTransferSettings
         try { current = readArchiveSettings(plugin.settings.ARCHIVE_TRANSFER) }
         catch (error) {
-            section.createEl('p', { text: uiDiagnostic(error, t), attr: { role: 'alert' } }).style.color = 'var(--text-error)'
+            section.createEl('p', { text: uiDiagnostic(error, t), attr: { role: 'alert' } }).classList.add('rudonium-text-error')
             section.createEl('p', { text: t('Reset only the archive selection to use all visible folders again.',
                 'Сбросьте только параметры архива, чтобы снова выбирать из всех обычных папок.') })
             const reset = section.createEl('button', { text: t('Reset Archive Settings', 'Сбросить параметры архива') })

@@ -95,7 +95,7 @@ class AuditRepairModal extends ReviewModal {
     }
 
     onOpen(): void {
-        this.modalEl.style.width = 'min(62rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-62rem')
         installModalLayout(this, this.t)
         this.titleEl.setText(this.t('Repair Sync Audit Findings', 'Исправить расхождения Obsidian и Anki'))
         void this.load()
@@ -111,12 +111,12 @@ class AuditRepairModal extends ReviewModal {
         const profile = this.result.ankiProfile
         const desc = profile && 'active' in profile ? t(`Deck ${this.result.deck} · Profile ${profile.active}`,
             `Колода «${this.result.deck}» · Профиль «${profile.active}»`) : this.result.deck
-        this.contentEl.createEl('p', { text: desc }).style.overflowWrap = 'anywhere'
+        this.contentEl.createEl('p', { text: desc }).classList.add('rudonium-wrap-anywhere')
     }
 
     private buttons(parent: HTMLElement = this.contentEl): HTMLElement {
         const group = parent.createDiv({ cls: 'modal-button-container' })
-        Object.assign(group.style, { flexWrap: 'wrap', gap: '0.4em' })
+        group.classList.add('rudonium-audit-repair-group')
         return group
     }
 
@@ -190,7 +190,7 @@ class AuditRepairModal extends ReviewModal {
         this.focusTargets.clear()
         this.contentEl.empty()
         this.titleLine()
-        if (error) this.contentEl.createEl('p', { text: error, attr: { role: 'alert' } }).style.color = 'var(--text-error)'
+        if (error) this.contentEl.createEl('p', { text: error, attr: { role: 'alert' } }).classList.add('rudonium-text-error')
         const rows = this.data?.rows ?? []
         if (rows.length) {
             const index = Math.max(0, rows.findIndex(row => row.id === this.selectedRow))
@@ -215,7 +215,7 @@ class AuditRepairModal extends ReviewModal {
     private recordNavigation(rows: readonly AuditRepairRow[], index: number): void {
         const t = this.t
         const bar = this.contentEl.createDiv()
-        Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5em' })
+        bar.classList.add('rudonium-repair-navigation')
         if (!this.batch) {
             const step = (label: string, position: number) => {
                 const button = bar.createEl('button', { text: label })
@@ -245,7 +245,7 @@ class AuditRepairModal extends ReviewModal {
     private table(rows: readonly AuditRepairRow[]): void {
         const t = this.t
         const bar = this.contentEl.createDiv()
-        Object.assign(bar.style, { display: 'flex', flexWrap: 'wrap', gap: '0.7em', alignItems: 'center' })
+        bar.classList.add('rudonium-repair-selection-bar')
         const allLabel = bar.createEl('label', { text: t('Select All Records', 'Выбрать все записи') })
         const all = allLabel.createEl('input', { attr: { type: 'checkbox', 'aria-label': t('Select All Records', 'Выбрать все записи') } })
         this.focusTargets.set('all', all)
@@ -276,16 +276,16 @@ class AuditRepairModal extends ReviewModal {
         const scroll = this.tableViewport?.scrollTop ?? 0
         const viewport = this.contentEl.createDiv()
         this.tableViewport = viewport
-        Object.assign(viewport.style, { maxHeight: 'min(32vh, 18rem)', overflow: 'auto', marginBlock: '0.5em' })
+        viewport.classList.add('rudonium-audit-repair-viewport')
         const table = viewport.createEl('table', { attr: { 'aria-label': t('Missing ID records', 'Записи с отсутствующими ID') } })
-        table.style.width = '100%'
+        table.classList.add('rudonium-full-width')
         const caption = table.createEl('thead').createEl('tr')
         for (const label of [t('Select', 'Выбор'), 'Obsidian', 'Anki']) caption.createEl('th', { text: label, attr: { scope: 'col' } })
         const body = table.createEl('tbody')
         for (const row of rows.slice(this.page * pageSize, (this.page + 1) * pageSize)) {
             const active = row.id === this.selectedRow
             const line = body.createEl('tr')
-            if (active) line.style.backgroundColor = 'var(--background-modifier-hover)'
+            if (active) line.classList.add('rudonium-selected-row')
             const label = t(`Select note ID ${row.id}`, `Выбрать запись ID ${row.id}`)
             const selection = line.createEl('td').createEl('input', { attr: { type: 'checkbox', 'aria-label': label } })
             this.focusTargets.set(`select-${row.id}`, selection)
@@ -303,8 +303,8 @@ class AuditRepairModal extends ReviewModal {
             this.focusTargets.set(`row-${row.id}`, details)
             details.onclick = () => { this.selectedRow = row.id; this.render(undefined, `row-${row.id}`) }
             if (row.source) {
-                if (row.source.firstField) name.createDiv({ text: fieldExcerpt(row.source.firstField) }).style.overflowWrap = 'anywhere'
-            } else if (row.issue) name.createDiv({ text: row.issue }).style.overflowWrap = 'anywhere'
+                if (row.source.firstField) name.createDiv({ text: fieldExcerpt(row.source.firstField) }).classList.add('rudonium-wrap-anywhere')
+            } else if (row.issue) name.createDiv({ text: row.issue }).classList.add('rudonium-wrap-anywhere')
             const candidate = this.chooseCandidate(row)
             const cell = line.createEl('td')
             if (candidate) cell.setText(`ID ${candidate.id}`)
@@ -327,10 +327,10 @@ class AuditRepairModal extends ReviewModal {
         const heading = details.createEl('h3', { text: `ID ${row.id}`, attr: { tabindex: '-1' } })
         this.focusTargets.set('record', heading)
         this.focusTargets.set(`row-${row.id}`, this.focusTargets.get(`row-${row.id}`) ?? heading)
-        if (row.source) details.createEl('small', { text: location(row, t) }).style.overflowWrap = 'anywhere'
+        if (row.source) details.createEl('small', { text: location(row, t) }).classList.add('rudonium-wrap-anywhere')
         if (row.source?.wholePage) details.createEl('p', { text: t('This card uses the whole page. Edit its text in Obsidian.',
             'Карточка занимает всю страницу. Изменить её текст можно в Obsidian.') })
-        if (row.issue) details.createEl('p', { text: row.issue, attr: { role: 'status' } }).style.overflowWrap = 'anywhere'
+        if (row.issue) details.createEl('p', { text: row.issue, attr: { role: 'status' } }).classList.add('rudonium-wrap-anywhere')
         const controls = this.buttons(details)
         const sourceButton = controls.createEl('button', { text: t('Show Record in Obsidian', 'Показать запись в Obsidian') })
         const source = row.source
@@ -357,7 +357,7 @@ class AuditRepairModal extends ReviewModal {
         }
         if (source && !row.issue) {
             const status = details.createEl('p', { attr: { role: 'status' } })
-            Object.assign(status.style, { display: 'flex', gap: '0.5em', alignItems: 'center' })
+            status.classList.add('rudonium-audit-repair-status')
             const icon = status.createSpan({ attr: { 'aria-hidden': 'true' } })
             setIcon(icon, chosen?.eligible ? 'link' : row.candidates.length ? 'list' : 'unlink')
             status.createSpan({ text: chosen?.eligible ? t(`Anki match · ID ${chosen.id}`, `Совпадение в Anki · ID ${chosen.id}`)
@@ -369,7 +369,7 @@ class AuditRepairModal extends ReviewModal {
             const label = details.createEl('label', { text: name })
             const choice = label.createEl('select', { attr: { 'aria-label': name } })
             this.focusTargets.set('candidate', choice)
-            choice.style.maxWidth = '100%'
+            choice.classList.add('rudonium-max-full-width')
             choice.createEl('option', { value: '', text: t('Choose an Anki record', 'Выберите запись Anki') })
             for (const candidate of row.candidates) {
                 choice.createEl('option', { value: String(candidate.id), text: `ID ${candidate.id} · ${candidate.modelName}` })
@@ -380,16 +380,16 @@ class AuditRepairModal extends ReviewModal {
                 this.render(undefined, 'candidate')
             }
         }
-        if (chosen?.reason) details.createEl('p', { text: chosen.reason }).style.overflowWrap = 'anywhere'
+        if (chosen?.reason) details.createEl('p', { text: chosen.reason }).classList.add('rudonium-wrap-anywhere')
         if (source && chosen) {
             const fields = differentFields(source.fields, chosen.fields)
             details.createEl('p', { text: fields.length ? t(`Different fields · ${fields.join(', ')}`, `Различаются поля · ${fields.join(', ')}`)
-                : t('All compared fields match.', 'Все сравниваемые поля совпадают.') }).style.overflowWrap = 'anywhere'
+                : t('All compared fields match.', 'Все сравниваемые поля совпадают.') }).classList.add('rudonium-wrap-anywhere')
         }
         const first = source?.firstField
         if (first || chosen) {
             const pairs = details.createDiv()
-            Object.assign(pairs.style, { display: 'grid', gap: '0.6em', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%, 14rem),1fr))' })
+            pairs.classList.add('rudonium-audit-repair-pairs')
             if (source && first) this.fieldPanel(pairs, 'Obsidian', first, source.fields)
             if (chosen) this.fieldPanel(pairs, `Anki · ID ${chosen.id}`, chosen.firstField, chosen.fields)
         }
@@ -398,13 +398,13 @@ class AuditRepairModal extends ReviewModal {
     private fieldPanel(parent: HTMLElement, system: string, first: string, fields: Readonly<Record<string, string>>): void {
         const t = this.t
         const pane = parent.createDiv()
-        Object.assign(pane.style, { padding: '0.5em', minWidth: '0', border: '1px solid var(--background-modifier-border)' })
+        pane.classList.add('rudonium-audit-repair-pane')
         pane.createEl('strong', { text: system })
-        pane.createEl('p', { text: fieldExcerpt(first) }).style.overflowWrap = 'anywhere'
+        pane.createEl('p', { text: fieldExcerpt(first) }).classList.add('rudonium-wrap-anywhere')
         const detail = pane.createEl('details')
         detail.createEl('summary', { text: t('All Fields', 'Все поля') })
         const list = detail.createEl('dl')
-        Object.assign(list.style, { maxHeight: '12rem', overflow: 'auto', overflowWrap: 'anywhere' })
+        list.classList.add('rudonium-repair-fields-list')
         for (const [name, value] of Object.entries(fields)) {
             list.createEl('dt', { text: name })
             const text = fieldText(value) || value
@@ -469,7 +469,7 @@ class AuditRepairModal extends ReviewModal {
         this.pagedList(rows, (list, { row, candidateId }) => {
             const candidate = candidateId === undefined ? '' : ` → Anki ID ${candidateId}`
             const item = list.createEl('li', { text: `ID ${row.id}${candidate} · ${location(row, t)}` })
-            item.style.overflowWrap = 'anywhere'
+            item.classList.add('rudonium-wrap-anywhere')
             if (row.source?.firstField) item.createDiv({ text: fieldExcerpt(row.source.firstField) })
             const target = row.candidates.find(note => note.id === candidateId)
             if (row.source && target) {
@@ -486,7 +486,7 @@ class AuditRepairModal extends ReviewModal {
     private pagedList<T>(items: readonly T[], append: (list: HTMLElement, item: T) => void): void {
         const t = this.t
         const list = this.contentEl.createEl('ul')
-        Object.assign(list.style, { maxHeight: 'min(43vh, 25rem)', overflow: 'auto' })
+        list.classList.add('rudonium-repair-paged-list')
         let visible = 0
         const add = () => {
             const end = Math.min(items.length, visible + pageSize)
@@ -523,7 +523,7 @@ class AuditRepairModal extends ReviewModal {
     private showError(error: unknown): void {
         if (this.abort.signal.aborted) return
         this.working(this.t('The action was interrupted.', 'Действие прервано.'))
-        this.contentEl.createEl('p', { text: displayDiagnostic(error, this.t), attr: { role: 'alert' } }).style.color = 'var(--text-error)'
+        this.contentEl.createEl('p', { text: displayDiagnostic(error, this.t), attr: { role: 'alert' } }).classList.add('rudonium-text-error')
         this.addRecheck(this.buttons())
     }
 
@@ -538,8 +538,8 @@ class AuditRepairModal extends ReviewModal {
                 item.status === 'needs-local-unlink' ? t('Complete the Markdown change', 'Нужно завершить изменение Markdown') :
                 item.status === 'needs-verification' ? t('Check the Anki result', 'Нужно проверить результат Anki') : t('Failed', 'Ошибка')
             const line = list.createEl('li', { text: `ID ${item.oldId} · ${item.path} · ${status}` })
-            line.style.overflowWrap = 'anywhere'
-            if (item.status !== 'applied') line.style.color = 'var(--text-error)'
+            line.classList.add('rudonium-wrap-anywhere')
+            if (item.status !== 'applied') line.classList.add('rudonium-text-error')
             if (item.message) line.createDiv({ text: item.message })
         })
         try { this.pending = await readPendingAuditRepairs(this.plugin, profile) }
@@ -561,7 +561,7 @@ class AuditRepairModal extends ReviewModal {
         const list = heading.createEl('ul')
         for (const item of this.pending) {
             const row = list.createEl('li', { text: `ID ${item.oldId} → Anki ID ${item.candidateId} · ${item.path}` })
-            row.style.overflowWrap = 'anywhere'
+            row.classList.add('rudonium-wrap-anywhere')
             row.createEl('button', { text: t('Verify and Finish Unlinking', 'Проверить и завершить отвязку') })
                 .onclick = () => this.confirmPending(item)
         }
@@ -572,7 +572,7 @@ class AuditRepairModal extends ReviewModal {
         const t = this.t
         this.working(t('Confirm Unlinking', 'Подтвердите завершение отвязки'))
         this.contentEl.createEl('p', { text: t(`Check Anki ID ${item.candidateId} and remove obsolete ID ${item.oldId} from ${item.path} only if the earlier deletion is confirmed.`,
-            `Проверить Anki ID ${item.candidateId} и удалить старый ID ${item.oldId} из ${item.path}, если прежнее удаление подтверждено.`) }).style.overflowWrap = 'anywhere'
+            `Проверить Anki ID ${item.candidateId} и удалить старый ID ${item.oldId} из ${item.path}, если прежнее удаление подтверждено.`) }).classList.add('rudonium-wrap-anywhere')
         const footer = this.buttons()
         footer.createEl('button', { text: t('Back to Records', 'Назад к записям') }).onclick = () => this.render()
         footer.createEl('button', { text: t('Confirm Action', 'Подтвердить действие'), cls: 'mod-cta' })

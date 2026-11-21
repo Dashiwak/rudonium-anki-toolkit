@@ -107,7 +107,7 @@ function zipDiagnostic(error: unknown, t: UiText): string {
 function comparisonPane(parent: HTMLElement, title: string, text: string | undefined,
     other: string | undefined, t: UiText): void {
     const pane = parent.createDiv()
-    pane.style.minWidth = '0'
+    pane.classList.add('rudonium-shrink')
     pane.createEl('h3', { text: title })
     if (text === undefined) {
         pane.createEl('p', { text: t('This version is unavailable.', 'Эта версия недоступна.') })
@@ -123,11 +123,11 @@ function comparisonPane(parent: HTMLElement, title: string, text: string | undef
     while (tail < lines.length - first && tail < comparison.length - first &&
         lines[lines.length - 1 - tail] === comparison[comparison.length - 1 - tail]) tail++
     const pre = pane.createEl('pre', { attr: { tabindex: '0' } })
-    Object.assign(pre.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '55vh', overflow: 'auto' })
+    pre.classList.add('rudonium-zip-import-pre')
     for (let index = 0; index < lines.length; index++) {
         const line = pre.createSpan({ text: `${index + 1}  ${lines[index]}\n` })
         if (index >= first && index < lines.length - tail) {
-            line.style.backgroundColor = 'var(--background-modifier-error)'
+            line.classList.add('rudonium-zip-import-line')
         }
     }
     if (text.length > comparisonLimit || allLines.length > lines.length) pane.createEl('p', {
@@ -145,9 +145,9 @@ class ZipComparisonModal extends Modal {
     onOpen(): void {
         const t = uiFor(this.plugin.settings)
         this.titleEl.setText(t('Compare ZIP File', 'Сравнение файла из ZIP'))
-        this.modalEl.style.width = 'min(72rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-72rem')
         installModalLayout(this, t)
-        this.contentEl.createEl('p', { text: this.row.path }).style.overflowWrap = 'anywhere'
+        this.contentEl.createEl('p', { text: this.row.path }).classList.add('rudonium-wrap-anywhere')
         void this.load()
     }
 
@@ -174,7 +174,7 @@ class ZipComparisonModal extends Modal {
                     'Файл слишком большой для просмотра текста. Перед импортом его содержимое проверяется целиком.') })
             }
             const panes = this.contentEl.createDiv()
-            Object.assign(panes.style, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(22rem, 100%), 1fr))', gap: '1rem' })
+            panes.classList.add('rudonium-zip-import-panes')
             comparisonPane(panes, t('Current Obsidian file', 'Сейчас в Obsidian'), local, archived, t)
             comparisonPane(panes, t('Incoming ZIP file', 'Во входящем ZIP'), archived, local, t)
         } catch (error) {
@@ -193,7 +193,7 @@ class ZipComparisonModal extends Modal {
             'Selecting this file for import replaces its complete contents. Review both versions before selecting it.',
             'Выбор файла для импорта заменяет его содержимое целиком. Сверьте обе версии перед выбором.') })
         const panes = this.contentEl.createDiv()
-        Object.assign(panes.style, { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(22rem, 100%), 1fr))', gap: '1rem' })
+        panes.classList.add('rudonium-zip-import-panes')
         const extension = /\.([^.]+)$/u.exec(this.row.archivePath)?.[1].toLowerCase()
         const rasterTypes: Record<string, string> = { png: 'image/png', apng: 'image/apng', jpg: 'image/jpeg', jpeg: 'image/jpeg',
             gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', ico: 'image/x-icon' }
@@ -201,17 +201,17 @@ class ZipComparisonModal extends Modal {
         for (const [title, data, size] of [[t('Current Obsidian file', 'Сейчас в Obsidian'), local, file?.stat.size],
             [t('Incoming ZIP file', 'Во входящем ZIP'), incoming, this.row.size]] as const) {
             const pane = panes.createDiv()
-            pane.style.minWidth = '0'
+            pane.classList.add('rudonium-shrink')
             pane.createEl('h3', { text: title })
             pane.createEl('p', { text: size === undefined ? t('No current file', 'Файл отсутствует') : bytes(size) })
             if (data) {
                 const digest = (require('crypto') as typeof import('crypto')).createHash('sha256').update(data).digest('hex')
-                pane.createEl('p', { text: `SHA-256 · ${digest}` }).style.overflowWrap = 'anywhere'
+                pane.createEl('p', { text: `SHA-256 · ${digest}` }).classList.add('rudonium-wrap-anywhere')
                 if (type) {
                     const url = URL.createObjectURL(new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer], { type }))
                     this.objectUrls.push(url)
                     const image = pane.createEl('img', { attr: { src: url, alt: title } })
-                    Object.assign(image.style, { maxWidth: '100%', maxHeight: '45vh', objectFit: 'contain' })
+                    image.classList.add('rudonium-zip-import-image')
                 }
             } else if (size !== undefined) pane.createEl('p', { text: t('Preview is limited to 8 MiB per attachment.', 'Предпросмотр ограничен 8 МиБ на вложение.') })
         }
@@ -246,12 +246,12 @@ class PhonePackageModal extends Modal {
         const selection = this.contentEl.createEl('p')
         const preview = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
         const status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
-        Object.assign(status.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' })
+        status.classList.add('rudonium-wrapped-text')
         const folders = new Setting(this.contentEl).setName(t('Use saved folder selection', 'Использовать сохранённый выбор папок'))
         let savedToggle!: { setDisabled(value: boolean): unknown }
         const folderLabel = this.contentEl.createEl('label', { text: t('Single vault folder', 'Одна папка в хранилище') })
         const folder = folderLabel.createEl('input', { attr: { type: 'text', placeholder: 'Vocabulary', spellcheck: 'false' } })
-        Object.assign(folder.style, { display: 'block', width: '100%', marginBlock: '0.4rem 1rem' })
+        folder.classList.add('rudonium-zip-import-folder')
         const scopeHelp = this.contentEl.createEl('p')
         const currentKey = () => JSON.stringify([this.savedScope, this.savedScope ? '' : folder.value.trim(),
             this.savedScope ? archiveScopeSignature(readArchiveSettings(this.plugin.settings.ARCHIVE_TRANSFER)) : ''])
@@ -294,7 +294,7 @@ class PhonePackageModal extends Modal {
             const separator = directory.includes('\\') ? '\\' : '/'
             output.value = `${directory}${separator}Rudonium-${new Date().toISOString().replace(/[:.]/gu, '-')}.zip`
         }
-        Object.assign(output.style, { display: 'block', width: '100%', marginBlock: '0.4rem 1rem' })
+        output.classList.add('rudonium-zip-import-output')
         const actions = this.contentEl.createDiv({ cls: 'modal-button-container' })
         const cancel = actions.createEl('button', { text: t('Cancel Preparation', 'Отменить подготовку') })
         cancel.hidden = true
@@ -382,7 +382,7 @@ class ZipImportModal extends Modal {
     onOpen(): void {
         const t = uiFor(this.plugin.settings)
         this.titleEl.setText(t('Import Changes from ZIP', 'Импорт изменений из ZIP'))
-        this.modalEl.style.width = 'min(64rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-64rem')
         installModalLayout(this, t)
         this.contentEl.createEl('p', { text: t(
             'Open an Obsidian backup or transfer ZIP and choose the files to update. Different files require your selection. Settings are not imported. Anki.zip is restored separately in Anki. After import, review the Anki export plan.',
@@ -391,15 +391,15 @@ class ZipImportModal extends Modal {
         this.recovery = this.contentEl.createDiv()
         this.buildSourceForm()
         this.sourceInfo = this.contentEl.createEl('p', { attr: { role: 'status' } })
-        this.sourceInfo.style.overflowWrap = 'anywhere'
+        this.sourceInfo.classList.add('rudonium-wrap-anywhere')
         this.status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
-        Object.assign(this.status.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' })
+        this.status.classList.add('rudonium-wrapped-text')
         this.progress = this.contentEl.createEl('progress', { attr: { 'aria-label': t('ZIP import progress', 'Ход импорта ZIP') } })
-        this.progress.style.width = '100%'
+        this.progress.classList.add('rudonium-full-width')
         this.progress.hidden = true
         this.table = this.contentEl.createDiv()
         this.actions = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        this.actions.style.flexWrap = 'wrap'
+        this.actions.classList.add('rudonium-wrap-controls')
         if (this.openOptions.sourcePath) {
             this.source.value = this.openOptions.sourcePath
             this.target.value = this.openOptions.target ?? ''
@@ -418,14 +418,14 @@ class ZipImportModal extends Modal {
         const t = uiFor(this.plugin.settings)
         const details = this.contentEl.createEl('details')
         details.createEl('summary', { text: t(`Last import · ${previous.paths.length} files`, `Последний импорт · файлов: ${previous.paths.length}`) })
-        details.createEl('p', { text: t(`Previous versions · ${previous.backupPath}`, `Предыдущие версии · ${previous.backupPath}`) }).style.overflowWrap = 'anywhere'
+        details.createEl('p', { text: t(`Previous versions · ${previous.backupPath}`, `Предыдущие версии · ${previous.backupPath}`) }).classList.add('rudonium-wrap-anywhere')
         const actions = details.createDiv({ cls: 'modal-button-container' })
-        actions.style.flexWrap = 'wrap'
+        actions.classList.add('rudonium-wrap-controls')
         actions.createEl('button', { text: t('Preview Anki Export', 'Предпросмотр экспорта в Anki') }).onclick = () => { void this.openExport(previous) }
         actions.createEl('button', { text: t('Save Updated ZIP', 'Сохранить обновлённый ZIP') }).onclick = () => openArchivePackage(this.plugin)
         for (const path of previous.paths.slice(0, pageSize)) {
             const line = details.createEl('p', { text: path })
-            line.style.overflowWrap = 'anywhere'
+            line.classList.add('rudonium-wrap-anywhere')
         }
     }
 
@@ -433,7 +433,7 @@ class ZipImportModal extends Modal {
         const t = uiFor(this.plugin.settings)
         const source = new Setting(this.contentEl).setName(t('Incoming ZIP', 'Входящий ZIP'))
         this.source = source.controlEl.createEl('input', { attr: { type: 'text', placeholder: t('Choose a ZIP or paste its full path', 'Выберите ZIP или вставьте полный путь'), spellcheck: 'false' } })
-        this.source.style.width = 'min(26rem, 60vw)'
+        this.source.classList.add('rudonium-zip-import-source')
         this.picker = source.controlEl.createEl('input', { attr: { type: 'file', accept: '.zip,application/zip' } })
         this.picker.hidden = true
         this.browse = source.controlEl.createEl('button', { text: t('Choose ZIP', 'Выбрать ZIP') })
@@ -493,7 +493,7 @@ class ZipImportModal extends Modal {
     private report = (progress: ZipImportProgress): void => {
         if (this.closed) return
         const t = uiFor(this.plugin.settings)
-        this.status.style.color = ''
+        this.status.classList.remove('rudonium-text-error')
         this.status.setText(progressText(progress, t))
         if (progress.totalBytes > 0) { this.progress.max = progress.totalBytes; this.progress.value = progress.bytes }
         else if (progress.totalFiles > 0) { this.progress.max = progress.totalFiles; this.progress.value = progress.files }
@@ -502,7 +502,7 @@ class ZipImportModal extends Modal {
 
     private fail(error: unknown): void {
         if (this.closed) return
-        this.status.style.color = 'var(--text-error)'
+        this.status.classList.add('rudonium-text-error')
         this.status.setText(zipDiagnostic(error, uiFor(this.plugin.settings)))
     }
 
@@ -564,7 +564,7 @@ class ZipImportModal extends Modal {
         this.table.empty()
         const counts = new Map<string, number>()
         for (const row of this.plan.rows) counts.set(stateText(row, t), (counts.get(stateText(row, t)) ?? 0) + 1)
-        this.status.style.color = ''
+        this.status.classList.remove('rudonium-text-error')
         this.status.setText([...counts].map(([name, count]) => `${name} · ${count.toLocaleString()}`).join('    '))
         if (this.plan.baselineReason) this.table.createEl('p', { text: this.plan.baselineReason })
         this.table.createEl('p', { text: t(
@@ -572,7 +572,7 @@ class ZipImportModal extends Modal {
             'Изначально отмечены только новые файлы. Выбор отличающегося файла заменяет его содержимое целиком версией из ZIP.') })
         const filter = this.table.createEl('input', { attr: { type: 'search', placeholder: t('Find a file or reason', 'Найти файл или причину'), 'aria-label': t('Find a file or reason', 'Найти файл или причину') } })
         filter.value = this.query
-        Object.assign(filter.style, { width: '100%', marginBlock: '0.5rem' })
+        filter.classList.add('rudonium-zip-import-filter')
         const rows = this.table.createDiv()
         const renderRows = () => this.renderRows(rows)
         filter.oninput = () => { this.query = filter.value; this.page = 0; renderRows() }
@@ -588,9 +588,9 @@ class ZipImportModal extends Modal {
         const rows = this.plan.rows.filter(row => !query || `${row.path}\n${row.reason ?? ''}\n${stateText(row, t)}`.toLocaleLowerCase().includes(query))
         this.page = Math.min(this.page, Math.max(0, Math.ceil(rows.length / pageSize) - 1))
         const scroll = container.createDiv()
-        Object.assign(scroll.style, { overflow: 'auto', maxHeight: '45vh' })
+        scroll.classList.add('rudonium-zip-import-scroll')
         const table = scroll.createEl('table')
-        table.style.width = '100%'
+        table.classList.add('rudonium-full-width')
         const head = table.createEl('thead').createEl('tr')
         for (const name of [t('Import', 'Импорт'), t('File', 'Файл'), t('State', 'Состояние'), t('Review', 'Проверка')]) head.createEl('th', { text: name })
         const body = table.createEl('tbody')
@@ -600,11 +600,11 @@ class ZipImportModal extends Modal {
             select.checked = this.selected.has(row.path)
             select.disabled = !selectable(row) || this.stage === 'applying'
             select.onchange = () => { if (select.checked) this.selected.add(row.path); else this.selected.delete(row.path); this.renderActions() }
-            tr.createEl('td', { text: row.path }).style.overflowWrap = 'anywhere'
+            tr.createEl('td', { text: row.path }).classList.add('rudonium-wrap-anywhere')
             const state = tr.createEl('td', { text: stateText(row, t) })
             state.createEl('small', { text: `\n${bytes(row.size)}` })
-            if (row.reason) state.createEl('p', { text: row.reason }).style.overflowWrap = 'anywhere'
-            if (row.status === 'blocked' || row.changeOrigin === 'both') state.style.color = 'var(--text-error)'
+            if (row.reason) state.createEl('p', { text: row.reason }).classList.add('rudonium-wrap-anywhere')
+            if (row.status === 'blocked' || row.changeOrigin === 'both') state.classList.add('rudonium-text-error')
             const review = tr.createEl('td')
             review.createEl('button', { text: t('Compare', 'Сравнить') }).onclick = () => {
                 if (this.archive) new ZipComparisonModal(this.plugin, this.archive, row).open()
@@ -677,8 +677,8 @@ class ZipImportModal extends Modal {
                 'The files were imported. Complete the saved-result check to finish the interrupted cleanup.',
                 'Файлы импортированы. Подтвердите сохранённый результат, чтобы закончить прерванное завершение операции.') : t(
                 `An interrupted import needs review · ${pending.paths.length} files. Restore its previous file versions before another import.`,
-                `Требует проверки прерванный импорт · файлов: ${pending.paths.length}. Восстановите предыдущие версии перед новым импортом.`) }).style.color = 'var(--text-error)'
-            this.recovery.createEl('p', { text: pending.backupPath }).style.overflowWrap = 'anywhere'
+                `Требует проверки прерванный импорт · файлов: ${pending.paths.length}. Восстановите предыдущие версии перед новым импортом.`) }).classList.add('rudonium-text-error')
+            this.recovery.createEl('p', { text: pending.backupPath }).classList.add('rudonium-wrap-anywhere')
             const restore = this.recovery.createEl('button', { text: pending.committed ? t('Confirm Imported Files', 'Подтвердить импортированные файлы')
                 : t('Restore Previous Versions', 'Восстановить предыдущие версии') })
             restore.onclick = async () => {
@@ -781,7 +781,7 @@ export function registerZipImport(plugin: MyPlugin): void {
 export function installZipImportSettings(container: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
     const section = container.createDiv({ cls: 'rupos-archive-backup-settings' })
-    section.createEl('h3', { text: t('Archives, Backup and Transfer', 'Архивы, резервные копии и перенос') })
+    new Setting(section).setName(t('Archives, Backup and Transfer', 'Архивы, резервные копии и перенос')).setHeading()
     section.createEl('p', { text: t('Choose folders once for transfer and optional selected backups. An existing Obsidian.zip backup can be opened directly for transfer; full recovery remains available in a new folder.',
         'Выберите папки для переноса и, при необходимости, выборочных резервных копий. Готовый Obsidian.zip можно сразу открыть для переноса; полное восстановление доступно в новую папку.') })
     let refreshBackup: (() => void) | undefined

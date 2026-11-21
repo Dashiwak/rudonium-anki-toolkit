@@ -239,6 +239,10 @@ test("Prepare prints the final GitFlic folder and keeps checked sources separate
     const ok = prepare();
     assert.equal(ok.status, 0, ok.stderr);
     assert.ok(ok.stdout.includes(path.join(publish, "repository")));
+    for (const asset of ["main.js", "manifest.json", "styles.css"]) {
+        assert.ok(ok.stdout.includes(path.join(publish, "install", manifest.id, asset)));
+    }
+    assert.ok(ok.stdout.includes(path.join(publish, "release", "Rudonium-" + manifest.version + ".zip")));
     const profile = fs.readFileSync(path.join(publish, "Compare.ffs_gui"), "utf8");
     assert.ok(profile.includes(path.join(publish,"repository").replaceAll("&", "&amp;")));
     assert.match(profile, /<Right\/>/);

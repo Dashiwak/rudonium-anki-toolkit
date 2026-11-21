@@ -1,7 +1,6 @@
 import { nodeResolve } from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
-import nodePolyfills from 'rollup-plugin-node-polyfills'
 
 const rudoniumUpstreamConfig = {
   input: 'main.ts',
@@ -19,7 +18,7 @@ const rudoniumManifest = JSON.parse(rudoniumReadFile(new URL("./manifest.json", 
 function bundleNotice(release, license) {
     return [
         "/*!",
-        " * " + release.name + " " + release.version + " — modified 2026-11-19.",
+        " * " + release.name + " " + release.version + " — modified 2026-11-21.",
         " * SPDX-License-Identifier: " + license,
         " * Rudonium additions: Copyright (C) 2026 dashiwak <dashiwak@yandex.ru>. GNU GPLv3. Original component permissions and notices are retained.",
         " * Derived from Obsidian_to_Anki 3.6.0 by Pseudonium and contributors.",

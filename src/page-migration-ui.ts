@@ -36,8 +36,7 @@ function button(parent: HTMLElement, label: string, action: () => void, primary 
 
 function field(parent: HTMLElement, label: string): HTMLLabelElement {
     const row = parent.createEl('label')
-    row.style.display = 'block'
-    row.style.marginBlock = '.65em'
+    row.classList.add('rudonium-page-migration-row')
     row.createDiv({ text: label })
     return row
 }
@@ -163,7 +162,7 @@ class PageMigrationWizard extends Modal {
         const folderLabel = field(body, t('Folder to search', 'Папка для поиска'))
         const input = folderLabel.createEl('input', { attr: { type: 'text', spellcheck: 'false',
             placeholder: t('Entire vault', 'Всё хранилище'), list: 'rudonium-page-import-folders' } })
-        input.style.width = '100%'
+        input.classList.add('rudonium-full-width')
         input.value = this.folder
         const list = folderLabel.createEl('datalist', { attr: { id: 'rudonium-page-import-folders' } })
         const updateFolders = () => {
@@ -312,7 +311,7 @@ class PageMigrationWizard extends Modal {
         const from = this.page * pageSize
         for (const row of rows.slice(from, from + pageSize)) {
             const line = group.createDiv()
-            line.style.marginBlock = '.5em'
+            line.classList.add('rudonium-page-migration-line')
             const label = line.createEl('label')
             if (row.status === 'ready') {
                 const check = label.createEl('input', { attr: { type: 'checkbox' } })
@@ -326,7 +325,7 @@ class PageMigrationWizard extends Modal {
                 }
                 boxes.push([row.path, check])
             }
-            label.createSpan({ text: ' ' + row.path }).style.overflowWrap = 'anywhere'
+            label.createSpan({ text: ' ' + row.path }).classList.add('rudonium-wrap-anywhere')
             line.createDiv({ text: [labels[row.status], sourceLabel(row.source), row.id ? 'ID ' + row.id : '', row.reason].filter(Boolean).join(' · ') })
             if (row.status === 'link' && row.link) this.showLink(line, row.path, row.link, () => update())
             if (row.before !== undefined && row.after !== undefined && (row.status === 'ready' || row.status === 'link')) {
@@ -337,7 +336,7 @@ class PageMigrationWizard extends Modal {
                     for (const [title, value] of [[t('Before', 'До'), row.before!], [t('After', 'После'), row.after!]]) {
                         detail.createEl('small', { text: title })
                         const pre = detail.createEl('pre', { text: value.length > 5000 ? value.slice(0, 5000) + '…' : value })
-                        Object.assign(pre.style, { whiteSpace: 'pre-wrap', maxHeight: '16em', overflow: 'auto' })
+                        pre.classList.add('rudonium-page-migration-pre')
                     }
                 }
             }
@@ -350,16 +349,16 @@ class PageMigrationWizard extends Modal {
         }
         const backupLabel = field(body, t('Full vault ZIP · backup folder outside the vault', 'ZIP всего хранилища · папка для копии вне хранилища'))
         const directory = backupLabel.createEl('input', { attr: { type: 'text', spellcheck: 'false' } })
-        directory.style.width = '100%'
+        directory.classList.add('rudonium-full-width')
         directory.placeholder = this.defaultDirectory || t('Default backup folder', 'Папка резервных копий по умолчанию')
         directory.value = this.backup
         directory.oninput = () => { this.backup = directory.value }
         if (!hasChanges) {
             backupLabel.hidden = true
-            backupLabel.style.display = 'none'
+            backupLabel.classList.add('rudonium-hidden')
         }
         const unlinked = body.createEl('label')
-        unlinked.style.display = 'block'
+        unlinked.classList.add('rudonium-block')
         const ack = unlinked.createEl('input', { attr: { type: 'checkbox' } })
         const ackText = unlinked.createSpan()
         ack.onchange = () => { this.allowUnlinked = ack.checked; update() }
@@ -376,7 +375,7 @@ class PageMigrationWizard extends Modal {
             all.checked = ready.length > 0 && this.selected.size === ready.length
             all.indeterminate = this.selected.size > 0 && this.selected.size !== ready.length
             unlinked.hidden = !unknown
-            unlinked.style.display = unknown ? 'block' : 'none'
+            unlinked.classList.toggle('rudonium-hidden', !unknown)
             if (!unknown) this.allowUnlinked = false
             ack.checked = this.allowUnlinked
             ackText.setText(' ' + t(`Include ${unknown} files without a verified Anki ID. A later export can create new notes in Anki.`,
@@ -395,20 +394,20 @@ class PageMigrationWizard extends Modal {
             .replace(/\s+/gu, ' ').trim()
         const excerpt = question.length > 140 ? question.slice(0, 140) + '…' : question
         const title = fields.createEl('summary', { text: 'Anki ID ' + match.id + (excerpt ? ' · ' + excerpt : '') })
-        title.style.overflowWrap = 'anywhere'
+        title.classList.add('rudonium-wrap-anywhere')
         line.createEl('small', { text: t('Note type', 'Тип записи') + ' · ' + match.model + '   /   ' +
-            t('Deck', 'Колода') + ' · ' + match.deck }).style.overflowWrap = 'anywhere'
+            t('Deck', 'Колода') + ' · ' + match.deck }).classList.add('rudonium-wrap-anywhere')
         fields.ontoggle = () => {
             if (!fields.open || fields.children.length > 1) return
             for (const [name, html] of [[t('Question', 'Вопрос'), match.front], [t('Answer', 'Ответ'), match.back]]) {
                 fields.createEl('strong', { text: name })
                 const text = previewFieldText(line.ownerDocument, html, t('[Image]', '[Изображение]'))
                 const value = fields.createDiv({ text: text || html })
-                Object.assign(value.style, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '14em', overflow: 'auto' })
+                value.classList.add('rudonium-page-migration-value')
             }
         }
         const choice = line.createEl('label')
-        choice.style.display = 'block'
+        choice.classList.add('rudonium-block')
         const check = choice.createEl('input', { attr: { type: 'checkbox',
             'aria-label': t(`Link ${path} to Anki note ${match.id}`, `Связать ${path} с записью Anki ${match.id}`) } })
         check.checked = this.confirmedLinks.get(path) === match.id
@@ -448,7 +447,7 @@ class PageMigrationWizard extends Modal {
             let end = 0
             const more = button(files, t('Show more', 'Показать ещё'), () => append())
             const append = () => {
-                for (const path of result.converted.slice(end, end + pageSize)) list.createEl('li', { text: path }).style.overflowWrap = 'anywhere'
+                for (const path of result.converted.slice(end, end + pageSize)) list.createEl('li', { text: path }).classList.add('rudonium-wrap-anywhere')
                 end += pageSize
                 more.hidden = end >= result.converted.length
             }
@@ -456,7 +455,7 @@ class PageMigrationWizard extends Modal {
         }
         if (result.archive) {
             body.createEl('strong', { text: t('Original vault ZIP', 'ZIP исходного хранилища') })
-            body.createEl('p', { text: result.archive }).style.overflowWrap = 'anywhere'
+            body.createEl('p', { text: result.archive }).classList.add('rudonium-wrap-anywhere')
         }
         body.createEl('p', { text: t('Review a converted file and preview your next Anki export.',
             'Откройте преобразованную заметку и проверьте предпросмотр следующего экспорта в Anki.') })

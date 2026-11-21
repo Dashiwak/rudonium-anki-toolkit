@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const { load } = require('./benchmark/migration-modules.cjs')
 
 test('Explicit block accepts interior paragraphs from Anki, preserves CRLF and rejects injected field boundaries', async () => {
-    const m = await load(['bidirectional-markdown','bidirectional-blocks','anki-id-marker','bidirectional-fields'], {})
+    const m = await load(['bidirectional-markdown','bidirectional-blocks','anki-id-marker','bidirectional-fields','card-format-presets'], {})
     const {readEditableAnkiBlockField,writeEditableAnkiBlockField,planExplicitBlockPatches,applyMarkdownPatches} = m['bidirectional-markdown']
     const {findBidirectionalBlocks} = m['bidirectional-blocks']
     const raw = 'START\r\nBasic\r\nFront: City?\r\nBack: Old\r\n\r\nParagraph\r\n<!--ID: 1750000000001 -->\r\nEND'
@@ -22,7 +22,7 @@ test('Explicit block accepts interior paragraphs from Anki, preserves CRLF and r
 })
 
 test('Anki-only block fields land before tags and IDs, with two adjacent cards and either line ending', async () => {
-    const modules = await load(['bidirectional-markdown', 'bidirectional-blocks', 'anki-id-marker'], {})
+    const modules = await load(['bidirectional-markdown', 'bidirectional-blocks', 'anki-id-marker', 'card-format-presets'], {})
     const { findBidirectionalBlocks, explicitBlockNamedFields } = modules['bidirectional-blocks']
     const { planExplicitBlockPatches, applyMarkdownPatches } = modules['bidirectional-markdown']
     const syntax = { 'Begin Note': 'НАЧАЛО', 'End Note': 'КОНЕЦ', 'Suspend Line': 'ПАУЗА' }

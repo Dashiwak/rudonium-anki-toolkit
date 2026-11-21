@@ -42,7 +42,6 @@ const reportFrontmatter = '---\nanki-sync-audit-report: true\n---\n'
 const previewRows = 8
 const moreRows = 25
 const previewDetails = 6
-const issueColor = 'var(--text-error)'
 const openAudits = new WeakMap<MyPlugin, Modal>()
 const auditsFromNotice = new WeakMap<MyPlugin, object>()
 const resultScopeSignatures = new WeakMap<SyncAuditResult, string>()
@@ -526,7 +525,7 @@ class SyncAuditModal extends ReviewModal {
 
     onOpen(): void {
         this.titleEl.setText(auditTitle(this.t))
-        this.modalEl.style.width = 'min(50rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-50rem')
         installModalLayout(this, this.t)
         const snapshot = this.snapshot
         this.snapshot = undefined
@@ -566,7 +565,7 @@ class SyncAuditModal extends ReviewModal {
 
     private showAlert(text: string): void {
         const alert = this.contentEl.createEl('p', { text, attr: { role: 'alert' } })
-        alert.style.color = issueColor
+        alert.classList.add('rudonium-text-error')
     }
 
     private addProfileSettingsButton(container: HTMLElement): void {
@@ -594,9 +593,9 @@ class SyncAuditModal extends ReviewModal {
         }
         this.choice = plan
         this.contentEl.createEl('h3', { text: t('Audit Scope', 'Что будет проверено') })
-        this.contentEl.createEl('p', { text: scopeDescription(plan.deck, t) }).style.overflowWrap = 'anywhere'
+        this.contentEl.createEl('p', { text: scopeDescription(plan.deck, t) }).classList.add('rudonium-wrap-anywhere')
         this.contentEl.createEl('h3', { text: t('Export Scope', 'Что будет экспортировано') })
-        this.contentEl.createEl('p', { text: folderProfileDescription(plan.folderScope, t) }).style.overflowWrap = 'anywhere'
+        this.contentEl.createEl('p', { text: folderProfileDescription(plan.folderScope, t) }).classList.add('rudonium-wrap-anywhere')
         this.contentEl.createEl('p', {
             text: t('If you choose export, it runs for this folder scope before the audit and may update other decks targeted by those files. Explicit DELETE commands can remove notes in Anki.',
                 'Если выбрать экспорт, он обработает файлы выбранного профиля до начала проверки. Эти файлы могут обновить другие колоды. Явные команды DELETE могут удалить записи в Anki.'),
@@ -605,14 +604,14 @@ class SyncAuditModal extends ReviewModal {
         const profileHint = plan.profileLocked
             ? t(`Expected Anki profile — ${expected}`, `Ожидаемый профиль Anki — ${expected}`)
             : t('Anki profile — currently open in Anki', 'Профиль Anki — открытый в Anki')
-        this.contentEl.createEl('p', { text: profileHint }).style.overflowWrap = 'anywhere'
+        this.contentEl.createEl('p', { text: profileHint }).classList.add('rudonium-wrap-anywhere')
         const missingBinding = plan.profileLocked && !plan.expectedProfile
         if (plan.bidirectional) this.contentEl.createEl('p', { text: t('Export from this screen is unavailable while Bidirectional Sync is enabled.',
             'При включённой двусторонней синхронизации в этом окне доступна проверка без записи.') })
         else if (missingBinding) this.contentEl.createEl('p', { text: t('Open Profile Settings to enable export.',
             'Выберите профиль Anki, чтобы использовать экспорт.') })
         const buttons = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        buttons.style.flexWrap = 'wrap'
+        buttons.classList.add('rudonium-wrap-controls')
         const read = buttons.createEl('button', { text: t('Check Deck Without Writing', 'Проверить без записи'), cls: 'mod-cta' })
         read.onclick = () => {
             if (this.choice !== plan) return
@@ -666,11 +665,11 @@ class SyncAuditModal extends ReviewModal {
             this.contentEl.createEl('p', {
                 text: t(`Expected — ${problem.expected} · Active — ${problem.actual}`,
                     `Ожидаемый профиль — ${problem.expected} · Активный профиль — ${problem.actual}`),
-            }).style.overflowWrap = 'anywhere'
+            }).classList.add('rudonium-wrap-anywhere')
         }
         this.showExportWarning(this.contentEl)
         const buttons = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        buttons.style.flexWrap = 'wrap'
+        buttons.classList.add('rudonium-wrap-controls')
         buttons.createEl('button', { text: t('Check Again and Export', 'Проверить профиль и экспортировать') }).onclick = () =>
             this.confirmPlan(plan, true, runProfile)
         buttons.createEl('button', { text: t('Run Read-Only Audit', 'Проверить без записи'), cls: 'mod-cta' }).onclick = () => { void this.run({ deck: plan.deck }) }
@@ -781,7 +780,7 @@ class SyncAuditModal extends ReviewModal {
             this.showAlert(t('The audit stopped. ', 'Проверка остановлена. ') + auditDiagnostic(error instanceof Error ? error.message : String(error), t))
             if (this.exportIncomplete) this.showExportWarning(this.contentEl)
             const buttons = this.contentEl.createDiv({ cls: 'modal-button-container' })
-            buttons.style.flexWrap = 'wrap'
+            buttons.classList.add('rudonium-wrap-controls')
             buttons.createEl('button', { text: t('Retry', 'Повторить'), cls: 'mod-cta' }).onclick = () => {
                 if (pendingExport) this.confirmPlan(pendingExport, true, pendingExport.runProfile)
                 else void this.run({ deck, afterExport })
@@ -935,10 +934,7 @@ class SyncAuditModal extends ReviewModal {
             }
         } else {
             const buttons = row.createDiv()
-            buttons.style.display = 'flex'
-            buttons.style.flexWrap = 'wrap'
-            buttons.style.gap = '0.4em'
-            buttons.style.marginBlockStart = '0.3em'
+            buttons.classList.add('rudonium-sync-audit-buttons')
             this.addIssueAction(buttons, result, action)
         }
     }
@@ -948,10 +944,9 @@ class SyncAuditModal extends ReviewModal {
         const details = this.contentEl.createEl('details', { cls: item.attention ? 'sync-audit-issue' : undefined })
         const heading = details.createEl('summary', { text: `${item.title} · ${item.count}` })
         details.open = open
-        details.style.marginBlock = '0.6em'
+        details.classList.add('rudonium-sync-audit-details')
         if (item.attention) {
-            heading.style.color = issueColor
-            heading.style.fontWeight = 'var(--font-semibold)'
+            heading.classList.add('rudonium-sync-audit-heading')
         }
         const renderRows = () => {
             if (!details.open) return
@@ -967,10 +962,10 @@ class SyncAuditModal extends ReviewModal {
                 const end = Math.min(shown + count, item.count)
                 for (; shown < end; shown++) {
                     const row = preview.createEl('li', { cls: item.attention ? 'sync-audit-issue-row' : undefined })
-                    row.style.marginBlock = '0.65em'
+                    row.classList.add('rudonium-sync-audit-row')
                     const description = row.createSpan({ text: item.describe(shown, previewDetails) })
-                    description.style.overflowWrap = 'anywhere'
-                    if (item.attention) description.style.color = issueColor
+                    description.classList.add('rudonium-wrap-anywhere')
+                    if (item.attention) description.classList.add('rudonium-text-error')
                     const action = item.action?.(shown)
                     if (action) this.addRowAction(row, result, action)
                 }
@@ -1020,7 +1015,7 @@ class SyncAuditModal extends ReviewModal {
                 if (report.remoteProblem) {
                     rows.createEl('p', { text: t('Anki attachment names could not be verified. Check the profile and AnkiConnect, then try again.',
                         'Не удалось проверить имена вложений в Anki. Проверьте профиль и AnkiConnect, затем повторите.') })
-                        .style.color = issueColor
+                        .classList.add('rudonium-text-error')
                     console.warn('[Rudonium Anki Toolkit] Не удалось проверить вложения Anki', report.remoteProblem)
                 }
                 if (!result.vaultInventoryComplete || !result.ankiInventoryComplete) {
@@ -1109,7 +1104,7 @@ class SyncAuditModal extends ReviewModal {
             details.ontoggle = null
             const rows = auditCardRows(result)
             const controls = details.createDiv({ cls: 'modal-button-container' })
-            controls.style.flexWrap = 'wrap'
+            controls.classList.add('rudonium-wrap-controls')
             const search = controls.createEl('input', { attr: { type: 'search',
                 'aria-label': t('Search by card, file, or ID', 'Поиск по карточке, файлу или ID'),
                 placeholder: t('Card, file, or ID', 'Карточка, файл или ID') } })
@@ -1119,7 +1114,7 @@ class SyncAuditModal extends ReviewModal {
             const counter = details.createEl('p', { attr: { role: 'status' } })
             const list = details.createEl('ul')
             const pageButtons = details.createDiv({ cls: 'modal-button-container' })
-            pageButtons.style.flexWrap = 'wrap'
+            pageButtons.classList.add('rudonium-wrap-controls')
             const previous = pageButtons.createEl('button', { text: t('Previous Page', 'Предыдущая страница') })
             const next = pageButtons.createEl('button', { text: t('Next Page', 'Следующая страница') })
             const check = pageButtons.createEl('button', { text: t('Check New Cards on This Page', 'Проверить новые карточки на странице') })
@@ -1232,9 +1227,8 @@ class SyncAuditModal extends ReviewModal {
         })
         if (incomplete || needsAttention) {
             status.addClass('sync-audit-issue')
-            status.style.borderInlineStart = `4px solid ${issueColor}`
-            status.style.paddingInlineStart = '0.7em'
-            statusTitle.style.color = issueColor
+            status.classList.add('rudonium-sync-audit-status')
+            statusTitle.classList.add('rudonium-text-error')
         }
         const issueCount = issues.reduce((total, item) => total + item.count, 0)
         if (issueCount) status.createDiv({ text: t(`${issueCount} ${issueCount === 1 ? 'item' : 'items'} to review`, `Замечаний для проверки — ${issueCount}`) })
@@ -1261,7 +1255,7 @@ class SyncAuditModal extends ReviewModal {
             }
         }
         const navigation = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        navigation.style.flexWrap = 'wrap'
+        navigation.classList.add('rudonium-wrap-controls')
         this.addScopedPreview(navigation, result)
         navigation.createEl('button', { text: t('Recheck', 'Проверить повторно') }).onclick = () => {
             if (this.running) return

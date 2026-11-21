@@ -8,4 +8,6 @@
 | [Migrate existing card files](en/migrate-card-files.md) | [Перенос существующих файлов-карточек](ru/migrate-card-files.md) |
 | [0.10.3 public beta](releases/0.10.3.md#english) | [Публичная бета 0.10.3](releases/0.10.3.md#русский) |
 
+[0.10.4 review candidate / Кандидат для проверки](releases/0.10.4.md)
+
 [GitFlic support / Поддержка на GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)

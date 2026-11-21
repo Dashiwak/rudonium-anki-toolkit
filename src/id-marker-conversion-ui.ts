@@ -37,7 +37,7 @@ class IdMarkerConversionModal extends Modal {
         const t = uiFor(this.plugin.settings)
         this.titleEl.setText(this.direction === 'to-comment' ? t('Convert IDs to Comments', 'Перевести ID в комментарии')
             : t('Remove ID Comment Wrappers', 'Убрать оболочку комментариев у ID'))
-        this.modalEl.style.width = 'min(58rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-58rem')
         installModalLayout(this, t)
         this.contentEl.createEl('p', { text: t(
             'Only the HTML wrapper of recognized ID markers changes. Numbers, dates, card content and Anki stay unchanged. A verified ZIP of all selected original files is saved before any replacement.',
@@ -52,7 +52,7 @@ class IdMarkerConversionModal extends Modal {
                 }))
             .addButton(control => control.setButtonText(t('Preview', 'Предпросмотр')).onClick(() => this.preview()))
         this.status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
-        this.status.style.overflowWrap = 'anywhere'
+        this.status.classList.add('rudonium-wrap-anywhere')
         this.results = this.contentEl.createDiv()
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
         this.apply = footer.createEl('button', { text: t('Back Up and Apply Selected', 'Создать копию и применить выбранное'), cls: 'mod-cta' })
@@ -63,7 +63,7 @@ class IdMarkerConversionModal extends Modal {
     private update(): void {
         for (const control of Array.from(this.controls.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('button,select'))) control.disabled = this.busy
         this.results.setAttribute('aria-busy', String(this.busy))
-        this.results.style.pointerEvents = this.busy ? 'none' : ''
+        this.results.classList.toggle('rudonium-ignore-pointer', this.busy)
         this.apply.disabled = this.busy || !this.plan || !this.selected.size
     }
 
@@ -78,7 +78,7 @@ class IdMarkerConversionModal extends Modal {
     private async preview(): Promise<void> {
         if (this.busy) return
         const t = uiFor(this.plugin.settings)
-        this.busy = true; this.plan = undefined; this.results.empty(); this.selected.clear(); this.status.style.color = ''; this.update()
+        this.busy = true; this.plan = undefined; this.results.empty(); this.selected.clear(); this.status.classList.remove('rudonium-text-error'); this.update()
         try {
             const plan = await previewIdMarkerConversion(this.plugin, this.direction, this.conversionScope, (done, total) => {
                 if (!this.closed) this.status.setText(t(`Reading notes · ${done}/${total}`, `Чтение заметок · ${done}/${total}`))
@@ -87,7 +87,7 @@ class IdMarkerConversionModal extends Modal {
             this.plan = plan; this.page = 0
             for (const file of plan.files) this.selected.add(file.path)
             this.render()
-        } catch (error) { if (!this.closed) { this.status.style.color = 'var(--text-error)'; this.status.setText(uiDiagnostic(error, t)) } }
+        } catch (error) { if (!this.closed) { this.status.classList.add('rudonium-text-error'); this.status.setText(uiDiagnostic(error, t)) } }
         finally { this.busy = false; if (!this.closed) this.update() }
     }
 
@@ -119,7 +119,8 @@ class IdMarkerConversionModal extends Modal {
                 section.createEl('p', { text: t(`Line ${example.line}`, `Строка ${example.line}`) })
                 const before = section.createEl('pre', { text: t('Before: ', 'Было: ') + example.before })
                 const after = section.createEl('pre', { text: t('After: ', 'Станет: ') + example.after })
-                before.style.whiteSpace = after.style.whiteSpace = 'pre-wrap'
+                before.classList.add('rudonium-pre-wrap')
+                after.classList.add('rudonium-pre-wrap')
             }
         }
         const pages = Math.ceil(plan.files.length / pageSize)
@@ -138,7 +139,7 @@ class IdMarkerConversionModal extends Modal {
     private async applySelected(): Promise<void> {
         if (this.busy || !this.plan || !this.selected.size) return
         const t = uiFor(this.plugin.settings)
-        this.busy = true; this.status.style.color = ''; this.status.setText(t('Saving and verifying the backup, then updating selected notes…',
+        this.busy = true; this.status.classList.remove('rudonium-text-error'); this.status.setText(t('Saving and verifying the backup, then updating selected notes…',
             'Сохраняем и проверяем резервную копию, затем изменяем выбранные заметки…')); this.update()
         try {
             const result = await applyIdMarkerConversion(this.plugin, this.plan, new Set(this.selected))
@@ -154,7 +155,7 @@ class IdMarkerConversionModal extends Modal {
         } catch (error) {
             const message = uiDiagnostic(error, t)
             if (this.closed) new Notice(message, 15000)
-            else { this.status.style.color = 'var(--text-error)'; this.status.setText(message) }
+            else { this.status.classList.add('rudonium-text-error'); this.status.setText(message) }
         } finally { this.busy = false; if (!this.closed) this.update() }
     }
 

@@ -69,13 +69,10 @@ function searchDecks(parent: HTMLElement, selected: string,
     onSelect: (value: string) => void, t: UiText) {
     const search = parent.createEl('label', { text: t('Search anki decks', 'Поиск колод Anki') })
         .createEl('input', { attr: { type: 'search', autocomplete: 'off' } })
-    Object.assign(search.style, { display: 'block', width: '100%', marginBlock: '0.25em' })
+    search.classList.add('rudonium-deck-routes-search')
     const count = parent.createEl('small', { attr: { role: 'status' } })
     const list = parent.createEl('select', { attr: { size: 7, 'aria-label': t('Anki decks', 'Колоды Anki') } })
-    Object.assign(list.style, {
-        display: 'block', width: '100%', height: 'min(29vh, 12rem)', overflowY: 'auto',
-        marginBlock: '0.35em', scrollbarGutter: 'stable',
-    })
+    list.classList.add('rudonium-deck-routes-list')
     const more = parent.createEl('button', { text: t('Show More Anki decks', 'Показать ещё колоды') })
     let choices: Array<{ value: string; key: string }> = []
     let chosen = selected
@@ -142,7 +139,7 @@ class DeckRoutingModal extends Modal {
     }
 
     onOpen(): void {
-        this.modalEl.style.width = 'min(48rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-48rem')
         installModalLayout(this, uiFor(this.plugin.settings))
         this.showRules()
     }
@@ -172,8 +169,8 @@ class DeckRoutingModal extends Modal {
                     const exists = this.plugin.app.vault.getAbstractFileByPath(path) instanceof TFolder
                     const details = label.createEl('small', { text: exists ? keywords :
                         t(`Folder missing · ${keywords}`, `Папка отсутствует · ${keywords}`) })
-                    details.style.display = 'block'
-                    details.style.color = exists ? 'var(--text-muted)' : 'var(--text-error)'
+                    details.classList.add('rudonium-block')
+                    details.classList.add(exists ? 'rudonium-text-muted' : 'rudonium-text-error')
                     const button = row.createEl('button', { text: t('Edit', 'Изменить'), attr: { type: 'button',
                         'aria-label': t(`Edit deck assignment for ${path}`, `Изменить назначение колоды для папки ${path}`) } })
                     button.onclick = () => this.edit(path)
@@ -182,7 +179,7 @@ class DeckRoutingModal extends Modal {
             })
         }
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         footer.createEl('button', { text: t('Add Folder Rule', 'Добавить правило для папки'), cls: 'mod-cta' }).onclick = () => this.edit()
     }
 
@@ -199,7 +196,7 @@ class DeckRoutingModal extends Modal {
         let loading = false
         let loaded = false
         const folderHeading = this.contentEl.createEl('h3', { text: t('Obsidian folder', 'Папка Obsidian') })
-        folderHeading.style.marginBlockStart = '0'
+        folderHeading.classList.add('rudonium-deck-routes-folder-heading')
         const chosenText = (selected: boolean) => selected ? t('Selected', 'Выбрано') : t('Select', 'Выбрать')
         const renderButton = (button: HTMLButtonElement | undefined, selected: boolean) => {
             if (!button) return
@@ -224,11 +221,11 @@ class DeckRoutingModal extends Modal {
             },
         })
         const folderChoice = this.contentEl.createEl('p')
-        folderChoice.style.overflowWrap = 'anywhere'
+        folderChoice.classList.add('rudonium-wrap-anywhere')
 
         const modeLabel = this.contentEl.createEl('label', { text: t('Destination', 'Целевая колода') })
         const modeSelect = modeLabel.createEl('select')
-        Object.assign(modeSelect.style, { display: 'block', maxWidth: '100%', marginBlock: '0.25em 0.6em' })
+        modeSelect.classList.add('rudonium-deck-routes-mode-select')
         modeSelect.createEl('option', { value: 'inherit', text: t('Inherit from parent', 'Унаследовать от родительской папки') })
         modeSelect.createEl('option', { value: 'default', text: t('Use default Deck', 'Использовать колоду по умолчанию') })
         modeSelect.createEl('option', { value: 'deck', text: t('Choose Anki deck', 'Выбрать колоду Anki') })
@@ -238,11 +235,11 @@ class DeckRoutingModal extends Modal {
         const deckStatus = deckPanel.createEl('p', { attr: { role: 'status' } })
         const retry = deckPanel.createEl('button', { text: t('Reload Anki Decks', 'Обновить список колод') })
         const effective = this.contentEl.createEl('p')
-        effective.style.overflowWrap = 'anywhere'
+        effective.classList.add('rudonium-wrap-anywhere')
         const status = this.contentEl.createEl('p', { attr: { role: 'status' } })
-        status.style.color = 'var(--text-error)'
+        status.classList.add('rudonium-text-error')
         const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
-        footer.style.flexWrap = 'wrap'
+        footer.classList.add('rudonium-wrap-controls')
         const save = footer.createEl('button', { text: t('Save Rule', 'Сохранить правило'), cls: 'mod-cta' })
         const remove = from === undefined ? undefined : footer.createEl('button', { text: t('Remove Rule', 'Удалить правило') })
         const back = footer.createEl('button', { text: t('Back', 'Назад') })

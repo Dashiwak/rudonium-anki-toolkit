@@ -60,8 +60,7 @@ function showIssues(parent: HTMLElement, issues: readonly string[], t: UiText): 
     const list = parent.createEl('ul')
     for (const issue of issues) {
         const row = list.createEl('li', { text: uiDiagnostic(issue, t) })
-        row.style.color = 'var(--text-error)'
-        row.style.overflowWrap = 'anywhere'
+        row.classList.add('rudonium-bidirectional-row')
     }
 }
 
@@ -76,22 +75,14 @@ function showValues(parent: HTMLElement, change: BidirectionalPreviewChange, t: 
     while (suffix < sharedLength - prefix && left[left.length - 1 - suffix] === right[right.length - 1 - suffix]) suffix++
 
     const layout = parent.createDiv()
-    layout.style.display = 'grid'
-    layout.style.gridTemplateColumns = 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))'
-    layout.style.gap = '0.65em'
-    layout.style.marginBlock = '0.5em'
+    layout.classList.add('rudonium-bidirectional-layout')
     for (let index = 0; index < sides.length; index++) {
         const chars = sides[index]
         const pane = layout.createDiv()
-        pane.style.minWidth = '0'
-        pane.style.padding = '0.65em'
-        pane.style.border = '1px solid var(--background-modifier-border)'
-        pane.style.borderRadius = 'var(--radius-m)'
+        pane.classList.add('rudonium-bidirectional-pane')
         pane.createEl('strong', { text: index === 0 ? 'Obsidian' : 'Anki' })
         const value = pane.createDiv()
-        value.style.whiteSpace = 'pre-wrap'
-        value.style.overflowWrap = 'anywhere'
-        value.style.marginBlockStart = '0.35em'
+        value.classList.add('rudonium-bidirectional-value')
         if (change.obsidian === change.anki) {
             value.setText(chars.join('') || t('Empty field', 'Пустое поле'))
         } else {
@@ -126,7 +117,7 @@ class BidirectionalPreviewModal extends Modal {
     onOpen(): void {
         const { preview, apply, t } = this
         this.titleEl.setText(t('Preview Bidirectional Sync', 'Предпросмотр двусторонней синхронизации'))
-        this.modalEl.style.width = 'min(56rem, calc(100vw - 2rem))'
+        this.modalEl.classList.add('rudonium-modal-56rem')
         installModalLayout(this, t)
         this.removePreference = preview.mountPreference?.(this.contentEl)
         const counts = { obsidian: 0, anki: 0, merge: 0, conflict: 0 }
@@ -195,7 +186,7 @@ class BidirectionalPreviewModal extends Modal {
         const append = () => {
             const end = Math.min(rows.length, displayed + pageSize)
             for (; displayed < end; displayed++) this.showRow(list, rows[displayed], update)
-            more.style.display = displayed < rows.length ? '' : 'none'
+            more.classList.toggle('rudonium-hidden', displayed >= rows.length)
         }
         more.onclick = append
         append()
@@ -204,16 +195,15 @@ class BidirectionalPreviewModal extends Modal {
     private showRow(parent: HTMLElement, row: BidirectionalPreviewRow, update: () => void): void {
         const { t } = this
         const item = parent.createEl('li')
-        item.style.marginBlock = '0.7em'
+        item.classList.add('rudonium-bidirectional-item')
         const details = item.createEl('details')
         const title = details.createEl('summary', { text: `${row.path} · ID ${row.id}` })
-        title.style.overflowWrap = 'anywhere'
-        title.style.cursor = 'pointer'
+        title.classList.add('rudonium-bidirectional-title')
         details.open = this.preview.rows.length <= 3
         const expand = () => {
             details.ontoggle = null
             const actions = details.createDiv({ cls: 'modal-button-container' })
-            actions.style.flexWrap = 'wrap'
+            actions.classList.add('rudonium-wrap-controls')
             const source = actions.createEl('button', { text: t('Open in Obsidian', 'Открыть в Obsidian') })
             const anki = actions.createEl('button', { text: t('Open in Anki', 'Открыть в Anki') })
             this.controls.push(source, anki)
@@ -231,8 +221,7 @@ class BidirectionalPreviewModal extends Modal {
                     const location = sources.createEl('li').createEl('button', {
                         text: t(`${occurrence.path} · line ${occurrence.line}`, `${occurrence.path} · строка ${occurrence.line}`),
                     })
-                    location.style.whiteSpace = 'normal'
-                    location.style.overflowWrap = 'anywhere'
+                    location.classList.add('rudonium-bidirectional-location')
                     this.controls.push(location)
                     location.onclick = () => {
                         if (!this.busy) void this.navigate(location, () =>
@@ -262,12 +251,12 @@ class BidirectionalPreviewModal extends Modal {
                 const { before, after } = change.markdown!()
                 for (const [label, value] of [[t('Before', 'До изменения'), before], [t('With Anki value', 'Со значением из Anki'), after]]) {
                     detail.createEl('strong', { text: label })
-                    detail.createEl('pre', { text: value }).style.whiteSpace = 'pre-wrap'
+                    detail.createEl('pre', { text: value }).classList.add('rudonium-pre-wrap')
                 }
             }
         }
         if (change.decision === 'merge' && change.merged !== undefined) {
-            section.createEl('p', { text: t(`Merged result — ${change.merged || 'Empty field'}`, `Результат объединения — ${change.merged || 'Пустое поле'}`) }).style.overflowWrap = 'anywhere'
+            section.createEl('p', { text: t(`Merged result — ${change.merged || 'Empty field'}`, `Результат объединения — ${change.merged || 'Пустое поле'}`) }).classList.add('rudonium-wrap-anywhere')
         }
         if (change.decision !== 'conflict' || !this.apply) return
 
@@ -319,7 +308,7 @@ class BidirectionalPreviewModal extends Modal {
             complete = false
             const reason = uiDiagnostic(error, t)
             message = t(`${reason} Run Bidirectional Sync again to refresh the preview.`, `${reason} Повторно запустите двустороннюю синхронизацию, чтобы обновить предпросмотр.`)
-            status.style.color = 'var(--text-error)'
+            status.classList.add('rudonium-text-error')
         } finally {
             this.busy = false
             if (this.closed && previews.get(this.app) === this) previews.delete(this.app)
@@ -327,7 +316,7 @@ class BidirectionalPreviewModal extends Modal {
         if (complete && !this.closed) this.close()
         if (this.closed) new Notice(message)
         else {
-            status.style.color = 'var(--text-error)'
+            status.classList.add('rudonium-text-error')
             status.setText(message)
             for (const control of this.controls) if (control.tagName === 'BUTTON') control.disabled = false
         }

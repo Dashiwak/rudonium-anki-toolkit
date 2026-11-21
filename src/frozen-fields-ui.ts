@@ -114,8 +114,7 @@ export function openFrozenFields(plugin: MyPlugin): void {
         const available = unused()
         rows.forEach((row, index) => {
             const holder = list.createDiv({ cls: 'setting-item' })
-            holder.style.flexWrap = 'wrap'
-            holder.style.gap = '.5em'
+            holder.classList.add('rudonium-frozen-fields-holder')
             const field = holder.createEl('label', { text: t('Anki field ', 'Поле Anki ') }).createEl('select')
             for (const name of names) {
                 if (row.field === name || available.includes(name)) field.createEl('option', { text: name, value: name })
