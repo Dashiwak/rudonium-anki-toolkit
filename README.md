@@ -4,6 +4,8 @@
 
 Write flashcards in Obsidian and review them in desktop Anki. Rudonium links each Markdown card to its Anki note by ID, so you can edit a question after studying it and keep the link to its review history.
 
+**Repository and support:** [GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit) is the primary development repository. The [GitHub repository](https://github.com/Dashiwak/rudonium-anki-toolkit) is a mirror for source-code distribution and Obsidian releases. Please send bug reports, questions, and feature requests to [GitFlic Issues](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue), or [contact the maintainer by email](mailto:dashiwak@yandex.ru).
+
 [Documentation](docs/README.md) · [Quick start](docs/en/quick-start.md) · [Migrate existing card files](docs/en/migrate-card-files.md) · [Suspension, deletion and shared fields](docs/en/card-controls.md) · [0.10.3 beta release notes](docs/releases/0.10.3.md) · [Support on GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
 ## What you can do
