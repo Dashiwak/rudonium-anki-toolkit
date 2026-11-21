@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "main.ts",
+      "bytes": 8205,
+      "sha256": "f4099a3d031621b7ec83a3767ad25ff8903e16595a0d2a537f39eee5a68408be"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 330,
+      "sha256": "4b3cca423266a8ac882935405ef083452fed5499b33811a88647b5364597fb3e"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 327599,
+      "sha256": "0694a9691edc8244aee94fff2da427bdf9879a1365d0a734c541ed62188012c4"
+    },
+    {
+      "path": "package.json",
+      "bytes": 1992,
+      "sha256": "8373f4d286607751587529c383eb1f581741ca761d4f6067d3f05071de2a52ce"
+    },
+    {
+      "path": "rollup.config.js",
+      "bytes": 423,
+      "sha256": "cb80fa3a3391ff5971366407ef4cac2912f030275672ba04da36ec6daeb70b9d"
+    },
+    {
+      "path": "src/anki.ts",
+      "bytes": 3789,
+      "sha256": "68d5952d8e6bd8af9917019c2108d0358f3cb3e7283b570585dca9d791a23ccc"
+    },
+    {
+      "path": "src/constants.ts",
+      "bytes": 1942,
+      "sha256": "f66d3500a38dcaa1c28cba20c789946c04c31a8f7e33b858fa71590d72be28f3"
+    },
+    {
+      "path": "src/file.ts",
+      "bytes": 18235,
+      "sha256": "00c3337583dbfe194030eb9ab2c31f571cea7b9835124b7a192f5f437fec0d71"
+    },
+    {
+      "path": "src/files-manager.ts",
+      "bytes": 12147,
+      "sha256": "31eb523838c58a66fa007d453ce33a3cb6367b2ad3a660d0afc32fd298646c19"
+    },
+    {
+      "path": "src/format.ts",
+      "bytes": 6393,
+      "sha256": "9420f6fad279579bf7deb429b79474e761cbd3a2448f871618b58adeb77e7445"
+    },
+    {
+      "path": "src/interfaces/field-interface.ts",
+      "bytes": 124,
+      "sha256": "a6f2d8ac89e206d8c6f99906549a988a7f2d3da3b0e88a8f7b6915443b83b499"
+    },
+    {
+      "path": "src/interfaces/note-interface.ts",
+      "bytes": 292,
+      "sha256": "77147659c9ce036fc2839af7adaa05ada09cbc43a9f30552b672561ba43d88d5"
+    },
+    {
+      "path": "src/interfaces/settings-interface.ts",
+      "bytes": 1623,
+      "sha256": "32649bb782b56f41d5e884b21080d3ec02c1ffc0a3d650d3cf9e19d00d5c600e"
+    },
+    {
+      "path": "src/note.ts",
+      "bytes": 10017,
+      "sha256": "fef6e657a2c8cf10636a4d20f37803f295a183cc2e6e0a2d83c7729950f17ae0"
+    },
+    {
+      "path": "src/setting-to-data.ts",
+      "bytes": 2503,
+      "sha256": "3bc5f82100806d0b816e9a6fc3b1a8df1861335f641ef94a56ef80c02712ab73"
+    },
+    {
+      "path": "src/settings.ts",
+      "bytes": 16507,
+      "sha256": "267f5728b83dc81e30c7aa5be480bb0e6b30e907d435d1c27d5efab3497a809d"
+    },
+    {
+      "path": "styles.css",
+      "bytes": 322,
+      "sha256": "8afdee180ac041e61d2c0d053e1c953aa476d95c632a2bbe633ea57c3eff2c13"
+    },
+    {
+      "path": "tsconfig.json",
+      "bytes": 281,
+      "sha256": "aca899a911f97b22c3ebce67e8a595435accff4e848d9a569d0113249fba2f0f"
+    }
+  ]
+}

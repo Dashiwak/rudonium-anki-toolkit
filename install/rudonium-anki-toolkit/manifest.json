@@ -1,0 +1,10 @@
+{
+  "id": "rudonium-anki-toolkit",
+  "name": "Rudonium Anki Toolkit",
+  "version": "0.10.3",
+  "minAppVersion": "1.15.1",
+  "description": "Sync Markdown flashcards with Anki, review planned changes, and audit decks for missing notes and conflicts.",
+  "author": "dashiwak",
+  "isDesktopOnly": true,
+  "authorUrl": "https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit"
+}

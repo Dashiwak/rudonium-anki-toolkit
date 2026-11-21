@@ -1,0 +1,252 @@
+/*!
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
+ * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
+ * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ */
+import * as AnkiConnect from './anki'
+import { checkPinnedAnkiProfile, readActiveAnkiProfile } from './anki-profile'
+import { verifyVaultZip, writeVaultZip } from './vault-backup-zip'
+import type { VaultZipProgressCallback } from './vault-backup-zip'
+import type { Stats } from 'fs'
+
+type NodeFiles = typeof import('fs')
+type NodePath = typeof import('path')
+
+interface BackupDatabase {
+    close(): void
+    prepare(sql: string): { get(): Record<string, unknown> | undefined; all(): Record<string, unknown>[] }
+}
+
+interface OnlineSqlite {
+    DatabaseSync: new (filename: string, options: { readOnly: boolean; timeout?: number }) => BackupDatabase
+    backup(db: BackupDatabase, destination: string, options: {
+        rate: number
+        progress: (value: { totalPages: number; remainingPages: number }) => void
+    }): Promise<number>
+}
+
+interface MediaFile {
+    relative: string
+    stat: Stats
+}
+
+const mediaDirectory = 'collection.media'
+const collectionFilename = 'collection.anki2'
+const connectorTimeoutMs = 15_000
+
+function sqliteBackupApi(): OnlineSqlite {
+    let module: Partial<OnlineSqlite>
+    try { module = require('node:sqlite') as Partial<OnlineSqlite> } catch {
+        throw new Error('Anki backup requires desktop Obsidian with the Node SQLite online backup API.')
+    }
+    if (typeof module.DatabaseSync !== 'function' || typeof module.backup !== 'function') {
+        throw new Error('Anki backup requires desktop Obsidian with the Node SQLite online backup API (Node 22.16 or later).')
+    }
+    return module as OnlineSqlite
+}
+
+async function readConnector(action: 'getMediaDirPath'): Promise<unknown> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+        return await Promise.race([
+            AnkiConnect.invoke(action),
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error('AnkiConnect did not respond while preparing the Anki backup.')), connectorTimeoutMs)
+            }),
+        ])
+    } finally {
+        if (timer !== undefined) clearTimeout(timer)
+    }
+}
+
+export async function activeAnkiBackupProfile(): Promise<string> {
+    return readActiveAnkiProfile()
+}
+
+async function profileMediaPath(fs: NodeFiles, path: NodePath): Promise<string> {
+    const value = await readConnector('getMediaDirPath')
+    if (typeof value !== 'string' || !path.isAbsolute(value) || path.basename(value).toLowerCase() !== mediaDirectory) {
+        throw new Error('AnkiConnect did not return a local collection.media folder. Run Anki on this computer.')
+    }
+    const stat = await fs.promises.lstat(value)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error('Anki backup needs a real collection.media folder on this computer.')
+    }
+    return fs.promises.realpath(value)
+}
+
+async function mediaFiles(fs: NodeFiles, path: NodePath, root: string): Promise<Map<string, MediaFile>> {
+    const files = new Map<string, MediaFile>()
+    const pending = ['']
+    while (pending.length) {
+        const relativeDir = pending.pop()!
+        const children = await fs.promises.readdir(path.join(root, relativeDir), { withFileTypes: true })
+        for (const child of children) {
+            const relative = path.join(relativeDir, child.name)
+            if (child.isDirectory()) {
+                pending.push(relative)
+            } else if (child.isFile()) {
+                const stat = await fs.promises.lstat(path.join(root, relative))
+                if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Anki media changed during the backup: ${relative}`)
+                files.set(relative, { relative, stat })
+            } else {
+                throw new Error(`Anki media contains an unsupported filesystem entry: ${relative}`)
+            }
+        }
+    }
+    return files
+}
+
+function sameFile(before: Stats, after: Stats): boolean {
+    return after.isFile() && !after.isSymbolicLink() &&
+        before.size === after.size && before.mtimeMs === after.mtimeMs &&
+        before.ctimeMs === after.ctimeMs && before.ino === after.ino && before.dev === after.dev
+}
+
+function inside(path: NodePath, candidate: string, directory: string): boolean {
+    const relative = path.relative(directory, candidate)
+    return relative === '' || (relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative))
+}
+
+function dataVersion(db: BackupDatabase): number {
+    const value = db.prepare('PRAGMA data_version').get()?.data_version
+    if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+        throw new Error('Could not confirm the Anki database version.')
+    }
+    return value
+}
+
+function verifyCollection(sqlite: OnlineSqlite, path: string): 'sqlite-quick-check' | 'sqlite-core-tables' {
+    const copied = new sqlite.DatabaseSync(path, { readOnly: true })
+    try {
+        const tables = ['col', 'notes', 'cards', 'revlog']
+        const found = copied.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('col','notes','cards','revlog')").all()
+        if (found.length !== tables.length) throw new Error('The database snapshot is missing Anki collection tables.')
+        const verify = (query: string) => {
+            const result = copied.prepare(query).all()
+            if (result.length !== 1 || result[0].quick_check !== 'ok') {
+                throw new Error('The Anki database snapshot did not pass its SQLite consistency check.')
+            }
+        }
+        try {
+            verify('PRAGMA quick_check')
+            return 'sqlite-quick-check'
+        } catch (error) {
+            // Обычный SQLite не может применить алгоритм сортировки unicase, который Anki использует в индексах колод и типов записей.
+            // Онлайн-копирование сохраняет эти страницы. Основные таблицы коллекции проверяем отдельно.
+            if (!(error instanceof Error) || !/^no such collation sequence: unicase$/i.test(error.message)) throw error
+            for (const table of tables) verify(`PRAGMA quick_check('${table}')`)
+            return 'sqlite-core-tables'
+        }
+    } finally {
+        copied.close()
+    }
+}
+
+/** Создаёт каталог коллекции для восстановления без подключения к Anki, в собственном формате резервной копии. */
+export async function backupAnkiCollection(outputArchive: string, onProgress?: VaultZipProgressCallback,
+    expectedProfile?: string): Promise<{ profile: string; files: number; bytes: number }> {
+    const sqlite = sqliteBackupApi()
+    const fs: NodeFiles = require('fs')
+    const path: NodePath = require('path')
+    const profile = expectedProfile === undefined ? await activeAnkiBackupProfile() : await checkPinnedAnkiProfile(expectedProfile)
+    const sourceMedia = await profileMediaPath(fs, path)
+    await checkPinnedAnkiProfile(profile)
+    const sourceRoot = path.dirname(sourceMedia)
+    const sourceDb = path.join(sourceRoot, collectionFilename)
+    const sourceStat = await fs.promises.lstat(sourceDb)
+    if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) {
+        throw new Error('Could not find a regular collection.anki2 beside the Anki media folder.')
+    }
+    if (!path.isAbsolute(outputArchive)) throw new Error('Choose an absolute path for the Anki backup.')
+    const outputDirectory = await fs.promises.realpath(path.dirname(outputArchive))
+    if (inside(path, outputDirectory, sourceRoot)) throw new Error('Choose a backup location outside the active Anki profile.')
+    const output = path.join(outputDirectory, path.basename(outputArchive))
+    const staging = await fs.promises.mkdtemp(path.join(outputDirectory, '.anki-backup-'))
+    let created = false
+    let verification: ReturnType<typeof verifyCollection>
+    try {
+        const stagedDb = path.join(staging, collectionFilename)
+        const stagedMedia = path.join(staging, mediaDirectory)
+        await fs.promises.mkdir(stagedMedia)
+        onProgress?.({ phase: 'enumerate', files: 0, totalFiles: 0, bytes: 0, totalBytes: 0, path: mediaDirectory })
+        const db = new sqlite.DatabaseSync(sourceDb, { readOnly: true, timeout: 5000 })
+        try {
+            const version = dataVersion(db)
+            const media = await mediaFiles(fs, path, sourceMedia)
+            const totalFiles = 1 + media.size
+            const totalMediaBytes = [...media.values()].reduce((sum, file) => sum + file.stat.size, 0)
+            const pageSize = db.prepare('PRAGMA page_size').get()?.page_size
+            const exactPageSize = typeof pageSize === 'number' && pageSize > 0 ? pageSize : 0
+            onProgress?.({ phase: 'write', files: 0, totalFiles, bytes: 0,
+                totalBytes: sourceStat.size + totalMediaBytes, path: collectionFilename })
+            await sqlite.backup(db, stagedDb, {
+                rate: 256,
+                progress: ({ totalPages, remainingPages }) => {
+                    onProgress?.({ phase: 'write', files: 0, totalFiles,
+                        bytes: (totalPages - remainingPages) * exactPageSize,
+                        totalBytes: totalPages * exactPageSize + totalMediaBytes, path: collectionFilename })
+                },
+            })
+            const totalBytes = (await fs.promises.stat(stagedDb)).size + totalMediaBytes
+            let bytes = totalBytes - totalMediaBytes
+            let files = 1
+            onProgress?.({ phase: 'verify', files, totalFiles, bytes, totalBytes, path: collectionFilename })
+            verification = verifyCollection(sqlite, stagedDb)
+            // При открытии копии в режиме WAL для проверки SQLite может создать временные сопутствующие файлы.
+            // Основной файл резервной копии уже готов. Временные файлы остаются в рабочем каталоге.
+            for (const ending of ['-wal', '-shm', '-journal']) {
+                const sidecar = await fs.promises.stat(stagedDb + ending).catch((error: NodeJS.ErrnoException) => {
+                    if (error.code !== 'ENOENT') throw error
+                    return undefined
+                })
+                if (sidecar?.size && ending !== '-shm') {
+                    throw new Error('Anki backup could not confirm a standalone SQLite snapshot.')
+                }
+                await fs.promises.rm(stagedDb + ending, { force: true })
+            }
+            for (const { relative, stat } of media.values()) {
+                const source = path.join(sourceMedia, relative)
+                const destination = path.join(stagedMedia, relative)
+                onProgress?.({ phase: 'write', files, totalFiles, bytes, totalBytes, path: path.join(mediaDirectory, relative) })
+                await fs.promises.mkdir(path.dirname(destination), { recursive: true })
+                await fs.promises.copyFile(source, destination, fs.constants.COPYFILE_EXCL)
+                if (!sameFile(stat, await fs.promises.lstat(source)) || (await fs.promises.stat(destination)).size !== stat.size) {
+                    throw new Error(`Anki media changed during the backup: ${relative}`)
+                }
+                bytes += stat.size
+                files++
+            }
+            const latest = await mediaFiles(fs, path, sourceMedia)
+            if (latest.size !== media.size || [...media].some(([name, file]) => {
+                const current = latest.get(name)
+                return !current || !sameFile(file.stat, current.stat)
+            })) throw new Error('Anki media changed during the backup. Retry after the changes finish.')
+            if (dataVersion(db) !== version) throw new Error('The Anki collection changed during the backup. Retry after the changes finish.')
+            const latestDb = await fs.promises.lstat(sourceDb)
+            if (!latestDb.isFile() || latestDb.ino !== sourceStat.ino || latestDb.dev !== sourceStat.dev) {
+                throw new Error('The Anki database file was replaced during the backup. Open the original profile and retry.')
+            }
+        } finally {
+            db.close()
+        }
+        await checkPinnedAnkiProfile(profile)
+        if (await profileMediaPath(fs, path) !== sourceMedia) {
+            throw new Error('The active Anki profile changed during the backup.')
+        }
+        await fs.promises.writeFile(path.join(staging, 'anki-backup-info.json'), JSON.stringify({
+            format: 'export-to-anki-profile-backup', version: 1, profile, createdAt: new Date().toISOString(), verification,
+        }, null, 2) + '\n', { flag: 'wx' })
+        await writeVaultZip(staging, output, onProgress)
+        created = true
+        const result = await verifyVaultZip(output, onProgress)
+        await checkPinnedAnkiProfile(profile)
+        await fs.promises.rm(staging, { recursive: true, force: true })
+        return { profile, ...result }
+    } catch (error) {
+        if (created) await fs.promises.rm(output, { force: true }).catch(() => {})
+        await fs.promises.rm(staging, { recursive: true, force: true }).catch(() => {})
+        throw error
+    }
+}

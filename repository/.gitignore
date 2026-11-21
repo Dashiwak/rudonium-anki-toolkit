@@ -1,0 +1,11 @@
+/node_modules/
+/Build/.build-*/
+/main.js
+/dist/
+
+/Build/build-error.txt
+/Release-*/
+
+*.ffs_db
+*.ffs_lock
+*.ffs_tmp
