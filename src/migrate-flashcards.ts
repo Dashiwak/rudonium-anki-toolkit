@@ -95,7 +95,7 @@ function linkedFlashcard(anchor: string | undefined, properties: Record<string, 
     // into an integer or silently accept a repeated mapping key.
     const tokens = [...yaml.matchAll(/(?:^|[\s,{])(?:nid|'nid'|"nid")[ \t]*:[ \t]*/gu)]
     if (tokens.length !== 1) return false
-    const raw = yaml.slice(tokens[0].index! + tokens[0][0].length)
+    const raw = yaml.slice(tokens[0].index + tokens[0][0].length)
     const digits = /^(?:"([1-9]\d*)"|'([1-9]\d*)'|([1-9]\d*))(?=[ \t]*(?:[,}#]|\r?$))/mu.exec(raw)
     if (!digits || digits.index !== 0 || (digits[1] ?? digits[2] ?? digits[3]) !== String(id)) return false
     return id && (!legacy || id === legacy) ? id : false

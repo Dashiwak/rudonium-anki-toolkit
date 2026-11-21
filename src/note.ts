@@ -13,7 +13,7 @@ export const TAG_SEP:string = " "
 export const ID_REGEXP_STR: string = String.raw`\n?(?:<!--)?(?:ID: (\d+).*)`
 export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
 // Теги из полей распознаются после форматирования текста в HTML.
-const OBS_TAG_REGEXP: RegExp = /(?<![^\s>(\[])#((?=[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_/-]*[\p{L}\p{M}\p{Extended_Pictographic}_-])[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_-]+(?:\/[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_-]+)*)(?![\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_/-])(?![^<>]*>)/gu
+const OBS_TAG_REGEXP: RegExp = /(?<![^\s>([])#((?=[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_/-]*[\p{L}\p{M}\p{Extended_Pictographic}_-])[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_-]+(?:\/[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_-]+)*)(?![\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_/-])(?![^<>]*>)/gu
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/
 export const CLOZE_ERROR: number = 42
@@ -22,6 +22,10 @@ export const NOTE_TYPE_ERROR: number = 69
 function has_clozes(text: string): boolean {
 	/*Checks whether text actually has cloze deletions.*/
 	return ANKI_CLOZE_REGEXP.test(text)
+}
+
+function copyNoteTemplate(template: AnkiConnectNote): AnkiConnectNote {
+    return { ...template, fields: { ...template.fields }, options: { ...template.options }, tags: [...template.tags] }
 }
 
 function note_has_clozes(note: AnkiConnectNote): boolean {
@@ -59,7 +63,7 @@ abstract class AbstractNote {
         this.identifier = this.getIdentifier()
         this.tags = this.getTags()
         this.note_type = this.getNoteType()
-		if (!(fields_dict.hasOwnProperty(this.note_type))) {
+		if (!Object.prototype.hasOwnProperty.call(fields_dict, this.note_type)) {
 			this.no_note_type = true
 			return
 		}
@@ -81,7 +85,7 @@ abstract class AbstractNote {
     abstract getFields(): Record<string, string>
 
     parse(deck:string, url:string, frozen_fields_dict: FROZEN_FIELDS_DICT, data: FileData, context:string): AnkiConnectNoteAndID {
-        let template = JSON.parse(JSON.stringify(data.template))
+        const template = copyNoteTemplate(data.template)
 		template["modelName"] = this.note_type
 		if (this.no_note_type) {
 			return {note: template, identifier: NOTE_TYPE_ERROR}
@@ -128,7 +132,7 @@ export class Note extends AbstractNote {
     }
 
     getTags(): string[] {
-        if (this.split_text[this.split_text.length-1].startsWith(TAG_PREFIX)) {
+        if (this.split_text[this.split_text.length-1]?.startsWith(TAG_PREFIX)) {
             return this.split_text.pop().slice(TAG_PREFIX.length).split(TAG_SEP)
         } else {
             return []
@@ -204,6 +208,7 @@ export class InlineNote extends AbstractNote {
 
     getNoteType(): string {
         const result = this.text.match(InlineNote.TYPE_REGEXP)
+        if (!result) return ""
         this.text = this.text.slice(result.index + result[0].length)
         return result[1]
     }
@@ -269,11 +274,8 @@ export class RegexNote {
 
 	getFields(): Record<string, string> {
 		let fields: Record<string, string> = {}
-        for (let field of this.field_names) {
-            fields[field] = ""
-        }
-		for (let index in this.match.slice(1)) {
-			fields[this.field_names[index]] = this.match.slice(1)[index] ? this.match.slice(1)[index] : ""
+		for (let fieldIndex = 0; fieldIndex < this.field_names.length; fieldIndex++) {
+			fields[this.field_names[fieldIndex]] = this.match[fieldIndex + 1] ?? ""
 		}
 		for (let key in fields) {
             fields[key] = this.formatter.format(
@@ -286,7 +288,7 @@ export class RegexNote {
 	}
 
 	parse(deck: string, url: string = "", frozen_fields_dict: FROZEN_FIELDS_DICT, data: FileData, context: string): AnkiConnectNoteAndID {
-		let template = JSON.parse(JSON.stringify(data.template))
+		const template = copyNoteTemplate(data.template)
 		template["modelName"] = this.note_type
 		template["fields"] = this.getFields()
 		const file_link_fields = data.file_link_fields

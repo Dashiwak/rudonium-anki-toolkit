@@ -12,10 +12,10 @@ import type MyPlugin from '../main'
 import * as AnkiConnect from './anki'
 import { observeSourceFields, sourceSuffixes, sourceSuffixMap } from './bidirectional-source-fields'
 import type { SourceFieldUpdates, SourceSuffixes } from './bidirectional-source-fields'
-import { parseExistingNoteSnapshot, snapshotKey } from './anki-delta'
+import { isRecord, parseExistingNoteSnapshot, snapshotKey } from './anki-delta'
 import type { NoteSnapshot } from './anki-delta'
 import { AnkiProfileError, checkPinnedAnkiProfile, requireExpectedAnkiProfile } from './anki-profile'
-import { hasPendingAnkiWrite, pendingAnkiWriteMessage } from './anki-transport'
+import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from './anki-transport'
 import { showAnkiProfileProblem } from './anki-profile-ui'
 import { readRecoveryMarker } from './export-recovery'
 import { FileManager, frontmatterTags, mergeTags } from './files-manager'
@@ -91,7 +91,7 @@ export function hasPendingBidirectionalWrite(app: App): boolean {
     return pendingAnkiWrites.has(app)
 }
 
-interface Scope { reviewProfile?: string; currentOnly?: boolean; currentFile?: { file: TFile; path: string }; paths?: ReadonlySet<string>; force?: boolean; card?: CursorCardTarget }
+interface Scope { currentOnly?: boolean; currentFile?: { file: TFile; path: string }; paths?: ReadonlySet<string>; force?: boolean; card?: CursorCardTarget }
 type SourceCard = LinkedBullet | BidirectionalBlock
 interface DeleteFile {
     commands?: ExplicitDeletes
@@ -206,6 +206,10 @@ function dirtyFiles(plugin: MyPlugin): Set<string> {
     return result
 }
 
+function isResponseList(value: unknown): value is unknown[] {
+    return Array.isArray(value)
+}
+
 async function readNoteBatch(notes: number[], requested: Set<number>, profile: string, missing?: Set<number>): Promise<unknown> {
     const read = (ids: number[]) => auditRead('notesInfo', { notes: ids }, undefined, 30_000)
     try {
@@ -218,8 +222,8 @@ async function readNoteBatch(notes: number[], requested: Set<number>, profile: s
         // Строгие коннекторы отклоняют весь пакет, когда запись пропала. Повторяем запрос только для проверенной части пакета.
         await checkPinnedAnkiProfile(profile)
         const matches = await auditRead('findNotes', { query: `nid:${notes.join(',')}` }, undefined, 30_000)
-        if (!Array.isArray(matches) || matches.length >= notes.length || new Set(matches).size !== matches.length ||
-            matches.some(id => !requested.has(id))) throw error
+        if (!isResponseList(matches) || !matches.every((id): id is number => typeof id === 'number' && requested.has(id)) ||
+            matches.length >= notes.length || new Set(matches).size !== matches.length) throw error
         const remaining = new Set<number>(matches)
         const rows = remaining.size ? await read(notes.filter(id => remaining.has(id))) : []
         await checkPinnedAnkiProfile(profile)
@@ -237,15 +241,15 @@ async function readNotes(ids: readonly number[], profile: string, missing?: Set<
         const notes = ids.slice(offset, offset + readBatchSize)
         const requested = new Set(notes)
         const raw = await readNoteBatch(notes, requested, profile, missing)
-        if (!Array.isArray(raw)) throw new Error('AnkiConnect returned an invalid note list.')
+        if (!isResponseList(raw)) throw new Error('AnkiConnect returned an invalid note list.')
         let empty = 0
         for (const row of raw) {
             // Некоторые версии AnkiConnect возвращают пустой объект для отсутствующей записи.
-            if (row && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).length === 0) {
+            if (isRecord(row) && Object.keys(row).length === 0) {
                 empty++
                 continue
             }
-            if (!row || !requested.delete(row.noteId)) throw new Error('AnkiConnect returned an unexpected or repeated note ID.')
+            if (!isRecord(row) || typeof row.noteId !== 'number' || !requested.delete(row.noteId)) throw new Error('AnkiConnect returned an unexpected or repeated note ID.')
             if (typeof row.profile === 'string' && row.profile !== profile) {
                 throw new AnkiProfileError('mismatch', profile, row.profile)
             }
@@ -294,7 +298,7 @@ function decodeAnkiNote(snapshot: NoteSnapshot, card: SourceCard, extraDirection
     if (front === undefined || back === undefined) return { backlinks }
     const value: SyncValue = { front, back, tags: normalizeSyncTags(snapshot.tags) }
     if (extraDirections?.size) {
-        const extra: Record<string, string> = Object.create(null)
+        const extra = Object.create(null) as Record<string, string>
         for (const name of extraDirections.keys()) {
             const raw = rawField(snapshot, name)
             const field = decodeField(raw, block, undefined, true)
@@ -454,8 +458,8 @@ async function readModelTemplateFields(modelName: string): Promise<ReadonlySet<s
     try {
         const response = await auditRead('multi', { actions: [{ action: 'modelTemplates', version: 6, params: { modelName } }] },
             undefined, 5_000)
-        const row = Array.isArray(response) && response.length === 1 ? response[0] : undefined
-        return row?.error === null ? readTemplateFieldReferences(row.result) : undefined
+        const row = isResponseList(response) && response.length === 1 ? response[0] : undefined
+        return isRecord(row) && row.error === null ? readTemplateFieldReferences(row.result) : undefined
     } catch {
         return undefined
     }
@@ -484,16 +488,16 @@ async function additionalObservation(plugin: MyPlugin, snapshot: NoteSnapshot, b
     if (!bullet.extra && !pending) return {}
     const t = uiFor(plugin.settings)
     const issues: string[] = []
-    const local: Record<string, string> = Object.create(null)
-    const remote: Record<string, string> = Object.create(null)
+    const local = Object.create(null) as Record<string, string>
+    const remote = Object.create(null) as Record<string, string>
     const directions = new Map<string, BidirectionalFieldDirection>()
     const outboundBlocked = new Set<string>()
     const block = explicitBlock(bullet)
     const named = block?.format === 'page' || block?.namedFieldInsertAt !== undefined
     const schema = plugin.fields_dict?.[snapshot.modelName]
     const candidates = new Set(Object.keys(bullet.extra ?? {}))
-    if (named) for (const name of block!.pageOptionalFieldNames ?? schema ?? []) {
-        if (isWritableBlockExtraName(name) && !block!.fieldPair?.includes(name) &&
+    if (named && block) for (const name of block.pageOptionalFieldNames ?? schema ?? []) {
+        if (isWritableBlockExtraName(name) && !block.fieldPair?.includes(name) &&
             Object.prototype.hasOwnProperty.call(snapshot.fields, name)) candidates.add(name)
     }
     const fieldBases = new Map<string, string | null>()
@@ -674,7 +678,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     }
     const editorFile = target ? null : current ?? app.workspace.getActiveFile?.()
     const newCardSource = editorFile && selected.has(editorFile.path) ? editorFile : undefined
-    const profile = await requireExpectedAnkiProfile(plugin, target?.profile ?? scope.reviewProfile)
+    const profile = await requireExpectedAnkiProfile(plugin, target?.profile)
     const statePath = protectedStatePath(plugin)
     const state = await BidirectionalState.open(vault.adapter, statePath, profile)
     let history: Promise<OneWayHistory> | undefined
@@ -1246,7 +1250,10 @@ async function selectedBrowseIds(ids: ReadonlySet<number>): Promise<Set<number>>
     if (!ids.size) return new Set()
     try {
         const selected = await auditRead('guiSelectedNotes', {}, undefined, 10_000)
-        if (Array.isArray(selected)) return new Set(selected.filter(id => ids.has(id)))
+        if (!isResponseList(selected) || !selected.every((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0)) {
+            throw new Error('Anki returned an invalid browser selection. Retry syncing. / Anki вернула некорректное выделение в обзоре. Повторите синхронизацию.')
+        }
+        return new Set(selected.filter(id => ids.has(id)))
     } catch (error) {
         if (!/unsupported action|unknown action|unexpected action|not supported/i.test(String(error))) throw error
     }
@@ -1269,25 +1276,19 @@ async function writeToAnki(app: App, request: AnkiConnect.AnkiConnectRequest): P
         if (pendingAnkiWrites.get(app) === transport) pendingAnkiWrites.delete(app)
     }
     void transport.then(release, release)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-        const result = await Promise.race([transport, new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-                reject(new DOMException(pendingBidirectionalWriteMessage, 'TimeoutError'))
-            }, writeTimeoutMs)
-        })])
-        if (request.action === 'multi') {
-            const actions = request.params.actions
-            if (!Array.isArray(result) || result.length !== actions.length) throw new Error('Anki did not confirm every update in the batch.')
-            for (let i = 0; i < result.length; i++) {
-                const reply = result[i]
-                if (!reply || reply.error !== null || reply.result !== null) {
-                    throw new Error(`Anki ID ${actions[i].params.note.id}: ${reply?.error ?? 'unconfirmed field update'}`)
-                }
+    const result = await withAnkiDeadline(() => transport, 'AnkiConnect', writeTimeoutMs)
+    if (request.action === 'multi') {
+        const actions = request.params.actions
+        if (!isResponseList(result) || result.length !== actions.length) throw new Error('Anki did not confirm every update in the batch.')
+        for (let i = 0; i < result.length; i++) {
+            const reply = result[i]
+            if (!isRecord(reply) || reply.error !== null || reply.result !== null) {
+                const action = actions[i]
+                const target = action.action === 'updateNoteFields' ? `Anki ID ${action.params.note.id}` : action.action
+                const reason = isRecord(reply) && typeof reply.error === 'string' ? reply.error : 'unconfirmed field update'
+                throw new Error(`${target}: ${reason}`)
             }
         }
-    } finally {
-        clearTimeout(timer)
     }
 }
 
@@ -1329,7 +1330,7 @@ async function writeFieldPackets(plugin: MyPlugin, plan: Plan, group: readonly O
         if (configuration(plugin) !== plan.configuration) throw stalePlan()
         beforeWrite()
         await writeToAnki(plugin.app, {action: 'multi', version: 6,
-            params: {actions: ready.map(item => ({...item.requests[0], version: 6}))}})
+            params: {actions: ready.map(item => item.requests[0])}})
         await verifyAnkiTargets(plugin, ready, plan.profile)
         afterVerify(ready)
     }
@@ -1371,7 +1372,7 @@ function confirmedNamedReceipt(item: Operation, note: NoteSnapshot | undefined):
     const shared = link.pageShared && Object.keys(link.pageShared)
     if (!eligible.length && !shared?.length) return
     const present: string[] = []
-    const values: Record<string, string> = Object.create(null)
+    const values = Object.create(null) as Record<string, string>
     for (const name of eligible) {
         const value = rawField(note, name)
         if (value === undefined) continue
@@ -1423,7 +1424,7 @@ function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSid
             if (Object.prototype.hasOwnProperty.call(remoteFields, name)) remoteFields[name] += update.after
             else if (update.before !== update.after) remoteFields[name] = update.body + update.after
         }
-        const localExtras: Record<string, string> = Object.create(null)
+        const localExtras = Object.create(null) as Record<string, string>
         for (const field of link.extraDirections?.keys() ?? []) {
             const value = target.extra![field]
             if (link.obsidian.extra![field].normalize('NFC') !== value.normalize('NFC')) localExtras[field] = value
@@ -1456,7 +1457,7 @@ function stalePlan(): Error { return new Error('A file, Anki record, or the sync
 interface PauseApplyContext {
     outputs: Map<SourceFile, string>
     backupChecked: boolean
-    guard(): void
+    guard: () => void
     onWrite(path?: string): void
 }
 
@@ -1545,7 +1546,8 @@ async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: Bidirectio
     await state.checkpoint(updates)
 }
 
-async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<string, BidirectionalSide>, onPartial?: () => void): Promise<string> {
+async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<string, BidirectionalSide>,
+    onPartial?: () => void, mode: 'preview' | 'background' = 'preview'): Promise<string> {
     const t = uiFor(plugin.settings)
     return withFastScanReadLock(plugin, async (currentRevision, pathRevision) => {
         await requireSettledZipImport(plugin)
@@ -1897,29 +1899,12 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         if (profileProblem) {
             showAnkiProfileProblem(plugin, profileProblem, dispatchedWrite ? 'in-progress' : 'before-write', summary)
         }
-        if (errors.length) onPartial?.()
-        return errors.length ? t(`${summary} Open a fresh preview to review the pending files. ${errors[0]}`,
-            `${summary} Откройте новый предпросмотр, чтобы проверить оставшиеся файлы. ${errors[0]}`) : summary
+        if (!errors.length) return summary
+        onPartial?.()
+        const retry = mode === 'preview' ? t('Open a fresh preview to review the pending files.',
+            'Откройте новый предпросмотр, чтобы проверить оставшиеся файлы.') : ''
+        return [summary, retry, errors[0]].filter(Boolean).join(' ')
     })
-}
-
-function showReviewNotice(message: string, t: ReturnType<typeof uiFor>, open: () => Promise<void>): void {
-    if (typeof document === 'undefined') { new Notice(message); return }
-    const fragment = document.createDocumentFragment()
-    const text = document.createElement('div')
-    text.textContent = message
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = t('Open preview', 'Открыть предпросмотр')
-    fragment.append(text, button)
-    const notice = new Notice(fragment, 12000)
-    button.onclick = async event => {
-        event.stopPropagation()
-        if (button.disabled) return
-        button.disabled = true
-        notice.hide()
-        await open()
-    }
 }
 
 export async function previewBidirectionalSync(plugin: MyPlugin, scope: Scope = {}): Promise<void> {
@@ -1946,12 +1931,12 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
             hasPendingAnkiWrite(plugin.app) ? pendingAnkiWriteMessage : undefined
         const automatic = !previewRequested && plugin.settings.BIDIRECTIONAL_PREVIEW !== true
         let applicable = plan
-        let needsReview = false
+        let deferred = false
         if (automatic) {
             const held = new Set(plan.rows.filter(row => row.issues?.length || row.duplicates?.length ||
                 row.changes.some(change => change.decision === 'conflict')).map(row => row.id))
             for (const group of plan.deletions.values()) for (const id of group.evidence.keys()) held.add(id)
-            needsReview = !!pending || !plan.complete || !!plan.issues.length || !!held.size
+            deferred = held.size > 0 || plan.issues.length > 0
             if (held.size) applicable = { ...plan, deletions: new Map(),
                 links: plan.links.filter(link => !held.has(link.bullet.id)),
                 pauses: plan.pauses.filter(pause => !held.has(pause.id)) }
@@ -1962,16 +1947,25 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 return !target.conflicts.length && needsUpdate(link, target.value)
             }))
         if (automatic) {
-            let partial = false
-            const result = canApply ? await applyPlan(plugin, applicable, new Map(), () => { partial = true }) : ''
-            if (needsReview || partial) {
-                const next = t('Some items need review.', 'Есть записи для ручной проверки.')
-                const reviewScope = { ...scope, reviewProfile: plan.profile }
-                showReviewNotice([result, next].filter(Boolean).join(' '), t, () => previewBidirectionalSync(plugin, reviewScope))
-                return partial ? 'failed' : 'stopped'
+            if (pending) {
+                new Notice(t('Anki is still processing the previous write. Wait for it to finish before syncing again.',
+                    'Anki ещё обрабатывает предыдущую запись. Дождитесь завершения и повторите синхронизацию.'))
+                return 'stopped'
             }
-            new Notice(result || t('Bidirectional sync: no changes.', 'Двусторонняя синхронизация: изменений нет.'), 4000)
-            return 'completed'
+            if (!plan.complete) {
+                const detail = plan.issues[0] ? uiDiagnostic(plan.issues[0], t) : ''
+                new Notice(t('Could not check all vault IDs. ', 'Не удалось проверить все ID хранилища. ') + detail)
+                return 'failed'
+            }
+            if (canApply) {
+                let partial = false
+                const result = await applyPlan(plugin, applicable, new Map(), () => { partial = true }, 'background')
+                if (result) new Notice(result, partial ? 10000 : 4000)
+                if (partial) return 'failed'
+            } else if (!deferred) {
+                new Notice(t('Bidirectional sync: no changes.', 'Двусторонняя синхронизация: изменений нет.'), 4000)
+            }
+            return deferred ? 'stopped' : 'completed'
         }
         const source = plan.newCardSource
         const view = source && plan.complete && !pending ? plugin.app.workspace.getActiveViewOfType?.(MarkdownView) : null

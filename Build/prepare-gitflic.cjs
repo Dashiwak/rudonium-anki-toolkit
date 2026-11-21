@@ -114,7 +114,7 @@ async function stageRelease(repository, releaseDirectory, scratch, manifest, onS
         fs.cpSync(path.join(repository, name), path.join(runtime, name), { recursive: true, force: false, errorOnExist: true });
     }
     const installGuide = [
-        manifest.name + " " + manifest.version + " beta", "",
+        manifest.name + " " + manifest.version, "",
         "With Obsidian closed, copy the rudonium-anki-toolkit folder into <vault>/.obsidian/plugins/.",
         "For an update, merge the folder and replace main.js, manifest.json and any supplied styles.css together.",
         "Keep existing data.json, caches and journals. Reopen Obsidian and enable the plugin.", "",
@@ -193,14 +193,27 @@ ${items}
 }
 
 async function main(args) {
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    if (major < 22 || (major === 22 && minor < 18)) throw new Error("Use Node.js 22.18 or later with npm.");
     if (args.length > 2) throw new Error("Usage: node Build/prepare-gitflic.cjs [official-source-directory|-] [new-output-directory]");
     const manifest = readJson(path.join(kit, "manifest.json"));
     if (!/^\d+\.\d+\.\d+$/.test(manifest.version)) throw new Error("Invalid release version.");
     const source = args[0] && args[0] !== "-" ? fs.realpathSync(args[0]) : "-";
     const expanded = fs.existsSync(path.join(__dirname, "overlay-files.json"));
     if (expanded && source !== "-") throw new Error("An expanded repository already contains its sources. Pass - for the first argument.");
-    const output = path.resolve(args[1] || path.join(kit, "..", "GitFlic-" + manifest.version));
-    if (fs.lstatSync(output, { throwIfNoEntry: false })) throw new Error("Destination already exists. Choose a new directory: " + output);
+    let output, buildLabel = manifest.version;
+    if (expanded) {
+        const build = readJson(path.join(kit, "package.json")).rudoniumBuild;
+        if (!Number.isSafeInteger(build) || build < 1) throw new Error("package.json requires a positive integer rudoniumBuild.");
+        buildLabel += "." + build;
+        output = path.resolve(args[1] || path.join(kit, "..", "Rudonium-Builds", buildLabel));
+    } else {
+        output = path.resolve(args[1] || path.join(kit, "..", "GitFlic-" + manifest.version));
+    }
+    if (fs.lstatSync(output, { throwIfNoEntry: false })) {
+        const hint = expanded && !args[1] ? " For a changed build increment rudoniumBuild in package.json." : " Choose a new directory.";
+        throw new Error("Destination already exists: " + output + "." + hint);
+    }
     // Protect against recursively copying a parent directory into its own build or output.
     function inside(parent, child) {
         const rel = path.relative(parent, child);
@@ -209,24 +222,28 @@ async function main(args) {
     if (inside(kit, output) || source !== "-" && (inside(source, output) || inside(source, kit))) {
         throw new Error("Choose separate locations for the kit, official source and output.");
     }
+    fs.mkdirSync(path.dirname(output), { recursive: true });
     const stage = fs.mkdtempSync(path.join(path.dirname(output), ".rudonium-gitflic-"));
     const publish = path.join(stage, "publish");
-    const repository = path.join(publish, "repository");
+    // A maintained checkout is already the source of record. Its staging copy is temporary.
+    const repository = path.join(expanded ? stage : publish, "repository");
     let sourcesChecked = false;
     try {
         fs.mkdirSync(publish);
-        console.log("1/3 Preparing the complete source repository for " + manifest.version + "...");
+        console.log("1/3 Preparing the sources for " + buildLabel + "...");
         if (expanded) buildCheckout(kit, repository, manifest);
         else runNode(path.join(__dirname, "build-main.cjs"), ["--prepare-repository", source, repository]);
         console.log("2/3 Checking the runtime against two clean builds and creating the install ZIP...");
         const fileCount = await stageRelease(repository, path.join(publish, "release"), stage, manifest,
             () => { sourcesChecked = true; });
-        writeCompareProfile(publish, path.join(output, "repository"));
+        if (!expanded) writeCompareProfile(publish, path.join(output, "repository"));
         if (fs.lstatSync(output, { throwIfNoEntry: false })) throw new Error("Destination appeared while building: " + output);
         fs.renameSync(publish, output);
         console.log("3/3 GitFlic files ready: " + output);
-        console.log("Repository (" + fileCount + " files): " + path.join(output, "repository"));
-        console.log("FreeFileSync: " + path.join(output, "Compare.ffs_gui"));
+        if (!expanded) {
+            console.log("Repository (" + fileCount + " files): " + path.join(output, "repository"));
+            console.log("FreeFileSync: " + path.join(output, "Compare.ffs_gui"));
+        }
         const install = path.join(output, "install", manifest.id);
         console.log("GitFlic release ZIP: " + path.join(output, "release", "Rudonium-" + manifest.version + ".zip"));
         console.log("GitHub release attachments (upload these separately):");
@@ -234,11 +251,11 @@ async function main(args) {
             const filename = path.join(install, asset);
             if (fs.existsSync(filename)) console.log("  " + filename);
         }
-        console.log("Release description: repository/docs/releases/" + manifest.version + ".md");
+        console.log("Release description: " + path.join(expanded ? kit : path.join(output, "repository"), "docs", "releases", manifest.version + ".md"));
     } catch (error) {
         // The source tree has passed its checks. A later rebuild or ZIP failure
         // must not take the user's usable sources with it.
-        if (sourcesChecked && fs.existsSync(repository)) {
+        if (!expanded && sourcesChecked && fs.existsSync(repository)) {
             const saved = fs.mkdtempSync(path.join(path.dirname(output), "Sources-" + manifest.version + "-"));
             fs.renameSync(repository, path.join(saved, "repository"));
             error.message += "\nSources saved: " + path.join(saved, "repository") + "\nRelease verification did not finish.";

@@ -6,6 +6,12 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+where npm.cmd >nul 2>&1
+if errorlevel 1 (
+  echo Install npm with Node.js, then run this file again.
+  pause
+  exit /b 1
+)
 node "%~dp0Build\prepare-gitflic.cjs"
 set "BUILD_STATUS=%ERRORLEVEL%"
 pause

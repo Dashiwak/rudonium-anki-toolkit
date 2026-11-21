@@ -128,9 +128,9 @@ function compactMarkers(markers: IdMarker[], data: FileAuditData): IdMarker[] | 
 /** Позиции начала строк связывают координаты маркеров с диапазонами штатного парсера. */
 function fileLines(content: string) {
     let starts: number[] | undefined
-    const lineStarts = () => starts ??= [0, ...Array.from(content.matchAll(/\r\n?|\n/g), match => match.index! + match[0].length)]
+    const lineStarts = () => starts ??= [0, ...Array.from(content.matchAll(/\r\n?|\n/g), match => match.index + match[0].length)]
     return {
-        lineAt(offset: number): number {
+        lineAt(this: void, offset: number): number {
             const positions = lineStarts()
             let low = 0
             let high = positions.length
@@ -141,7 +141,7 @@ function fileLines(content: string) {
             }
             return low + 1
         },
-        offsetAt(line: number, column: number): number {
+        offsetAt(this: void, line: number, column: number): number {
             return lineStarts()[line - 1] + column
         },
     }
@@ -340,7 +340,7 @@ async function collectFileAudit(
     for (const match of content.matchAll(data.EMPTY_REGEXP)) {
         const id = Number(match[1])
         if (!validId(id)) continue
-        const start = match.index!
+        const start = match.index
         const end = start + match[0].length
         const offsets = markersById.get(id)
         const offset = offsets?.[firstOffsetAtLeast(offsets, start)]
@@ -378,13 +378,15 @@ export function auditPluginSync(
         if (expectedFolderScopeSignature !== undefined && expectedFolderScopeSignature !== folderScope.signature) {
             throw new Error('The sync profile changed. Run the audit again for the selected profile.')
         }
-        const auditContext = () => {
+        const auditInputs = () => {
             const settings = scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings))
             // Настройки изображений действуют на будущие экспорты. Аудит использует последние подтверждённые соответствия имён.
             delete settings.IMAGE_OPTIMIZATION
-            return JSON.stringify([vault.getName(), settings, plugin.fields_dict])
+            return [vault.getName(), settings, plugin.fields_dict] as const
         }
-        const context = auditContext()
+        const [vaultName, settings, fields] = structuredClone(auditInputs())
+        const context = JSON.stringify([vaultName, settings, fields])
+        const auditContext = () => JSON.stringify(auditInputs())
         const checkConfiguration = () => {
             if (syncScopeSignature(plugin.settings) !== folderScope.signature) {
                 throw new Error('The sync profile changed during the audit. Run it again.')
@@ -393,7 +395,6 @@ export function auditPluginSync(
                 throw new Error('The export settings changed during the audit. Run it again.')
             }
         }
-        const [vaultName, settings, fields] = JSON.parse(context)
         const deck: string = scope === 'default-deck' ? settings.Defaults.Deck : scope.deck
         if (typeof deck !== 'string' || !deck.trim()) {
             throw new Error(scope === 'default-deck' ? 'Set Defaults → Deck before checking the default deck.'
@@ -606,7 +607,7 @@ export function auditPluginSync(
                         if (problems.length || existence.size !== ids.size) throw error
                         const found = new Set([...ids].filter(id => existence.get(id) === true))
                         if (found.size === ids.size) throw error
-                        models = found.size ? await readModels(found) : new Map()
+                        models = found.size ? await readModels(found) : new Map<number, LinkedBulletModel>()
                     }
                     for (const [id, model] of models) {
                         linkedModels.set(id, model)
@@ -689,7 +690,7 @@ export function auditPluginSync(
                                 pendingCreation: entry.pendingCreation,
                                 schema, data: local, weight: estimated,
                                 // Простой текст без ссылок или контекста можно повторно использовать после изменений в других файлах.
-                                dependsOnVault: !!data.add_context || !!data.add_file_link || /[!\[\]()<>`]/u.test(entry.content),
+                                dependsOnVault: !!data.add_context || !!data.add_file_link || /[![\]()<>`]/u.test(entry.content),
                             }
                             cache.set(path, retained)
                             if (retained.dependsOnVault) hasVaultDependencies = true

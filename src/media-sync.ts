@@ -164,34 +164,51 @@ function sameStamp(file: TFile, saved: MediaRecord['stamp']): boolean {
     return mtime === saved[0] && ctime === saved[1] && size === saved[2]
 }
 
+function record(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function validReference(value: unknown): value is MediaReference {
+    return record(value) && typeof value.note === 'string' && typeof value.link === 'string'
+}
+
+function stringList(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every((item: unknown) => typeof item === 'string')
+}
+
+function validReceipt(entry: unknown): entry is MediaRecord {
+    if (!record(entry) || typeof entry.filename !== 'string' || typeof entry.path !== 'string' ||
+        typeof entry.digest !== 'string' || !/^[a-f0-9]{64}$/.test(entry.digest) ||
+        !Array.isArray(entry.stamp) || entry.stamp.length !== 3 || !entry.stamp.every(Number.isFinite) ||
+        !stringList(entry.notes)) return false
+    if (entry.sourceFilename !== undefined && typeof entry.sourceFilename !== 'string') return false
+    if (entry.pendingNotes !== undefined && !stringList(entry.pendingNotes)) return false
+    if (entry.ankiProfile !== undefined && (typeof entry.ankiProfile !== 'string' || !entry.ankiProfile.trim())) return false
+    if (entry.canonicalConfirmed !== undefined && typeof entry.canonicalConfirmed !== 'boolean') return false
+    const image = entry.image
+    if (image !== undefined) {
+        if (!record(image) || typeof image.profile !== 'string' || !image.profile.trim() ||
+            typeof image.sourceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(image.sourceDigest) ||
+            !managedImageName.test(entry.filename) || !mediaKey(entry.filename).startsWith(`anki-opt-${entry.digest}.`) ||
+            ![image.originalBytes, image.optimizedBytes, image.originalWidth, image.originalHeight, image.width, image.height]
+                .every(value => typeof value === 'number' && Number.isSafeInteger(value) && value > 0)) return false
+    }
+    if ((image || entry.canonicalConfirmed) &&
+        (typeof entry.sourceFilename !== 'string' || localMediaName(entry.sourceFilename) !== entry.sourceFilename)) return false
+    if (entry.canonicalConfirmed && encodeAnkiMediaFilename(entry.filename) === undefined) return false
+    if (entry.namespaced !== undefined && (entry.namespaced !== true || image || !entry.ankiProfile ||
+        entry.canonicalConfirmed !== true || !namespacedMediaName.test(entry.filename))) return false
+    return entry.sourceReferences === undefined ||
+        Array.isArray(entry.sourceReferences) && entry.sourceReferences.every(validReference)
+}
+
 export function loadMediaIndex(index: MediaIndex, data: unknown): void {
     if (!Array.isArray(data)) return
     const ambiguous = new Set<string>()
     for (const entry of data) {
-        if (!entry || typeof entry.filename !== 'string' || typeof entry.path !== 'string' ||
-            typeof entry.digest !== 'string' || !/^[a-f0-9]{64}$/.test(entry.digest) ||
-            !Array.isArray(entry.stamp) || entry.stamp.length !== 3 || !entry.stamp.every(Number.isFinite) ||
-            !Array.isArray(entry.notes) || !entry.notes.every((note: unknown) => typeof note === 'string')) continue
-        const image = entry.image as Partial<ImageReceipt> | undefined
-        if (image && (typeof image.profile !== 'string' || !image.profile.trim() ||
-            typeof image.sourceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(image.sourceDigest) ||
-            typeof entry.sourceFilename !== 'string' || localMediaName(entry.sourceFilename) !== entry.sourceFilename ||
-            !managedImageName.test(entry.filename) || !mediaKey(entry.filename).startsWith(`anki-opt-${entry.digest}.`) ||
-            ![image.originalBytes, image.optimizedBytes, image.originalWidth, image.originalHeight, image.width, image.height]
-                .every(value => typeof value === 'number' && Number.isSafeInteger(value) && value > 0))) continue
-        if (entry.pendingNotes !== undefined &&
-            (!Array.isArray(entry.pendingNotes) || !entry.pendingNotes.every((note: unknown) => typeof note === 'string'))) continue
-        if (entry.ankiProfile !== undefined && (typeof entry.ankiProfile !== 'string' || !entry.ankiProfile.trim())) continue
-        if (entry.canonicalConfirmed !== undefined && typeof entry.canonicalConfirmed !== 'boolean') continue
-        if (entry.canonicalConfirmed && (encodeAnkiMediaFilename(entry.filename) === undefined ||
-            typeof entry.sourceFilename !== 'string' || localMediaName(entry.sourceFilename) !== entry.sourceFilename)) continue
-        if (entry.namespaced !== undefined && (entry.namespaced !== true || image || !entry.ankiProfile ||
-            entry.canonicalConfirmed !== true || !namespacedMediaName.test(entry.filename))) continue
-        if (entry.sourceReferences !== undefined && (!Array.isArray(entry.sourceReferences) ||
-            !entry.sourceReferences.every((reference: Partial<MediaReference> | undefined) =>
-                reference && typeof reference.note === 'string' && typeof reference.link === 'string'))) continue
+        if (!validReceipt(entry)) continue
         const key = entry.namespaced ? namespaceKey(entry.path, entry.sourceFilename, entry.ankiProfile)
-            : image?.profile ? imageKey(entry.sourceFilename, image.profile) : mediaKey(entry.filename)
+            : entry.image ? imageKey(entry.sourceFilename, entry.image.profile) : mediaKey(entry.filename)
         if (ambiguous.has(key)) continue
         // При повреждённом индексе порядок записей не определяет принадлежность имени файла.
         if (index.has(key)) {
@@ -358,7 +375,7 @@ async function readRemoteCopies(names: ReadonlySet<string>): Promise<Map<string,
 }
 
 function filenamePattern(filename: string): string {
-    const literal = (value: string) => value.replace(/[?*\[\]]/g, character => `[${character}]`)
+    const literal = (value: string) => value.replace(/[?*[\]]/g, character => `[${character}]`)
     return Array.from(filename, character => {
         const upper = character.toUpperCase()
         const lower = character.toLowerCase()
@@ -487,7 +504,7 @@ export async function planMedia(app: App, references: readonly MediaReference[],
             continue
         }
         const key = mediaKey(filename)
-        const group = groups.get(key) ?? { filename, locations: new Map() }
+        const group: AttachmentGroup = groups.get(key) ?? { filename, locations: new Map() }
         const source = group.locations.get(attachment.path) ?? { file: attachment, references: [] }
         source.references.push({ note, link })
         group.locations.set(attachment.path, source)

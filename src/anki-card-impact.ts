@@ -80,9 +80,15 @@ export function cardFieldHazards(field: string, before: string, after: string): 
 }
 
 export function readCardIds(value: unknown): number[] | undefined {
-    if (!Array.isArray(value) || !value.every(id => typeof id === 'number' && Number.isSafeInteger(id) && id > 0) ||
-        new Set(value).size !== value.length) return undefined
-    return [...value].sort((first, second) => first - second)
+    if (!Array.isArray(value)) return undefined
+    const ids: number[] = []
+    const seen = new Set<number>()
+    for (const id of value) {
+        if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0 || seen.has(id)) return undefined
+        seen.add(id)
+        ids.push(id)
+    }
+    return ids.sort((first, second) => first - second)
 }
 
 export function sameCardIds(actual: readonly number[], expected: readonly number[]): boolean {
@@ -95,13 +101,18 @@ function integer(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
 }
 
+function isStudyRow(row: unknown): row is Record<string, unknown> {
+    return row !== null && typeof row === 'object' && !Array.isArray(row)
+}
+
 /** Проверяет владельца и ID каждой карточки независимо от порядка строк AnkiConnect. */
 export function parseCardStudyRows(value: unknown, noteId: number, cardIds: readonly number[]): CardStudyDetail[] {
     if (!Array.isArray(value) || value.length !== cardIds.length) throw new Error('Anki did not confirm all requested study cards.')
     const pending = new Set(cardIds)
     const result: CardStudyDetail[] = []
-    for (const row of value) {
-        if (row === null || typeof row !== 'object' || row.note !== noteId || !pending.delete(row.cardId)) {
+    const rows: readonly unknown[] = value
+    for (const row of rows) {
+        if (!isStudyRow(row) || row.note !== noteId || typeof row.cardId !== 'number' || !pending.delete(row.cardId)) {
             throw new Error('Anki returned another note or card in the requested study cards.')
         }
         result.push({

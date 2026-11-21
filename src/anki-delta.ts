@@ -90,8 +90,14 @@ export interface NoteSnapshot {
 
 const readBatchSize = 500
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function emptyFields(): Record<string, string> {
+    const fields: Record<string, string> = {}
+    Object.setPrototypeOf(fields, null)
+    return fields
 }
 
 function isId(value: unknown): value is number {
@@ -184,8 +190,8 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
     policy: ExistingNotePolicy, report: (path: string, message: string) => void): Promise<{
         fields: Record<string, string>; cardIds?: readonly number[]
     }> {
-    const changed: Record<string, string> = Object.create(null)
-    const matched: Record<string, string> = Object.create(null)
+    const changed: Record<string, string> = emptyFields()
+    const matched: Record<string, string> = emptyFields()
     const kept: string[] | undefined = policy.onKeptAnkiFields ? [] : undefined
     let cards: ReviewedCardImpact['cards'] | undefined
     let cardIds: readonly number[] | undefined
@@ -392,10 +398,15 @@ async function readMoveBundle(cards: readonly number[], profile: string): Promis
     } catch {
         return undefined
     }
-    if (!Array.isArray(response) || response.length !== actions.length ||
-        !response.every(row => isRecord(row) && row.error === null && 'result' in row)) return undefined
-    const before = response[0].result
-    const after = response[response.length - 1].result
+    if (!Array.isArray(response) || response.length !== actions.length) return undefined
+    const rows: readonly unknown[] = response
+    const values: unknown[] = []
+    for (const row of rows) {
+        if (!isRecord(row) || row.error !== null || !('result' in row)) return undefined
+        values.push(row.result)
+    }
+    const before = values[0]
+    const after = values[values.length - 1]
     if (before !== profile || after !== profile) {
         const actual = before !== profile ? before : after
         if (typeof actual !== 'string' || !actual.trim()) return undefined
@@ -404,7 +415,7 @@ async function readMoveBundle(cards: readonly number[], profile: string): Promis
     const results = new Map<string, unknown>()
     for (let index = 1; index < actions.length - 1; index++) {
         const { action, params } = actions[index]
-        const value: unknown = response[index].result
+        const value = values[index]
         if (action === 'findCards' ? !Array.isArray(value) : !isRecord(value)) return undefined
         results.set(JSON.stringify([action, params]), value)
     }
@@ -681,7 +692,7 @@ export async function verifyExistingNoteFieldWrites(
     function obtain(id: number, path: string, modelName = evidence?.models.get(id)): ExpectedNoteWrite {
         const previous = writes.get(id)
         if (previous) return previous
-        const result: ExpectedNoteWrite = { path, modelName, fields: Object.create(null), added: new Map(), removed: new Set() }
+        const result: ExpectedNoteWrite = { path, modelName, fields: emptyFields(), added: new Map(), removed: new Set() }
         writes.set(id, result)
         return result
     }

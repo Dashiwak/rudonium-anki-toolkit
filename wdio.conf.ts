@@ -1,9 +1,42 @@
-import type { Options } from '@wdio/types'
-const fs = require('fs')
-const fse = require('fs-extra');
-const path = require('path');
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 
-export const config/* : Options.Testrunner */ = {
+function missing(error: unknown): boolean {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+// The container can mount its output on a different filesystem. Finish the copy before
+// replacing the previous result so the Python assertions always see a complete suite.
+async function collectResult(source: string, destination: string): Promise<void> {
+    const stage = await fs.mkdtemp(path.join(path.dirname(destination), '.wdio-'))
+    const next = path.join(stage, 'new')
+    const previous = path.join(stage, 'previous')
+    let keepBackup = false
+    try {
+        await fs.cp(source, next, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true })
+        try {
+            await fs.rename(destination, previous)
+            keepBackup = true
+        } catch (error) {
+            if (!missing(error)) throw error
+        }
+        try {
+            await fs.rename(next, destination)
+        } catch (error) {
+            if (keepBackup) {
+                await fs.rename(previous, destination)
+                keepBackup = false
+            }
+            throw error
+        }
+        keepBackup = false
+        await fs.rm(source, { recursive: true })
+    } finally {
+        if (!keepBackup) await fs.rm(stage, { recursive: true, force: true })
+    }
+}
+
+export const config = {
     //
     // ====================
     // Runner Configuration
@@ -173,8 +206,8 @@ export const config/* : Options.Testrunner */ = {
             // eg. cmd, docker run -e LANG=C.UTF-8 -e DISPLAY=$DISPLAY -e LC_ALL=C.UTF-8 -it -v D:\\\\Users\\Documents\\GitHub\\Obsidian_to_Anki\\tests\\test_vault:/vaults -v D:\\\\Users\\Documents\\GitHub\\Obsidian_to_Anki\\tests\\test_config:/config -p 8080:8080 debian-anki
             e: ['LANG=C.UTF-8', 'DISPLAY=$DISPLAY', 'LC_ALL=C.UTF-8'], 
             v: [
-                `${ path.join(__dirname, '/tests/test_vault') }:/vaults`,
-                `${ path.join(__dirname, '/tests/test_config') }:/config`
+                `${ path.resolve('tests/test_vault') }:/vaults`,
+                `${ path.resolve('tests/test_config') }:/config`
             ]
         }        
     },
@@ -201,7 +234,7 @@ export const config/* : Options.Testrunner */ = {
     reporters: [ 
         [ 'junit', {
             outputDir: 'logs/test-reports/',
-            outputFileFormat: function(options) { // optional
+            outputFileFormat: function() { // optional
                 return `wdio.xml`
             },
             errorOptions: {
@@ -232,42 +265,18 @@ export const config/* : Options.Testrunner */ = {
      * @param {Object} config wdio configuration object
      * @param {Array.<Object>} capabilities list of capabilities details
      */
-    onPrepare: function (config, capabilities) {
-        let vault_suites_dir = 'tests/defaults/test_vault_suites';   
-
-        (async ()=>{
-            try {
-                fse.emptyDirSync('tests/specs_gen')
-                const files = await fs.promises.readdir( vault_suites_dir );
-
-                // Loop them all with the new for...of
-                for( const file of files ) {                    
-                    // Get the full paths
-                    const fromPath = path.join( vault_suites_dir, file );
-        
-                    // Stat the file to see if we have a file or dir
-                    const stat = await fs.promises.stat( fromPath );
-                    
-                    if( stat.isDirectory() ) {
-                        if(file[0] == 'n' && file[1] == 'g' && file[2] == '_') {
-                            // No Auto Generation flag is set on folder
-                            // Dont generate spec file
-                            console.log( `'%s' is a directory. But Skipping specs generation`, fromPath );
-                            continue;
-                        }
-                        console.log( `'%s' is a directory. Making tests/specs/${file}.e2e.ts`, fromPath );
-                        fs.copyFile("tests/defaults/specs/template.e2e.ts", `tests/specs_gen/${file}.e2e.ts`, (err) => {
-                            if (err) {
-                              console.log(`Error on trying to make specs test file ${file}:`, err);
-                            }
-                        });
-                    }
-                } // End for...of
+    async onPrepare() {
+        const suites = 'tests/defaults/test_vault_suites'
+        const generated = 'tests/specs_gen'
+        await fs.rm(generated, { recursive: true, force: true })
+        await fs.mkdir(generated, { recursive: true })
+        for (const name of await fs.readdir(suites)) {
+            // ng_ suites supply a hand-written spec.
+            if (name.startsWith('ng_')) continue
+            if ((await fs.stat(path.join(suites, name))).isDirectory()) {
+                await fs.copyFile('tests/defaults/specs/template.e2e.ts', path.join(generated, name + '.e2e.ts'))
             }
-            catch( e ) {
-                console.error( "We've thrown! Whoops!", e );
-            }        
-        })(); // Wrap in parenthesis and call now
+        }
     },
     /**
      * Gets executed before a worker process is spawned and can be used to initialise specific service
@@ -278,21 +287,11 @@ export const config/* : Options.Testrunner */ = {
      * @param  {[type]} args     object that will be merged with the main configuration once worker is initialized
      * @param  {[type]} execArgv list of string arguments passed to the worker process
      */
-    onWorkerStart: function (cid, caps, specs, args, execArgv) {
-        // console.log('onWorkerStart : ' + specs);
-        specs.forEach(spec => {
-            let test_name = (path.basename(spec) as string).split('.')[0];
-            try {
-                fs.mkdir(`logs/${test_name}`, { recursive: true }, (err) => {
-                    if (err) {
-                        console.log(`Error on trying to make logs test folder ${test_name}:`, err);
-                    }
-                });
-            }
-            catch( e ) {
-                console.error( "We've thrown! Whoops!", e );
-            }            
-        });
+    async onWorkerStart(_cid: string, _caps: unknown, specs: string[]) {
+        for (const spec of specs) {
+            const name = path.basename(spec).split('.')[0]
+            await fs.mkdir(path.join('logs', name), { recursive: true })
+        }
     },
     /**
      * Gets executed just after a worker process has exited.
@@ -301,35 +300,23 @@ export const config/* : Options.Testrunner */ = {
      * @param  {[type]} specs    specs to be run in the worker process
      * @param  {Number} retries  number of retries used
      */
-    onWorkerEnd: function (cid, exitCode, specs, retries) {
-        // TODO: Maybe we can do the last spec file's test delay here ?
-        (async () => {
-            try {
-                let test_outputs_dir = 'tests/test_config/.local/share/test_outputs';                
-                const files = await fs.promises.readdir( test_outputs_dir );
-
-                // Loop them all with the new for...of
-                for( const file of files ) {
-                    // Get the full paths
-                    const fromPath = path.join( test_outputs_dir, file );
-        
-                    // Stat the file to see if we have a file or dir
-                    const stat = await fs.promises.stat( fromPath );
-        
-                    if( stat.isDirectory() ) {
-                        console.log( `'%s' is a test_output directory. Moving for further python tests`, fromPath );
-                        fse.move(fromPath, `tests/test_outputs/${file}`, { overwrite: true }, err => {
-                            if (err) {
-                                console.log(`Error on trying to copying test_output of ${file}:`, err);
-                            }
-                        })
-                    }
-                } // End for...of
+    async onWorkerEnd() {
+        const source = 'tests/test_config/.local/share/test_outputs'
+        let names: string[]
+        try {
+            names = await fs.readdir(source)
+        } catch (error) {
+            if (missing(error)) return // Some specs produce no Python fixtures.
+            throw error
+        }
+        const target = 'tests/test_outputs'
+        for (const name of names) {
+            const from = path.join(source, name)
+            if ((await fs.stat(from)).isDirectory()) {
+                await fs.mkdir(target, { recursive: true })
+                await collectResult(from, path.join(target, name))
             }
-            catch( e ) {
-                console.error( "We've thrown! Whoops!", e );
-            }  
-        })(); // Wrap in parenthesis and call now
+        }
     },
     /**
      * Gets executed just before initialising the webdriver session and test framework. It allows you

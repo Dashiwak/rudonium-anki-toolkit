@@ -76,7 +76,7 @@ function displayCloze(html: string, selected: number, question: boolean): string
     }
     for (const match of html.matchAll(/\{\{c([1-9]\d*)::|::|\}\}/g)) {
         append(html.slice(start, match.index))
-        start = match.index! + match[0].length
+        start = match.index + match[0].length
         const frame = frames[frames.length - 1]
         if (match[1]) {
             frames.push({ number: Number(match[1]), answer: [] })
@@ -142,7 +142,7 @@ function renderTemplate(source: string, field: (expression: string) => string): 
     }
     for (const match of source.matchAll(/\{\{\{([^{}]+)\}\}\}|\{\{([^{}]+)\}\}/g)) {
         append(source.slice(start, match.index))
-        start = match.index! + match[0].length
+        start = match.index + match[0].length
         const expression = (match[1] ?? match[2]).trim()
         const operator = expression[0]
         const name = expression.slice(1).trim()

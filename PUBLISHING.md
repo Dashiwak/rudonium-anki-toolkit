@@ -1,67 +1,32 @@
-# Building and releasing Rudonium / Сборка и публикация
+# Building and distributing Rudonium Anki Toolkit
 
-For the 0.10.4 review branch use the checked-out repository and its production lockfile. The public 0.10.3 installation instructions below refer to the previous release. [Review build / Сборка для проверки](docs/releases/0.10.4.md)
+## Build from a checkout
 
-
-Use Node.js 22.18 or later and npm. The project uses Obsidian to Anki 3.6.0 at commit `2dd39fefd26f3141a4e02105b1172a5a3eb2611f`. [Upstream source](https://github.com/ObsidianToAnki/Obsidian_to_Anki/tree/2dd39fefd26f3141a4e02105b1172a5a3eb2611f) · [Release notes](docs/releases/0.10.3.md)
-
-## Windows preparation kit / Комплект Windows
-
-| Task / Задача | Command / Команда | Result / Результат |
-| --- | --- | --- |
-| Build for local installation / Собрать для своего хранилища | `Build-Plugin.cmd` | `Plugin-0.10.3/main.js`, `manifest.json`, styles when present |
-| Edit the source / Открыть исходники | `Open-Source.cmd` | `project/src/` |
-| Prepare GitFlic publication / Подготовить публикацию | `Prepare-GitFlic.cmd` | `GitFlic-0.10.3/repository/`, `install/`, `release/` |
-
-Run the commands from the extracted kit. Once `project/` exists, both build launchers use your edits there. For configuration changes, edit the matching files at the root of `project/`. Each build prints the output path when it completes.
-
-Распакуйте комплект и запустите нужную команду. Если вы открыли исходники, обе сборочные команды используют вашу папку `project/`. Основной код находится в `src/`, инструменты подготовки релиза — в `Build/`.
-
-## Build from the editable kit
-
-Run these commands from the editable kit (`project/` in the Windows package). Downloading the pinned upstream source and npm packages requires a network connection. If the upstream download fails, supply a local copy of the official commit. The builder verifies a Git checkout and records the origin of an unpacked source directory as unverified.
-
-| Task | Command |
-| --- | --- |
-| Build into `Release-0.10.3/` | `npm run build` |
-| Build with a local upstream checkout | `node Build/build-main.cjs "../Obsidian_to_Anki"` |
-| Prepare the complete public source and install ZIP | `node Build/prepare-gitflic.cjs` |
-| Prepare with a local checkout and new output directory | `node Build/prepare-gitflic.cjs "../Obsidian_to_Anki" "../GitFlic-0.10.3"` |
-| Prepare a standalone public source tree | `npm run prepare-repository -- "../Obsidian_to_Anki" "../rudonium-public"` |
-| Compare an existing set of runtime files with two clean builds | `node Build/verify-rebuild.cjs . "../candidate" "../Obsidian_to_Anki"` |
-
-For the comparison, put the original `main.js`, `manifest.json` and any generated `styles.css` in the candidate folder. The verifier checks byte equality, including whether the stylesheet was generated. Release preparation runs the clean-build comparison automatically. If a build stops, read the first error in the terminal and check `Build/build-error.txt` in the editable kit.
-
-## Work in the public repository
-
-The generated repository has ordinary TypeScript sources, Rollup configuration, a dependency lockfile, tests and notices. From a clean checkout, run the following commands. The output is `main.js` in the repository root.
+Use Node.js 22.18 or later with npm. Run these commands in the repository containing `manifest.json` and `package-lock.json`.
 
 ```sh
 npm ci
 npm exec --offline -- tsc --noEmit
+npm test
 npm run build
 ```
 
-The source kit downloads the pinned base during assembly. A checkout of the assembled repository already contains that base. In the prepared repository, `PROVENANCE.json` records source and binary hashes, `UPSTREAM-SNAPSHOT/` identifies the original revision, and `LICENSES/dependencies/inventory.json` indexes the dependency records. Keep these records with a published release. [Notices](NOTICE.md) · [Contributing](CONTRIBUTING.md)
+Rollup writes `main.js` to the repository root. The plugin also needs the matching `manifest.json` and `styles.css`.
 
-## Publish on GitFlic / Публикация на GitFlic
+On Windows, `Prepare-GitFlic.cmd` prepares a verified distribution from the same checkout. Its cross-platform equivalent is `npm run release:prepare`. It builds in a temporary directory and compares the runtime files with two independent clean builds. The output is placed beside the checkout under `Rudonium-Builds/<version>.<build>/`. The manifest supplies the public version. The positive integer `rudoniumBuild` in `package.json` identifies this working build. Changed builds of the same release use successive build numbers. The command prints the full output paths and preserves earlier builds.
 
-1. Copy the **contents** of `GitFlic-0.10.3/repository/` to the repository root. Commit the reviewed sources. The numeric tag, package and manifest version must all be `0.10.3`.
-2. Install the candidate from `GitFlic-0.10.3/install/rudonium-anki-toolkit/` into a test vault. Check the version, connection to a test Anki profile and that editing a linked card updates its existing ID. [Installation](README.md#install)
-3. Create a pre-release for the tag on GitFlic. Attach `release/Rudonium-0.10.3.zip` and its `SHA256SUMS.txt`. Use the bilingual release description. [Release notes](docs/releases/0.10.3.md) · [GitFlic release guide](https://docs.gitflic.ru/latest/project/release/)
+| Destination | Files from the verified build |
+| --- | --- |
+| Test vault | Copy the contents of `install/rudonium-anki-toolkit/` into the matching plugin directory with Obsidian closed. Preserve local `data.json` and sync journals. |
+| GitFlic release | Attach the ZIP and `SHA256SUMS.txt` from `release/`. |
+| GitHub release for Obsidian | Attach `main.js`, `manifest.json` and `styles.css` separately from `install/rudonium-anki-toolkit/`. |
 
-Для публикации перенесите **содержимое** `GitFlic-0.10.3/repository/` в корень проекта GitFlic. Проверьте установку из `install/rudonium-anki-toolkit/` в отдельном хранилище Obsidian. Создайте тег `0.10.3` на проверенном коммите. В предварительный релиз вложите ZIP и файл контрольной суммы из `release/`. [Описание выпуска](docs/releases/0.10.3.md#русский) · [Установка](README.ru.md#установка)
+Keep the public tag and the manifest version identical, for example `0.10.5`, and publish that same commit to both remotes. GitHub Actions can verify the branch build. On a matching release tag it can also attest the verified runtime files. The published files must match the attested bytes. [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
 
-### SourceGit и FreeFileSync / Using a local Git clone
+## Сборка и публикация
 
-Один раз клонируйте проект GitFlic в SourceGit. Сохраните локальные правки перед переносом. После строки `3/3 GitFlic files ready` откройте `GitFlic-0.10.3/Compare.ffs_gui`. Слева указана подготовленная папка `repository/`, справа выберите корень клона. Сначала сравните изменения, затем синхронизируйте. Копирование идёт слева направо. `.git` исключена. Файлы только справа остаются для ручной проверки. Просмотрите результат, выполните Commit и Push в SourceGit. Установочный ZIP приложите к релизу.
+Для Windows запустите `Prepare-GitFlic.cmd` из корня репозитория. Нужны Node.js 22.18 или новее, npm и доступ к зафиксированным зависимостям. Сборщик сверяет три установочных файла с результатами двух чистых сборок. Готовые файлы лежат рядом с репозиторием в `Rudonium-Builds/<версия>.<сборка>/`. Например, для первого комплекта версии 0.10.5 это `Rudonium-Builds/0.10.5.1/`. Ранее созданную папку сборщик сохраняет. При ошибке откройте `Build/build-error.txt` в репозитории.
 
-Clone the GitFlic project once in SourceGit. Commit any local edits before transferring a new version. Open the generated FreeFileSync job after preparation finishes and select the clone as the right folder. Compare, review and synchronize. Changed files are copied from the generated repository to the clone. Right-only files are kept and Git metadata is excluded. Review the diff, commit and push in SourceGit.
+Проверьте синхронизацию в отдельном хранилище и профиле Anki. Для GitFlic возьмите ZIP и контрольную сумму из `release/`. Для GitHub приложите три отдельных файла из `install/rudonium-anki-toolkit/`. В каталоге Obsidian используется номер из манифеста, например `0.10.5`. Тег на обеих площадках должен указывать на один проверенный коммит.
 
-If release verification fails after the source check, see `Sources saved` for the recovered source tree. A later packaging attempt should target a fresh output directory.
-
-Keep the number for unchanged rebuilds. Increment the third number when distributing a changed kit (`0.10.4` next). Use `0.11.0` for the next beta series and `1.0.0` for the stable release.
-
-Повторная сборка того же выпуска сохраняет номер. Следующая изменённая сборка этой серии получит `0.10.4`. Отметку **Public Beta** укажите в названии релиза. Манифест и тег содержат числовую версию.
-
-For a future Obsidian directory submission, consult its current release and fork requirements. [Submission guide](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin) · [Developer policies](https://docs.obsidian.md/community-directory/developer-policies)
+В комплект входят лицензия, уведомления и сведения о происхождении исходников и установочных файлов. [Уведомления](NOTICE.md) · [Установка](README.ru.md) · [Проверка плагина в каталоге](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)

@@ -117,7 +117,8 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
             decorations: DecorationSet = Decoration.none
             private spans: Span[] = []
             private marked = false
-            private timer?: ReturnType<typeof setTimeout>
+            private timerWindow?: Window
+            private timer?: number
             constructor(view: EditorView) { if (view.state.field(live!, false)) this.read(view) }
             private read(view: EditorView): void {
                 this.marked = containsLegacyOpener(view.state.doc)
@@ -150,10 +151,11 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
                     this.marked = true
                     this.decorations = Decoration.none
                     this.destroy()
-                    this.timer = setTimeout(() => update.view.dispatch({ effects: refresh.of(undefined) }), 180)
+                    this.timerWindow = update.view.dom.ownerDocument.defaultView ?? window
+                    this.timer = this.timerWindow.setTimeout(() => update.view.dispatch({ effects: refresh.of(undefined) }), 180)
                 } else if (update.viewportChanged) this.paint(update.view)
             }
-            destroy(): void { if (this.timer !== undefined) clearTimeout(this.timer); this.timer = undefined }
+            destroy(): void { if (this.timer !== undefined) this.timerWindow?.clearTimeout(this.timer); this.timer = undefined }
         }
         plugin.registerEditorExtension(ViewPlugin.fromClass(ArchiveView, { decorations: view => view.decorations }))
     } catch (error) {

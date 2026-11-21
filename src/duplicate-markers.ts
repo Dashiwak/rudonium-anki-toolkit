@@ -169,7 +169,7 @@ export function findIdMarkers(content: string, syntax: DuplicateMarkerSyntax = {
                 if (target) appendMarker(lineMarkers, target, row, text.length - trimmed.length + deleteLine.length)
             }
         }
-        for (const hit of text.matchAll(commentId)) if (serviceComments.has(hit.index!)) appendMarker(lineMarkers, hit, row)
+        for (const hit of text.matchAll(commentId)) if (serviceComments.has(hit.index)) appendMarker(lineMarkers, hit, row)
         if (inlineStart && inlineEnd) {
             for (let start = text.indexOf(inlineStart); start !== -1;) {
                 const from = start + inlineStart.length
@@ -206,7 +206,7 @@ function linkedFields(line: string): Pick<DuplicateSource, 'front' | 'back' | 'o
     const values: string[] = []
     let offset = 0
     for (const delimiter of maskCode(text).matchAll(/::/g)) {
-        const index = delimiter.index!
+        const index = delimiter.index
         if (!/[ \t]/.test(text[index - 1] ?? '') || !/[ \t]/.test(text[index + 2] ?? '')) continue
         values.push(text.slice(offset, index).trim())
         offset = index + 2

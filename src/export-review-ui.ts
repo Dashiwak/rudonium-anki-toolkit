@@ -204,29 +204,15 @@ type NoticeButton = readonly [label: string, action?: () => void | Promise<void>
 
 function showCardNotice(path: string, issue: ExportCardIssue, t: UiText, details: string | undefined,
     buttons: readonly NoticeButton[], duration = 15000): CardIssueNotice {
-    const fragment = document.createDocumentFragment()
-    const heading = document.createElement('strong')
-    heading.textContent = exportCardIssueText(issue, t)
-    fragment.append(heading)
-    const location = document.createElement('div')
-    location.textContent = cardIssueLocation(path, issue, t)
-    location.classList.add('rudonium-wrap-anywhere')
-    fragment.append(location)
-    if (details) {
-        const more = document.createElement('small')
-        more.textContent = details
-        fragment.append(more)
-    }
-    const actions = document.createElement('div')
-    actions.classList.add('rudonium-notice-actions')
-    fragment.append(actions)
+    const fragment = createFragment()
+    fragment.createEl('strong', { text: exportCardIssueText(issue, t) })
+    fragment.createDiv({ text: cardIssueLocation(path, issue, t), cls: 'rudonium-wrap-anywhere' })
+    if (details) fragment.createEl('small', { text: details })
+    const actions = fragment.createDiv({ cls: 'rudonium-notice-actions' })
     const notice = new CardIssueNotice(fragment, duration)
     for (const [label, action, keepOpen] of buttons) {
-        const button = document.createElement('button')
-        button.type = 'button'
-        button.textContent = label
+        const button = actions.createEl('button', { text: label, attr: { type: 'button' } })
         if (label === t('Review Repair', 'Исправить запись') || label === t('Run Audit', 'Провести аудит')) button.className = 'mod-cta'
-        actions.append(button)
         button.onclick = async event => {
             event.stopPropagation()
             if (button.disabled) return

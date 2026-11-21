@@ -20,14 +20,16 @@ export function registerSupportCommand(plugin: MyPlugin): void {
     })
 }
 
-export function installSettingsHeader(container: HTMLElement, plugin: MyPlugin, redraw: () => void): void {
+export function installSettingsHelp(container: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
-    const heading = container.querySelector('.setting-item-heading')
-    const top = container.createDiv()
-    if (heading) heading.after(top)
-    else container.prepend(top)
+    container.createEl('a', { text: t('Rudonium help on GitFlic', 'Помощь по Rudonium на GitFlic'),
+        attr: { href: supportUrl } })
+}
+
+export function installInterfaceLanguage(container: HTMLElement, plugin: MyPlugin, redraw: () => void): void {
+    const t = uiFor(plugin.settings)
     const label = t('Interface Language', 'Язык интерфейса')
-    new Setting(top).setName(label)
+    new Setting(container).setName(label)
         .setDesc(t('Reload the plugin to update command names.', 'Для смены языка названий команд перезапустите плагин.'))
         .addDropdown(control => {
             control.selectEl.setAttribute('aria-label', label)
@@ -54,12 +56,7 @@ export function installSettingsHeader(container: HTMLElement, plugin: MyPlugin, 
                 })
             control.selectEl.classList.add('anki-interface-language')
         })
-    // A fresh anchor also drops any click handler pointing at the previous wiki.
-    const oldLink = Array.from(container.querySelectorAll('a'))
-        .find(anchor => anchor.textContent?.trim() === 'For more information check the wiki')
-    const help = top.createEl('a', { text: t('Rudonium help on GitFlic', 'Помощь по Rudonium на GitFlic'),
-        attr: { href: supportUrl } })
-    oldLink?.replaceWith(help)
+
 }
 
 export function installProjectInfo(container: HTMLElement, plugin: MyPlugin, buildVersion: string): void {
@@ -76,9 +73,6 @@ export function installProjectInfo(container: HTMLElement, plugin: MyPlugin, bui
     contact.createSpan({ text: t('Author: dashiwak · ', 'Автор: dashiwak · ') })
     contact.createEl('a', { text: authorEmail, attr: { href: 'mailto:' + authorEmail } })
     const links = section.createEl('p')
-    links.createEl('a', { text: t('Help and issues on GitFlic', 'Помощь и обращения на GitFlic'),
-        attr: { href: supportUrl } })
-    links.createSpan({ text: ' · ' })
     links.createEl('a', { text: 'GNU GPLv3', attr: { href: 'https://www.gnu.org/licenses/gpl-3.0.html' } })
     section.createEl('a', {
         text: t('Based on Obsidian to Anki by Pseudonium and contributors',

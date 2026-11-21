@@ -54,7 +54,7 @@ const owns = (object: object, key: string): boolean => Object.prototype.hasOwnPr
 const record = (value: unknown): value is Properties => !!value && typeof value === 'object' && !Array.isArray(value)
 const forbidden = new Set(['__proto__', 'prototype', 'constructor'])
 const key = (value: unknown): value is string => typeof value === 'string' && !!value.trim() &&
-    value === value.trim() && value.length <= 512 && !forbidden.has(value) && !/[\r\n\u0000]/u.test(value)
+    value === value.trim() && value.length <= 512 && !forbidden.has(value) && !value.includes('\0') && !/[\r\n]/u.test(value)
 const pathKey = (value: unknown): value is string => key(value) && !/[\\]/u.test(value) &&
     value.split('/').every(part => !!part && part !== '.' && part !== '..')
 
@@ -82,7 +82,7 @@ export function validateExportRules(raw: unknown): ExportRule[] | undefined {
         let propertyRule: ExportRule['property']
         if (property !== undefined) {
             if (!record(property) || !key(property.key) || typeof property.value !== 'string' || property.value.length > 512 ||
-                /[\r\n\u0000]/u.test(property.value)) return undefined
+                property.value.includes('\0') || /[\r\n]/u.test(property.value)) return undefined
             propertyRule = { key: property.key, value: property.value }
         }
         if (!Array.isArray(fields) || fields.length > 64 || !Array.isArray(tags) || tags.length > 64 ||
@@ -146,7 +146,7 @@ function readHeadings(text: string, isProtected: (offset: number) => boolean): H
     const headings: Heading[] = []
     const ancestors: Array<{ level: number; text: string }> = []
     for (const match of text.matchAll(/^ {0,3}(#{1,6})[ \t]+([^\r\n]+)/gm)) {
-        const offset = match.index!
+        const offset = match.index
         const marker = offset + match[0].indexOf('#')
         if (isProtected(marker)) continue
         const level = match[1].length

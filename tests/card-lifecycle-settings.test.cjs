@@ -98,21 +98,27 @@ test('Scheduling diagnostics display the selected language and retain the Markdo
 
 test('A partially entered deletion marker stays inactive until committed and an invalid rename restores the saved marker', async () => {
     const state = await screen(), events = {}
+    let saved
     const input = { inputEl: { addEventListener: (name, cb) => { events[name] = cb } },
         getValue() { return this.val }, setValue(value) { this.val = value; return this },
-        setDisabled(value) { this.disabled = value; return this } }
+        setDisabled(value) { this.disabled = value; if (!value) saved(); return this } }
     state.api.bindSyntaxEdit(input, state.plugin, 'Delete Note Line')
+    async function blur() {
+        const settled = new Promise(resolve => { saved = resolve })
+        events.blur()
+        await settled
+    }
     input.val = 'RE'
     assert.equal(state.plugin.settings.Syntax['Delete Note Line'], 'REMOVE')
     input.val = 'SUSPEND'
-    await events.blur()
+    await blur()
     assert.equal(input.val, 'REMOVE')
     input.val = 'END'
-    await events.blur()
+    await blur()
     assert.equal(input.val, 'REMOVE')
     assert.match(state.notices.at(-1), /deletion marker/)
     input.val = 'УДАЛИТЬ'
-    await events.blur()
+    await blur()
     assert.equal(state.plugin.settings.Syntax['Delete Note Line'], 'УДАЛИТЬ')
 })
 

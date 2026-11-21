@@ -55,9 +55,9 @@ function markerDate(tail: string): { from: number; to: number; value: string } |
     const explicit = /\|[ \t]*(\d{4}-\d{2}-\d{2})(?!\d)/gu
     for (const match of tail.matchAll(explicit)) {
         if (!validDate(match[1])) continue
-        let from = match.index!
+        let from = match.index
         while (from > 0 && /[ \t]/u.test(tail[from - 1])) from--
-        return { from, to: match.index! + match[0].length, value: match[1] }
+        return { from, to: match.index + match[0].length, value: match[1] }
     }
     const legacy = /^([\p{P}\p{S} \t]*?)(\d{4}-\d{2}-\d{2})(?!\d)/u.exec(tail)
     if (legacy && validDate(legacy[2])) return { from: legacy[1].trimEnd().length, to: legacy[0].length, value: legacy[2] }
@@ -65,7 +65,7 @@ function markerDate(tail: string): { from: number; to: number; value: string } |
 
 /** Распознаём число целиком. Дробное число или экспонента не могут служить ссылкой. */
 export function parseAnkiIdMarker(raw: string): ParsedAnkiIdMarker | undefined {
-    if (/[\r\n\u0000]/u.test(raw)) return
+    if (/[\r\n]/u.test(raw) || raw.includes("\0")) return
     const from = raw.length - raw.trimStart().length
     const trimmed = raw.trim()
     const comment = trimmed.startsWith('<!--')
@@ -170,7 +170,7 @@ export function dateLinkedMarkers(text: string, markers: readonly { id: number; 
     for (const row of text.matchAll(/[^\r\n]*(?:\r\n?|\n|$)/gu)) {
         const id = changes.get(line++)
         if (id === undefined) continue
-        const patch = yaml?.line === line - 1 && yaml.id === id ? pageIdDatePatch(text, id, today) : idDatePatch(row[0].replace(/[\r\n]+$/u, ''), id, today, row.index!)
+        const patch = yaml?.line === line - 1 && yaml.id === id ? pageIdDatePatch(text, id, today) : idDatePatch(row[0].replace(/[\r\n]+$/u, ''), id, today, row.index)
         if (!patch || accept && !accept(id, line - 1, text.slice(patch.start, patch.end), patch.text)) continue
         parts.push(text.slice(copied, patch.start), patch.text)
         copied = patch.end

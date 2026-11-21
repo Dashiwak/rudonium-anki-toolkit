@@ -138,7 +138,7 @@ function lineStart(text: string, line: number): number {
     if (line === 1) return 0
     let nextLine = 2
     for (const match of text.matchAll(lineBreak)) {
-        if (nextLine++ === line) return match.index! + match[0].length
+        if (nextLine++ === line) return match.index + match[0].length
     }
     return -1
 }
@@ -183,7 +183,7 @@ async function readChange(plugin: MyPlugin, source: AuditRepairSource, id: numbe
     const lineAt = (offset: number) => {
         let line = 1
         for (const match of before.matchAll(lineBreak)) {
-            if (match.index! + match[0].length > offset) break
+            if (match.index + match[0].length > offset) break
             line++
         }
         return line
@@ -257,10 +257,11 @@ async function confirmCandidateDeck(deck: string, candidate: AuditRepairCandidat
     if (numeric !== undefined) {
         try {
             const cards = await auditRead('findCards', { query: `nid:${candidate.id} did:${numeric}` }, signal)
-            if (Array.isArray(cards) && cards.length && cards.every(id => candidate.cards.includes(id))) {
+            if (Array.isArray(cards) && cards.length && cards.every((card: unknown): card is number => isId(card) && candidate.cards.includes(card))) {
                 const details = await auditRead('cardsInfo', { cards }, signal)
-                if (Array.isArray(details) && details.some(row => row && cards.includes(row.cardId) &&
-                    row.note === candidate.id && typeof row.deckName === 'string' && syncAuditDeckKey(row.deckName) === key)) return
+                if (Array.isArray(details) && details.some((row: unknown) => row && typeof row === 'object' &&
+                    'cardId' in row && isId(row.cardId) && cards.includes(row.cardId) && 'note' in row &&
+                    row.note === candidate.id && 'deckName' in row && typeof row.deckName === 'string' && syncAuditDeckKey(row.deckName) === key)) return
             }
         } catch (error) {
             cancelled(signal)
@@ -352,13 +353,13 @@ export async function readPendingAuditRepairs(plugin: MyPlugin, profile: string)
 
 async function hash(text: string): Promise<string> {
     const bytes = new TextEncoder().encode(text)
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
+    const digest = await crypto.subtle.digest('SHA-256', bytes)
     return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 async function saveIntent(plugin: MyPlugin, profile: string, source: AuditRepairSource, oldId: number, candidateId: number,
     change: FileChange, t: UiText): Promise<AuditRepairIntent> {
-    const random = globalThis.crypto.getRandomValues(new Uint8Array(16))
+    const random = crypto.getRandomValues(new Uint8Array(16))
     const token = Array.from(random, byte => byte.toString(16).padStart(2, '0')).join('')
     const [afterHash, blockHash] = await Promise.all([hash(change.after), hash(source.blockText)])
     const intent: AuditRepairIntent = { version: 1, token, profile, path: source.path, oldId, candidateId, afterHash, blockHash,

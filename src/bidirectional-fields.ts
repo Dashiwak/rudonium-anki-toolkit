@@ -12,7 +12,7 @@ export interface BidirectionalFieldRule {
     direction: BidirectionalFieldDirection
 }
 
-export const explicitFieldLabel = /^([^\s:\x00-\x1f\x7f<>\[\]][^:\x00-\x1f\x7f<>\[\]]{0,79}):([ \t]*)(.*)$/u
+export const explicitFieldLabel = /^([^\s:\x00-\x1f\x7f<>[\]][^:\x00-\x1f\x7f<>[\]]{0,79}):([ \t]*)(.*)$/u
 
 const protectedNames = new Set(['front', 'back', 'file', 'context', 'add reverse', 'frontlang', 'backlang',
     'tags', 'text', 'image', 'occlusion', 'id', 'anki id', '__proto__', 'constructor', 'prototype'])
@@ -20,7 +20,7 @@ const directions: ReadonlySet<string> = new Set(['both', 'to-anki', 'to-obsidian
 
 export function isBidirectionalFieldName(name: string): boolean {
     return name.length > 0 && name.length <= 80 && name.trim() === name &&
-        !/[\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff[\]<>]/u.test(name) &&
+        !/[\p{Cc}\u2028\u2029\p{Cs}[\]<>]/u.test(name) &&
         !protectedNames.has(name.toLowerCase())
 }
 
@@ -50,7 +50,7 @@ export function isGeneratedBidirectionalField(settings: {
 }
 
 export function parseExplicitLinkedField(part: string): { field: string; value: string; offset: number } | undefined {
-    const marker = /^X\[([^\[\]\r\n]{1,80})\]=/u.exec(part)
+    const marker = /^X\[([^[\]\r\n]{1,80})\]=/u.exec(part)
     if (!marker || !isBidirectionalFieldName(marker[1])) return
     return { field: marker[1], value: part.slice(marker[0].length), offset: marker[0].length }
 }
@@ -58,18 +58,18 @@ export function parseExplicitLinkedField(part: string): { field: string; value: 
 /** Anki определяет создание карточки по лицевой стороне каждого шаблона. */
 export function readTemplateFieldReferences(value: unknown): ReadonlySet<string> | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return
-    const templates = Object.values(value)
+    const templates: unknown[] = Object.values(value)
     if (!templates.length || templates.length > 100) return
     const result = new Set<string>()
     for (const row of templates) {
         if (!row || typeof row !== 'object' || Array.isArray(row) ||
-            typeof row.Front !== 'string' || typeof row.Back !== 'string') return
+            !('Front' in row) || typeof row.Front !== 'string' || !('Back' in row) || typeof row.Back !== 'string') return
         const question = row.Front
         if (question.length > 500_000) return
         let unmatched = false
-        const remaining = question.replace(/\{\{\{([^{}]+)\}\}\}|\{\{([^{}]+)\}\}/gu, (_match, triple, normal) => {
-            const expression = (triple ?? normal).trim().replace(/^[#^/&]/u, '').trim()
-            const field = expression.split(':').pop()!.trim()
+        const remaining = question.replace(/\{\{\{([^{}]+)\}\}\}|\{\{([^{}]+)\}\}/gu, (_match: string, triple: string | undefined, normal: string | undefined) => {
+            const expression = (triple ?? normal ?? '').trim().replace(/^[#^/&]/u, '').trim()
+            const field = expression.slice(expression.lastIndexOf(':') + 1).trim()
             if (!field || /^[=%>!<]/u.test(field)) unmatched = true
             result.add(field.toLowerCase())
             return ''

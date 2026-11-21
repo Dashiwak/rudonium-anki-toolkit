@@ -189,11 +189,11 @@ function scanHtmlLiterals(text: string, hideComments: boolean,
         }
         if (onPageTag) {
             if (text.startsWith('[[', position) && !escaped(text, position)) {
-                const link = /^\[\[[^\[\]\r\n]*\]\]/u.exec(text.slice(position))
+                const link = /^\[\[[^[\]\r\n]*\]\]/u.exec(text.slice(position))
                 if (link) { advance(position + link[0].length); continue }
             }
             if (character === '[' && !escaped(text, position)) {
-                const link = /^\[[^\[\]\r\n]*\](?:\([^()\r\n]*\)|\[[^\[\]\r\n]*\])/u.exec(text.slice(position))
+                const link = /^\[[^[\]\r\n]*\](?:\([^()\r\n]*\)|\[[^[\]\r\n]*\])/u.exec(text.slice(position))
                 if (link) { advance(position + link[0].length); continue }
             }
             if (character === '#' && !htmlParents?.length && !escaped(text, position) &&

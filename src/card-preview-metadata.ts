@@ -24,7 +24,7 @@ function* editorLines(text: string): IterableIterator<EditorLine> {
     let number = 0
     let offset = 0
     for (const match of text.matchAll(separator)) {
-        const end = match.index!
+        const end = match.index
         yield { text: text.slice(offset, end), number, offset }
         offset = end + match[0].length
         number++

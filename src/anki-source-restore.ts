@@ -76,7 +76,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 function safeMarkdownPath(path: string): boolean {
-    return /\.md$/i.test(path) && !/^[a-z]:|[\\\u0000-\u001f\u007f]/i.test(path) &&
+    return /\.md$/i.test(path) && !/^[a-z]:|[\\\x7f]/i.test(path) && !Array.from(path).some(character => character.charCodeAt(0) < 32) &&
         path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
 }
 
@@ -119,7 +119,7 @@ async function readSourceRecord(plugin: MyPlugin, id: number, profile: string, t
     if (!Array.isArray(response) || response.length !== 1 || !record(response[0])) throw broken()
     const { noteId, modelName, fields, tags } = response[0]
     if (noteId !== id || typeof modelName !== 'string' || !modelName.trim() || !record(fields) ||
-        !Array.isArray(tags) || !tags.every((tag: unknown) => typeof tag === 'string')) throw broken()
+        !Array.isArray(tags) || !tags.every((tag: unknown): tag is string => typeof tag === 'string')) throw broken()
     const entries = Object.entries(fields)
     const byOrder: Array<{ name: string; value: string; order: number }> = []
     for (const [name, field] of entries) {
@@ -137,7 +137,7 @@ async function readSourceRecord(plugin: MyPlugin, id: number, profile: string, t
             `Локальная схема полей «${modelName}» отличается от Anki. Нажмите «Обновить» в таблице типов записей и запустите аудит снова.`))
     }
     return { modelName, fieldNames, fields: Object.fromEntries(byOrder.map(({ name, value }) => [name, value])),
-        tags: [...new Set(tags as string[])].sort() }
+        tags: [...new Set(tags)].sort() }
 }
 
 function sourceLinkPath(link: string, vaultName: string, id: number): string | undefined {

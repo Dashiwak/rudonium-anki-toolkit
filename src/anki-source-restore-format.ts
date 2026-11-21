@@ -22,7 +22,7 @@ interface RestoreFormatResult {
     tags: string[]
 }
 
-const unsafeCharacter = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff]/u
+const unsafeCharacter = /[^\P{Cc}\t\r\n]|[\u2028\u2029\p{Cs}]/u
 const inlineTag = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'del', 'strike', 'mark', 'sub', 'sup', 'code', 'span'])
 const containerTag = new Set(['div', 'p'])
 const comparableTag: Readonly<Record<string, string>> = { b: 'strong', i: 'em', s: 'del', strike: 'del' }
@@ -33,7 +33,7 @@ const entities: Readonly<Record<string, string>> = {
 }
 const htmlToken = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)[ \t]*(\/?)>/
 const entityToken = /^&(#(?:[xX][\da-fA-F]+|\d+)|[a-zA-Z][a-zA-Z\d]+);/
-const escapedMarkdownCharacter = /[\\`*\[\]{}~#$!%\t\r\n]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu
+const escapedMarkdownCharacter = /[\\`*[\]{}~#$!%\t\r\n]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu
 const unsupportedRenderedText = /\[sound:|\{\{c\d+::/iu
 
 function htmlEntity(name: string): string {

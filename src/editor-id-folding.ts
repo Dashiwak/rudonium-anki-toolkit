@@ -100,7 +100,8 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
             private syntaxKey = ''
             private closed = false
             private reportedFailure = false
-            private timer?: ReturnType<typeof setTimeout>
+            private timerWindow?: Window
+            private timer?: number
 
             constructor(private readonly editor: EditorView) {
                 editors.add(editor)
@@ -114,8 +115,9 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
             }
 
             refreshSoon(editor: EditorView): void {
-                if (this.timer) clearTimeout(this.timer)
-                this.timer = setTimeout(() => {
+                if (this.timer !== undefined) this.timerWindow?.clearTimeout(this.timer)
+                this.timerWindow = editor.dom.ownerDocument.defaultView ?? window
+                this.timer = this.timerWindow.setTimeout(() => {
                     if (!this.closed) {
                         try { editor.dispatch({ effects: refresh.of(undefined) }) } catch { /* Окно уже закрывается. */ }
                     }
@@ -203,7 +205,7 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
 
             destroy(): void {
                 this.closed = true
-                if (this.timer) clearTimeout(this.timer)
+                if (this.timer !== undefined) this.timerWindow?.clearTimeout(this.timer)
                 this.cache.clear()
                 editors.delete(this.editor)
             }

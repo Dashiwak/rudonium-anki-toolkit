@@ -189,7 +189,7 @@ export function readRecoveryMarker(text: string): { token: string; clean: string
         throw new Error('Invalid or repeated pending export marker. Inspect the pending operation before adding any cards.')
     }
     const [marker] = matches
-    const index = marker.index!
+    const index = marker.index
     const suffix = text.slice(index + marker[0].length)
     const separator = suffix ? (marker[0].endsWith('\r\n') ? '\r\n' : '\n') : ''
     return { token: marker[1], clean: text.slice(0, index) + separator + suffix }
@@ -202,7 +202,7 @@ export function* recoveryMarkerTokens(text: string): Iterable<string> {
 }
 
 export function newRecoveryToken(): string {
-    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
     return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 

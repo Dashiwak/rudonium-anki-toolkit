@@ -72,7 +72,7 @@ export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin
     new Setting(body).setName(t('Existing card pages', 'Уже связанные страницы'))
         .setDesc(t('Preview ID moves across the vault. A complete vault ZIP is verified before changes.',
             'Проверьте перенос ID во всём хранилище. Перед изменениями создаётся и проверяется полный ZIP хранилища.'))
-        .addButton(button => button.setButtonText(t('Move page IDs…', 'Перенести ID страниц…')).onClick(actions.moveVaultPages))
+        .addButton(button => button.setButtonText(t('Move page IDs…', 'Перенести ID страниц…')).onClick(() => actions.moveVaultPages()))
     let busy = false
     new Setting(body).setName(t('Collapse Anki IDs in Live Preview', 'Сворачивать ID Anki в Live Preview'))
         .setDesc(t('Display a compact Anki badge. A cursor or selection reveals the saved ID. Source mode always shows the original text.',
@@ -93,6 +93,6 @@ export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin
     new Setting(body).setName(t('Convert ID Markers', 'Преобразовать маркеры ID'))
         .setDesc(t('Wrap IDs in HTML comments or remove only their comment wrappers. Ordinary HTML comments are preserved.',
             'Обернуть ID в HTML-комментарии или убрать только их оболочку. Обычные HTML-комментарии сохраняются.'))
-        .addButton(button => button.setButtonText(t('Convert IDs to Comments', 'Перевести ID в комментарии')).onClick(actions.toComment))
-        .addButton(button => button.setButtonText(t('Remove ID Comment Wrappers', 'Убрать HTML-оболочку ID')).onClick(actions.toPlain))
+        .addButton(button => button.setButtonText(t('Convert IDs to Comments', 'Перевести ID в комментарии')).onClick(() => actions.toComment()))
+        .addButton(button => button.setButtonText(t('Remove ID Comment Wrappers', 'Убрать HTML-оболочку ID')).onClick(() => actions.toPlain()))
 }

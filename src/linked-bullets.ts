@@ -190,16 +190,18 @@ export async function readLinkedBulletModels(ids: ReadonlySet<number>,
         const seen = new Set<number>()
         const notes = await readNotes(batch)
         if (!Array.isArray(notes)) throw new Error('notesInfo: expected an array of linked notes')
-        for (const note of notes) {
-            if (!note || !requestedIds.has(note.noteId)) continue
+        const rows: readonly unknown[] = notes
+        for (const note of rows) {
+            if (typeof note !== 'object' || note === null || !('noteId' in note) ||
+                typeof note.noteId !== 'number' || !requestedIds.has(note.noteId)) continue
             if (seen.has(note.noteId)) {
                 models.delete(note.noteId)
                 snapshots?.delete(note.noteId)
                 continue
             }
             seen.add(note.noteId)
-            if (typeof note.modelName !== 'string' || !note.modelName || !note.fields ||
-                typeof note.fields !== 'object' || Array.isArray(note.fields)) continue
+            if (!('modelName' in note) || typeof note.modelName !== 'string' || !note.modelName ||
+                !('fields' in note) || !note.fields || typeof note.fields !== 'object' || Array.isArray(note.fields)) continue
             const fieldNames = new Set(Object.keys(note.fields))
             if (fieldNames.has('Front') && fieldNames.has('Back')) {
                 models.set(note.noteId, { name: note.modelName, fieldNames })

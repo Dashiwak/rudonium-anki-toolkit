@@ -193,7 +193,7 @@ function sourceLines(text: string): SourceLine[] {
     const rows: SourceLine[] = []
     let offset = 0
     for (const breakMatch of text.matchAll(/\r\n?|\n/g)) {
-        const end = breakMatch.index!
+        const end = breakMatch.index
         rows.push({ line: rows.length + 1, offset, end, text: text.slice(offset, end) })
         offset = end + breakMatch[0].length
     }
@@ -203,7 +203,7 @@ function sourceLines(text: string): SourceLine[] {
 
 function startsToken(text: string, token: string): boolean {
     const following = text[token.length]
-    return Boolean(token && text.startsWith(token) && (following === undefined || /[ \t\[|]/.test(following)))
+    return Boolean(token && text.startsWith(token) && (following === undefined || /[ \t[|]/.test(following)))
 }
 
 export function commentSpans(text: string, isProtected: (offset: number) => boolean): Array<[number, number]> {
@@ -252,7 +252,7 @@ export function wizardServiceGuard(text: string, directivePatterns: ReadonlyArra
         if (!pattern) continue
         const flags = pattern.global ? pattern.flags : pattern.flags + 'g'
         for (const match of text.matchAll(new RegExp(pattern.source, flags))) {
-            const start = match.index!
+            const start = match.index
             const first = match[0].search(/\S/u)
             if (first >= 0 && !blocked(start + first)) spans.push([start, start + match[0].length])
         }
@@ -280,12 +280,13 @@ export function typeInExplicitMatch(match: string, inline: boolean, syntax?: Dup
 }
 
 export function duplicateFirstFieldSlots(response: unknown, expectedLength: number): number[] {
-    if (!response || typeof response !== 'object') return []
-    const { error, result } = response as { error?: unknown; result?: unknown }
+    if (!response || typeof response !== 'object' || !('error' in response) || !('result' in response)) return []
+    const { error, result } = response
     if (error !== null || !Array.isArray(result) || result.length !== expectedLength) return []
     const slots: number[] = []
-    result.forEach((row, index) => {
-        if (row && typeof row === 'object' && row.result === null && typeof row.error === 'string' &&
+    result.forEach((row: unknown, index) => {
+        if (row && typeof row === 'object' && 'result' in row && row.result === null &&
+            'error' in row && typeof row.error === 'string' &&
             isDuplicateFirstFieldErrorMessage(row.error)) slots.push(index)
     })
     return slots
@@ -381,7 +382,7 @@ export function tableIdConflicts(text: string, protectedAt?: (offset: number) =>
             const visible = maskIdMarkerHtmlLiterals(row.text, true)
             const token = /<!--[ \t]*ID:[^\r\n]*?-->|(?<=\|)[ \t]*ID:[^|\r\n]*/gu
             for (const match of visible.matchAll(token)) {
-                if (protectedAt?.(row.offset + match.index!)) continue
+                if (protectedAt?.(row.offset + match.index)) continue
                 const marker = parseAnkiIdMarker(match[0])
                 if (marker) result.push({ start: rows[header].offset, end: rows[stop - 1].end, line: row.line, id: marker.id })
             }

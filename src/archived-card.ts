@@ -102,7 +102,7 @@ function struckProjection(source: string, id: number, propertyOwner = false): st
     const visible = rows.filter((_line, index) => index !== ownedLine)
     // Encode Markdown and HTML punctuation. Text from cards is never interpreted as HTML, a
     // transclusion, a link or an additional card in this rendering. The original remains intact.
-    const escaped = visible.map(line => line.replace(/[!-/:-@\[-`{-~]|[\r\t]/gu,
+    const escaped = visible.map(line => line.replace(/[!-/:-@[-`{-~]|[\r\t]/gu,
         char => '&#' + char.charCodeAt(0) + ';'))
     return projectionStart + id + '">' + escaped.join('<br>') + '</del>'
 }

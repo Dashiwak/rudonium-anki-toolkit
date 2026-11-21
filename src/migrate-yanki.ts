@@ -28,7 +28,7 @@ function readMetadata(text: string): { prefix: string; body: string; id?: number
     const stored = (properties as Record<string, unknown>).noteId
     if (!Number.isSafeInteger(id) || id < 1 || String(stored) !== String(id) || String(id) !== digits) return
     const keepComment = row[4] ? row[4] + row[5] : ''
-    const remaining = yaml.slice(0, row.index!) + keepComment + yaml.slice(row.index! + row[0].length)
+    const remaining = yaml.slice(0, row.index) + keepComment + yaml.slice(row.index + row[0].length)
     return { prefix: opening[0] + remaining + closing[0], body, id }
 }
 

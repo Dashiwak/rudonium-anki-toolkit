@@ -102,7 +102,7 @@ export function prepareFrozenFields(text: string, marker: string, model: string,
     const { eol } = source
     const preamble = !!(source.bom || source.yaml)
     const insertion = bodyOffset + (preamble && source.body.startsWith(eol) ? eol.length : 0)
-    const start = exists ? locations[0].index! : insertion
+    const start = exists ? locations[0].index : insertion
     const body = exists ? fieldText(seen[0][2]) : ''
     const rows = body ? body.split('\n') : []
     const original = [header, ...rows].join(eol)

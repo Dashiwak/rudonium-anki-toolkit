@@ -143,6 +143,7 @@ function makeHost() {
 
 test("missing-ID notice keeps the current record on Show, advances on Skip, and opens repair for the current deck, ID and source", async () => {
     global.document = page;
+    global.createFragment = () => page.createDocumentFragment();
     const modules = await loadModules();
     const { plugin, leaves } = makeHost();
     modules["./obsidian-navigation"].registerRecordReview(plugin);
@@ -200,6 +201,7 @@ test("a visible settings tab without a shell provides a return path and a hidden
 
 test("repair review docks with live state, keeps page content, and closes with its workspace tab", async () => {
     global.document = page;
+    global.createFragment = () => page.createDocumentFragment();
     global.DOMParser = class { parseFromString(text) { return { body: { textContent: text } }; } };
     const { plugin, leaves } = makeHost();
     const row = id => ({

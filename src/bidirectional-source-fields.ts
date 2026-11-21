@@ -29,7 +29,7 @@ function backlinkPath(link: string, vault: string): string | undefined {
 export function sourceSuffixes(fields: Readonly<Record<string, string>>, id: number, path: string, vault: string,
     fileField?: string, contextField?: string): SourceSuffixes | undefined {
     if (!fileField && !contextField) return
-    const suffixes: SourceSuffixes = Object.create(null)
+    const suffixes = Object.create(null) as SourceSuffixes
     for (const name of new Set([fileField, contextField])) {
         if (!name || typeof fields[name] !== 'string') continue
         const value = fields[name]
@@ -65,7 +65,7 @@ function oldSourceAnchor(raw: string, id: number, vault: string, confirmedPath: 
 export function observeSourceFields(fields: Record<string, unknown>, desired: SourceSuffixes, saved: SourceSuffixes | undefined,
     id: number, vault: string, authored: Record<string, string> | undefined, confirmedPath: (path: string) => boolean,
     pendingTarget?: SourceSuffixes): SourceFieldUpdates | undefined {
-    const updates: SourceFieldUpdates = Object.create(null)
+    const updates = Object.create(null) as SourceFieldUpdates
     let linkedPath: string | undefined
     for (const [name, suffix] of Object.entries(desired)) {
         if (suffix.includes('class="obsidian-link"')) {

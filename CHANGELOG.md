@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.10.4 · Obsidian review candidate
+## 0.10.5 · In preparation / В подготовке
+
+- With preview off, bidirectional sync applies eligible changes in the background. Conflicting fields and changes requiring a decision remain available in **Preview now**.
+- The help link and sync mode are at the top of settings. Interface language is at the bottom.
+- С выключенным предпросмотром безопасные изменения синхронизируются в фоне. Конфликты можно разрешить вручную в разделе «Синхронизация и проверка».
+- Сборщик хранит проверенные результаты отдельно от исходников. [Build / Сборка](PUBLISHING.md)
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.5.md)
+
+## 0.10.4 · Obsidian review fixes
 
 - Use the Obsidian settings heading API and the supplied stylesheet across settings, previews and dialogs.
 - Sanitize card preview markup and render settings labels as text.

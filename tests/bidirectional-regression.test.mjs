@@ -105,8 +105,11 @@ test('two-way settings show the same controls in both languages and roll back a 
     for (const [lang,label,preview] of [['en','Bidirectional sync','Preview every sync'],['ru','Двусторонняя синхронизация','Предпросмотр при каждом запуске']]) {
         const options = {rows:[]}, container={rows:[],createDiv:()=>options}
         const plugin={settings:{INTERFACE_LANGUAGE:lang},saveAllData:async()=>{}}
-        ui.installBidirectionalSettings(container,plugin)
-        const mode = container.rows.find(row=>row.name===label)
+        const top = { rows: [] }
+        ui.installBidirectionalSettings(container,plugin,top)
+        assert.equal(container.rows.some(row=>row.name===label), false)
+        assert.equal(top.rows.length, 1)
+        const mode = top.rows.find(row=>row.name===label)
         assert.match(mode.hint,/10/)
         assert.ok(options.hidden)
         await mode.controls[0].change(true)

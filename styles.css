@@ -729,5 +729,8 @@ button.rudonium-hidden,
   height: calc(100vh - 1rem);
   max-height: calc(100vh - 1rem);
 }
-.rudonium-archived-card-body { text-decoration-line: line-through; text-decoration-color: var(--text-muted); }
-.rudonium-archived-card-body .rudonium-archived-card-status { display: inline-block; text-decoration-line: none; }
+.rudonium-archived-card-body {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-muted);
+}
+.rudonium-archived-card-body .rudonium-archived-card-status { display: inline-block; text-decoration: none; }

@@ -6,7 +6,7 @@ const vm = require("node:vm");
 const overlay = require("../../Build/overlay-source.cjs");
 
 async function load(names, api, generated = {}) {
-    const context = vm.createContext({ require, Buffer, performance, URL, TextEncoder, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout });
+    const context = vm.createContext({ require, Buffer, performance, URL, structuredClone, TextEncoder, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout });
     const modules = new Map(), imports = new Map();
     const needed = new Set(names);
     for (const name of needed) {

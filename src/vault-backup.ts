@@ -135,7 +135,7 @@ function isIn(path: typeof import('path'), root: string, candidate: string): boo
 }
 
 function missing(error: unknown): boolean {
-    return typeof error === 'object' && error !== null && 'code' in error && (error as {code: unknown}).code === 'ENOENT'
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
 async function destination(plugin: MyPlugin, settings: BackupSettings, create: boolean) {
@@ -426,7 +426,7 @@ export function restoreVaultBackup(plugin: MyPlugin, archive: string): Promise<s
         const root = await fs.realpath(base)
         const parent = path.dirname(root)
         if (parent === root) throw new Error('Choose a vault with a parent folder before restoring.')
-        const name = `${path.basename(root)}-Restored-${new Date().toISOString().slice(0, 10)}-${globalThis.crypto.randomUUID().slice(0, 8)}`
+        const name = `${path.basename(root)}-Restored-${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`
         const restored = path.join(parent, name)
         const status = displayProgress(t('Restoring Obsidian into a new folder', 'Восстанавливаем Obsidian в новую папку'), t)
         try {

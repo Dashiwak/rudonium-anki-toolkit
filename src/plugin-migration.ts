@@ -46,7 +46,7 @@ type MigrationPlan =
 type JsonObject = Record<string, unknown>
 const object = (value: unknown): value is JsonObject => !!value && typeof value === 'object' && !Array.isArray(value)
 const knownFile = (path: string) => specialFiles.has(path) || stateFile.test(path) || nestedState.test(path)
-const missing = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+const missing = (error: unknown) => object(error) && error.code === 'ENOENT'
 
 async function regularPath(fs: FileSystem, path: string): Promise<boolean> {
     try {
@@ -104,8 +104,8 @@ type SavedPlan = { sourceId: SourceId; files: Entry[] }
 function readSavedPlan(value: unknown): SavedPlan | undefined {
     if (value === undefined) return undefined
     if (!object(value) || (value.version !== 1 && value.version !== 2) || !Array.isArray(value.files) || !value.files.length ||
-        value.files.some(row => !object(row) || typeof row.path !== 'string' || !knownFile(row.path) ||
-            typeof row.hash !== 'string' || !digestPattern.test(row.hash)) ||
+        !value.files.every((row: unknown): row is Entry => object(row) && typeof row.path === 'string' && knownFile(row.path) &&
+            typeof row.hash === 'string' && digestPattern.test(row.hash)) ||
         new Set(value.files.map(row => row.path)).size !== value.files.length ||
         !value.files.some(row => row.path === 'data.json')) throw new Error('The migration checkpoint is damaged.')
     // В журнале первой версии единственным источником был Export to Anki.
@@ -209,9 +209,11 @@ async function inspectMigration(context: MigrationContext): Promise<MigrationPla
         if (object(index) && Array.isArray(index.idsByPath)) {
             const ids = new Set<number>()
             for (const row of index.idsByPath) {
-                if (Array.isArray(row) && Array.isArray(row[1]?.[3])) {
-                    for (const id of row[1][3]) if (Number.isSafeInteger(id) && id > 0) ids.add(id)
-                }
+                if (!Array.isArray(row)) continue
+                const stored: unknown = row[1]
+                if (!Array.isArray(stored) || !Array.isArray(stored[3])) continue
+                const linked: readonly unknown[] = stored[3]
+                for (const id of linked) if (typeof id === 'number' && Number.isSafeInteger(id) && id > 0) ids.add(id)
             }
             indexedIds = ids.size
         }
@@ -231,7 +233,9 @@ async function statePath(context: MigrationContext, root: string, relative: stri
         parent = context.path.join(parent, part)
         if (!await regularDirectory(context.fs, parent)) {
             if (!create) throw new Error('A source folder disappeared.')
-            await context.fs.promises.mkdir(parent, { mode: 0o700 }).catch(error => { if (error?.code !== 'EEXIST') throw error })
+            await context.fs.promises.mkdir(parent, { mode: 0o700 }).catch((error: unknown) => {
+                if (!object(error) || error.code !== 'EEXIST') throw error
+            })
             if (!await regularDirectory(context.fs, parent)) throw new Error('Invalid destination folder.')
         }
     }

@@ -150,7 +150,7 @@ function openBidirectionalFieldSettings(plugin: MyPlugin): void {
     dialog.open()
 }
 
-export function installBidirectionalSettings(container: HTMLElement, plugin: MyPlugin): void {
+export function installBidirectionalSettings(container: HTMLElement, plugin: MyPlugin, modeContainer: HTMLElement): void {
     const t = uiFor(plugin.settings)
     type Flag = 'BIDIRECTIONAL_SYNC' | 'SKIP_SYNC_ERRORS'
     const toggleRow = (row: Setting, key: Flag, changed?: () => void) => row.addToggle(toggle =>
@@ -178,7 +178,7 @@ export function installBidirectionalSettings(container: HTMLElement, plugin: MyP
         .setName(t('Skip recoverable card errors', 'Пропускать ошибки отдельных карточек'))
         .setDesc(t('Continue with other cards and report skipped records.',
             'Обрабатывать остальные карточки и показывать пропущенные записи.')), 'SKIP_SYNC_ERRORS')
-    const mode = new Setting(container).setName(t('Bidirectional sync', 'Двусторонняя синхронизация'))
+    const mode = new Setting(modeContainer).setName(t('Bidirectional sync', 'Двусторонняя синхронизация'))
         .setDesc(t('Reads linked Anki notes on each run. A full check can take around 10× as long as one-way export, depending on the collection.',
             'При каждом запуске читает связанные записи Anki. Полная проверка может занять примерно в 10 раз больше времени, чем односторонний экспорт. Время зависит от коллекции.'))
     const options = container.createDiv()

@@ -603,7 +603,7 @@ export async function checkExportOperations(rows: readonly ExportOperation[], pr
         if (!object(raw)) throw new Error('Anki returned an invalid deck check.')
         const current = new Map<number, string>()
         for (const [deck, ids] of Object.entries(raw)) {
-            if (!Array.isArray(ids) || !ids.every(card => id(card) && wanted.delete(card))) {
+            if (!Array.isArray(ids) || !ids.every((card: unknown): card is number => id(card) && wanted.delete(card))) {
                 throw new Error('Anki returned unexpected or repeated card locations.')
             }
             for (const card of ids) current.set(card, deck)

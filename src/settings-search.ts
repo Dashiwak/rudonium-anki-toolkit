@@ -57,16 +57,16 @@ export function installFolderTagSettings(container: HTMLElement, plugin: MyPlugi
                 const tags = settings[tagKey]
                 input.value = tags && Object.prototype.hasOwnProperty.call(tags, entry.path) ? tags[entry.path] : ''
                 input.oninput = () => {
-                    const values = settings[tagKey] ??= Object.create(null)
+                    const values = settings[tagKey] ??= {}
                     if (input.value.trim()) {
                         // Ordinary vault folder names can include "__proto__" and "constructor".
                         Object.defineProperty(values, entry.path, { value: input.value, enumerable: true, configurable: true, writable: true })
                     } else delete values[entry.path]
                     dirty = true
                     clearTimeout(saveTimer)
-                    saveTimer = setTimeout(flush, 300)
+                    saveTimer = setTimeout(() => { void flush() }, 300)
                 }
-                input.onchange = flush
+                input.onchange = () => { void flush() }
                 input.onkeydown = event => {
                     if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); void flush() }
                 }

@@ -408,7 +408,7 @@ function resultNotes(result: SyncAuditResult, t: UiText): string[] {
 }
 
 function markdownText(value: string): string {
-    return value.replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]()<>#+!|]/g, '\\$&')
+    return value.replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}[\]()<>#+!|]/g, '\\$&')
 }
 
 export function formatSyncAuditMarkdown(result: SyncAuditResult, exportIncomplete = false, exportedScope?: string, t: UiText = englishUi): string {
@@ -1124,7 +1124,8 @@ class SyncAuditModal extends ReviewModal {
             let page = 0
             let checking = false
             let current: readonly AuditCardRow[] = []
-            let timer: ReturnType<typeof setTimeout> | undefined
+            const timerWindow = search.ownerDocument.defaultView ?? window
+            let timer: number | undefined
             const differenceIds = new Set(result.differences.map(item => item.id))
             const duplicateIds = new Set(result.duplicateIds.map(item => item.id))
             const render = () => {
@@ -1164,7 +1165,7 @@ class SyncAuditModal extends ReviewModal {
                 }
             }
             const reset = () => { page = 0; feedback.setText(''); render() }
-            search.oninput = () => { clearTimeout(timer); timer = setTimeout(reset, 120) }
+            search.oninput = () => { timerWindow.clearTimeout(timer); timer = timerWindow.setTimeout(reset, 120) }
             filter.onchange = reset
             previous.onclick = () => { page--; render() }
             next.onclick = () => { page++; render() }

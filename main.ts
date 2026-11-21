@@ -24,16 +24,47 @@ import { PluginSettings } from './src/interfaces/settings-interface'
 import { SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 
+type DataRecord = Record<string, unknown>
+
+function isDataRecord(value: unknown): value is DataRecord {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isStringList(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every(item => typeof item === 'string')
+}
+
+function isStringMap(value: unknown): value is Record<string, string> {
+    return isDataRecord(value) && Object.values(value).every(item => typeof item === 'string')
+}
+
+function isFieldMap(value: unknown): value is Record<string, string[]> {
+    return isDataRecord(value) && Object.values(value).every(isStringList)
+}
+
+function validSection(values: DataRecord, defaults: DataRecord): boolean {
+    return Object.entries(defaults).every(([key, value]) =>
+        !Object.prototype.hasOwnProperty.call(values, key) || typeof values[key] === typeof value)
+}
+
+function invalidPluginData(settings?: unknown): Error {
+    const language = isDataRecord(settings) && settings.INTERFACE_LANGUAGE === 'ru' ? 'ru' : 'en'
+    const message = uiFor({ INTERFACE_LANGUAGE: language })(
+        "Invalid plugin data.json. Restore the settings file from a backup, then enable the plugin again.",
+        "Повреждены настройки плагина. Восстановите data.json из резервной копии и снова включите плагин.")
+    return Object.assign(new Error(message), { name: "InvalidRudoniumPluginData" })
+}
+
 export default class RudoniumAnkiPlugin extends Plugin {
 
 	settings: PluginSettings
-	note_types: Array<string>
-	fields_dict: Record<string, string[]>
+	note_types: string[] = []
+	fields_dict: Record<string, string[]> = {}
 	added_media: string[]
 	file_hashes: Record<string, string>
 
 	async getDefaultSettings(): Promise<PluginSettings> {
-		let settings: PluginSettings = {
+		const settings: PluginSettings = {
 			CUSTOM_REGEXPS: {},
 			FILE_LINK_FIELDS: {},
 			CONTEXT_FIELDS: {},
@@ -74,19 +105,14 @@ export default class RudoniumAnkiPlugin extends Plugin {
 				"Add Obsidian Tags": false,
 			},
 		}
-		this.note_types = []
-        this.fields_dict = {}
-        settings.CUSTOM_REGEXPS = {}
-        settings.FILE_LINK_FIELDS = {}
-        return settings
+		return settings
 	}
 
 	async generateFieldsDict(): Promise<Record<string, string[]>> {
-		let fields_dict = {}
+		const fields_dict: Record<string, string[]> = {}
 		for (let note_type of this.note_types) {
-			const field_names: string[] = await AnkiConnect.invoke(
-				'modelFieldNames', {modelName: note_type}
-			) as string[]
+			const field_names = await AnkiConnect.invoke('modelFieldNames', { modelName: note_type })
+			if (!isStringList(field_names)) throw new Error('Anki returned invalid field names.')
 			fields_dict[note_type] = field_names
 		}
 		return fields_dict
@@ -104,70 +130,73 @@ export default class RudoniumAnkiPlugin extends Plugin {
 		)
 	}
 
-	async loadSettings(): Promise<PluginSettings> {
-		let current_data = await this.loadData()
-		if (current_data == null || (typeof current_data === 'object' && !Array.isArray(current_data) && Object.keys(current_data).length === 0)) {
-			const default_sets = await this.getDefaultSettings()
-			await this.saveData(
-				{
-					settings: default_sets,
-					"Added Media": [],
-					"File Hashes": {},
-					fields_dict: {}
-				}
-			)
-			return default_sets
-		} else {
-			if (!current_data.settings || typeof current_data.settings !== "object" || Array.isArray(current_data.settings) ||
-                !Array.isArray(current_data["Added Media"]) || !current_data["File Hashes"] ||
-                typeof current_data["File Hashes"] !== "object" || Array.isArray(current_data["File Hashes"]) ||
-                !current_data.fields_dict || typeof current_data.fields_dict !== "object" || Array.isArray(current_data.fields_dict)) {
-                const message = uiFor(current_data.settings)(
-                    "Invalid plugin data.json. Restore the settings file from a backup, then enable the plugin again.",
-                    "Повреждены настройки плагина. Восстановите data.json из резервной копии и снова включите плагин.")
-                throw Object.assign(new Error(message), { name: "InvalidRudoniumPluginData" })
-            }
-            this.rudoniumDataExtras = this.extraDataKeys(current_data)
-            const settings: PluginSettings & {
-                IGNORED_FILE_GLOBS?: string[]
-                Defaults: { "Scan Directory"?: string }
-            } = current_data.settings
-            delete settings.IGNORED_FILE_GLOBS
-            delete settings.Defaults?.["Scan Directory"]
-            if (settings.Defaults && settings.Defaults.Tag == null) settings.Defaults.Tag = ""
-            return settings
-		}
-	}
+    private async readSavedData() {
+        const data: unknown = await this.loadData()
+        if (data == null || (isDataRecord(data) && Object.keys(data).length === 0)) return undefined
+        if (!isDataRecord(data) || !isDataRecord(data.settings) ||
+            !isStringList(data["Added Media"]) || !isStringMap(data["File Hashes"]) || !isFieldMap(data.fields_dict)) {
+            throw invalidPluginData(isDataRecord(data) ? data.settings : undefined)
+        }
+        return { data, settings: data.settings, media: data["Added Media"], hashes: data["File Hashes"], fields: data.fields_dict }
+    }
 
-	async loadAddedMedia(): Promise<string[]> {
-		let current_data = await this.loadData()
-		if (current_data == null) {
-			await this.saveDefault()
-			return []
-		} else {
-			return current_data["Added Media"]
-		}
-	}
+    async loadSettings(): Promise<PluginSettings> {
+        const saved = await this.readSavedData()
+        const defaults = await this.getDefaultSettings()
+        if (!saved) {
+            this.note_types = []
+            this.fields_dict = {}
+            this.added_media = []
+            this.file_hashes = {}
+            await this.saveData({ settings: defaults, "Added Media": this.added_media, "File Hashes": this.file_hashes, fields_dict: this.fields_dict })
+            return defaults
+        }
 
-	async loadFileHashes(): Promise<Record<string, string>> {
-		let current_data = await this.loadData()
-		if (current_data == null) {
-			await this.saveDefault()
-			return {}
-		} else {
-			return current_data["File Hashes"]
-		}
-	}
+        // Read one consistent snapshot for settings and caches, including keys saved by newer versions.
+        const options = { ...saved.settings }
+        delete options.IGNORED_FILE_GLOBS
+        const syntax = options.Syntax ?? {}
+        const preferences = options.Defaults ?? {}
+        if (!isDataRecord(syntax) || !isDataRecord(preferences)) throw invalidPluginData(options)
+        const tag = preferences.Tag ?? ""
+        if (typeof tag !== "string") throw invalidPluginData(options)
+        const values: DataRecord = { ...preferences, Tag: tag }
+        delete values["Scan Directory"]
+        if (!validSection(syntax, defaults.Syntax) || !validSection(values, defaults.Defaults)) throw invalidPluginData(options)
+        for (const key of ["CUSTOM_REGEXPS", "FILE_LINK_FIELDS", "CONTEXT_FIELDS", "FOLDER_DECKS", "FOLDER_TAGS"]) {
+            if (key in options && !isStringMap(options[key])) throw invalidPluginData(options)
+        }
+        for (const [key, value] of Object.entries(defaults)) {
+            if (typeof value === 'boolean' && key in options && typeof options[key] !== 'boolean') throw invalidPluginData(options)
+        }
+        this.rudoniumDataExtras = this.extraDataKeys(saved.data)
+        this.fields_dict = saved.fields
+        this.added_media = saved.media
+        this.file_hashes = saved.hashes
+        return { ...defaults, ...options, Syntax: { ...defaults.Syntax, ...syntax },
+            Defaults: { ...defaults.Defaults, ...values, Tag: tag } }
+    }
 
-	async loadFieldsDict(): Promise<Record<string, string[]>> {
-		let current_data = await this.loadData()
-		if (current_data == null) {
-			await this.saveDefault()
-			const fields_dict = await this.generateFieldsDict()
-			return fields_dict
-		}
-		return current_data.fields_dict
-	}
+    async loadAddedMedia(): Promise<string[]> {
+        const saved = await this.readSavedData()
+        if (saved) return saved.media
+        await this.saveDefault()
+        return []
+    }
+
+    async loadFileHashes(): Promise<Record<string, string>> {
+        const saved = await this.readSavedData()
+        if (saved) return saved.hashes
+        await this.saveDefault()
+        return {}
+    }
+
+    async loadFieldsDict(): Promise<Record<string, string[]>> {
+        const saved = await this.readSavedData()
+        if (saved) return saved.fields
+        await this.saveDefault()
+        return this.generateFieldsDict()
+    }
 
 	private rudoniumDataExtras: Record<string, unknown> = {}
 
@@ -201,7 +230,7 @@ export default class RudoniumAnkiPlugin extends Plugin {
 		let regexp_section = this.settings["CUSTOM_REGEXPS"]
 		// For new note types
 		for (let note_type of this.note_types) {
-			this.settings["CUSTOM_REGEXPS"][note_type] = regexp_section.hasOwnProperty(note_type) ? regexp_section[note_type] : ""
+			this.settings["CUSTOM_REGEXPS"][note_type] = Object.prototype.hasOwnProperty.call(regexp_section, note_type) ? regexp_section[note_type] : ""
 		}
 		// Removing old note types
 		for (let note_type of Object.keys(this.settings["CUSTOM_REGEXPS"])) {
@@ -234,31 +263,21 @@ export default class RudoniumAnkiPlugin extends Plugin {
     private async initializeRudonium(): Promise<void> {
         if (this.rudoniumStopped) return
 
-		console.log('loading Obsidian_to_Anki...');
 		addIcon('anki', ANKI_ICON)
 
-		try {
-			this.settings = await this.loadSettings()
-		
+        try {
+            this.settings = await this.loadSettings()
+        } catch (error) {
+            if (this.rudoniumStopped) return
+            if (error instanceof Error && error.name === 'InvalidRudoniumPluginData') new Notice(error.message, 12000)
+            else {
+                console.error('[Rudonium] Could not load plugin settings', error)
+                new Notice(uiFor(this.settings)('Could not load Rudonium settings.', 'Не удалось загрузить настройки Rudonium.'))
+            }
+            return
+        }
         if (this.rudoniumStopped) return
-}
-		catch(e) {
-        if (this.rudoniumStopped) return
-        if (e instanceof Error && e.name === 'InvalidRudoniumPluginData') { new Notice(e.message, 12000); return }
-
-			new Notice(uiFor(this.settings)("Couldn't connect to Anki! Check console for error message.", "Нет связи с Anki. Откройте Anki и проверьте AnkiConnect."))
-			return
-		}
-
-		this.note_types = Object.keys(this.settings["CUSTOM_REGEXPS"])
-		this.fields_dict = await this.loadFieldsDict()
-		
-        if (this.rudoniumStopped) return
-this.added_media = await this.loadAddedMedia()
-		
-        if (this.rudoniumStopped) return
-this.file_hashes = await this.loadFileHashes()
-        if (this.rudoniumStopped) return
+        this.note_types = Object.keys(this.settings.CUSTOM_REGEXPS)
         // После загрузки хешей включаем отслеживание файлов и команду полной проверки.
         registerFastScan(this, (deck, repair) => { void openAuditForExportIssue(this, deck, repair) }, () => refreshNoteTypes(this))
         registerSetupCommand(this, task => withFastScanReadLock(this, task), () => this.rudoniumStopped)
@@ -301,13 +320,11 @@ this.file_hashes = await this.loadFileHashes()
         this.rudoniumStopped = true
         if (!this.rudoniumInitialized) return
 
-		console.log("Saving settings for Obsidian_to_Anki...")
 		try {
 			await this.saveAllData()
 		} catch (error) {
 			console.error('[Rudonium] Could not save plugin data during unload', error)
 			new Notice(uiFor(this.settings)('Could not save Rudonium settings.', 'Не удалось сохранить настройки Rudonium.'))
 		}
-		console.log('unloading Obsidian_to_Anki...');
 	}
 }

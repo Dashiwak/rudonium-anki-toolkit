@@ -77,7 +77,7 @@ export class FormatConverter {
 		)
 	}
 
-	cloze_repl(_1: string, match_id: string, match_content: string): string {
+	cloze_repl(this: void, _1: string, match_id: string, match_content: string): string {
 		if (match_id == undefined) {
 			let result = "{{c" + cloze_unset_num.toString() + "::" + match_content + "}}"
 			cloze_unset_num += 1
@@ -95,7 +95,7 @@ export class FormatConverter {
 	}
 
 	getAndFormatMedias(note_text: string): string {
-		if (!(this.file_cache.hasOwnProperty("embeds"))) {
+		if (!Object.prototype.hasOwnProperty.call(this.file_cache, "embeds")) {
 			return note_text
 		}
 		for (let embed of this.file_cache.embeds) {
@@ -118,7 +118,7 @@ export class FormatConverter {
 	}
 
 	formatLinks(note_text: string): string {
-		if (!(this.file_cache.hasOwnProperty("links"))) {
+		if (!Object.prototype.hasOwnProperty.call(this.file_cache, "links")) {
 			return note_text
 		}
 		for (let link of this.file_cache.links) {

@@ -47,7 +47,7 @@ export function withoutMigrationKeys(yaml: string, keys: ReadonlySet<string>): s
         if (/^[ \t]|^-(?:\s|$)/u.test(text)) {
             if (drop && /(?:^|\s)&[\w-]+/u.test(text)) return undefined
         } else {
-            const key = /^(?:"([^"\\]+)"|'([^']+)'|([^\s"'!&#*{},\[\]:][^:#]*?))\s*:(?:[ \t]|$)/u.exec(text)
+            const key = /^(?:"([^"\\]+)"|'([^']+)'|([^\s"'!&#*{},[\]:][^:#]*?))\s*:(?:[ \t]|$)/u.exec(text)
             if (!key) return undefined
             const name = key[1] ?? key[2] ?? key[3]
             drop = keys.has(name)

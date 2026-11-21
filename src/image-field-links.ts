@@ -62,8 +62,8 @@ export function imageFieldMediaKeys(fields: Readonly<Record<string, string>>): R
         let raw: string | undefined
         for (const match of value.matchAll(htmlTag)) {
             const [tag, tagName] = match
-            if (!raw) addSounds(value.slice(last, match.index!))
-            last = match.index! + tag.length
+            if (!raw) addSounds(value.slice(last, match.index))
+            last = match.index + tag.length
             const name = tagName?.toLowerCase()
             const closing = tag.startsWith('</')
             if (raw) {
@@ -112,7 +112,7 @@ export function rewriteImageFields(fields: Record<string, string>, aliases: Read
     }
     const rewriteSounds = (text: string) => text.replace(sounds, (match, reference: string) => {
         const filename = find(reference)
-        return filename === undefined || /[\[\]<>]/u.test(filename) ? match : '[sound:' + filename + ']'
+        return filename === undefined || /[[\]<>]/u.test(filename) ? match : '[sound:' + filename + ']'
     })
     for (const [field, value] of Object.entries(fields)) {
         if (!/<(?:img|audio|video|source)[\s/>]|\[sound:/i.test(value)) continue

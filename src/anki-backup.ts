@@ -5,6 +5,9 @@
  * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
  */
 import * as AnkiConnect from './anki'
+import * as fs from 'fs'
+import * as path from 'path'
+import { withAnkiDeadline } from './anki-transport'
 import { checkPinnedAnkiProfile, readActiveAnkiProfile } from './anki-profile'
 import { verifyVaultZip, writeVaultZip } from './vault-backup-zip'
 import type { VaultZipProgressCallback } from './vault-backup-zip'
@@ -47,17 +50,7 @@ function sqliteBackupApi(): OnlineSqlite {
 }
 
 async function readConnector(action: 'getMediaDirPath'): Promise<unknown> {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-        return await Promise.race([
-            AnkiConnect.invoke(action),
-            new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error('AnkiConnect did not respond while preparing the Anki backup.')), connectorTimeoutMs)
-            }),
-        ])
-    } finally {
-        if (timer !== undefined) clearTimeout(timer)
-    }
+    return withAnkiDeadline(() => AnkiConnect.invoke(action), 'AnkiConnect ' + action, connectorTimeoutMs)
 }
 
 export async function activeAnkiBackupProfile(): Promise<string> {
@@ -148,8 +141,6 @@ function verifyCollection(sqlite: OnlineSqlite, path: string): 'sqlite-quick-che
 export async function backupAnkiCollection(outputArchive: string, onProgress?: VaultZipProgressCallback,
     expectedProfile?: string): Promise<{ profile: string; files: number; bytes: number }> {
     const sqlite = sqliteBackupApi()
-    const fs: NodeFiles = require('fs')
-    const path: NodePath = require('path')
     const profile = expectedProfile === undefined ? await activeAnkiBackupProfile() : await checkPinnedAnkiProfile(expectedProfile)
     const sourceMedia = await profileMediaPath(fs, path)
     await checkPinnedAnkiProfile(profile)

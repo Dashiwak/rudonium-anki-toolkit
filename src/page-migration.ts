@@ -209,7 +209,7 @@ async function readInventory(plugin: MyPlugin, ids: Set<number>, checkUnlinked: 
     const lookupAll = checkUnlinked && (!unlinkedSchemaProblem || search?.knownLayout)
     const wanted = await search?.content(unlinkedSchemaProblem)
     const rawIds: unknown = lookupAll ? await auditRead('findNotes', { query: '' }, signal) : [...ids]
-    if (!Array.isArray(rawIds) || !rawIds.every(id => Number.isSafeInteger(id) && id > 0) || new Set(rawIds).size !== rawIds.length) throw new Error(t('Invalid note inventory.', 'Некорректный список записей Anki.'))
+    if (!Array.isArray(rawIds) || !rawIds.every((id: unknown): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0) || new Set(rawIds).size !== rawIds.length) throw new Error(t('Invalid note inventory.', 'Некорректный список записей Anki.'))
     const linked = new Map<number, Snapshot>(), decks = new Map<number, string>(), fronts = new Set<string>()
     const possible: Array<{ note: Snapshot; pairs: Array<readonly [string, string]> }> = []
     const cardIds = new Set<number>()
@@ -218,7 +218,8 @@ async function readInventory(plugin: MyPlugin, ids: Set<number>, checkUnlinked: 
         const raw = await auditRead('notesInfo', { notes }, signal)
         if (!Array.isArray(raw) || raw.length !== notes.length) throw new Error(t('Incomplete Anki note response.', 'Ответ Anki содержит неполный список записей.'))
         const requested = new Set<number>(notes)
-        for (const item of raw) {
+        const rows: readonly unknown[] = raw
+        for (const item of rows) {
             if (item === null || item && typeof item === 'object' && !Object.keys(item).length) {
                 if (lookupAll) throw new Error(t('The Anki inventory changed during verification.', 'Коллекция Anki изменилась во время проверки.'))
                 continue
@@ -256,7 +257,7 @@ async function readInventory(plugin: MyPlugin, ids: Set<number>, checkUnlinked: 
         for (const [deck, members] of Object.entries(result)) {
             if (!deck.trim() || !Array.isArray(members)) throw new Error(t('Invalid Anki deck response.', 'Некорректный ответ Anki о колодах.'))
             for (const card of members) {
-                if (!remaining.delete(card)) throw new Error(t('Unexpected card in deck response.', 'Anki вернула неожиданный ID карточки при проверке колод.'))
+                if (typeof card !== 'number' || !remaining.delete(card)) throw new Error(t('Unexpected card in deck response.', 'Anki вернула неожиданный ID карточки при проверке колод.'))
                 decks.set(card, deck)
             }
         }

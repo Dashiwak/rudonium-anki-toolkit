@@ -444,7 +444,7 @@ function patchAuditSettings(source) {
                 "Сверьте одну колоду и проверьте дубликаты ID. Можно запустить экспорт выбранных папок перед сверкой."))
             .addButton(button => button.setButtonText(t("Check Default Deck", "Проверить колоду по умолчанию")).onClick(() => startSyncAudit(plugin)))
             .addButton(button => button.setButtonText(t("Choose Deck", "Выбрать колоду")).onClick(() => openSyncAuditDeckPicker(plugin)))
-        installBidirectionalSettings(syncBody, plugin)
+        installBidirectionalSettings(syncBody, plugin, containerEl.querySelector<HTMLElement>('.rudonium-mode-slot') ?? syncBody)
         renderSettingsGroup(containerEl, plugin, 'archives-transfer', t('Archives, Backup and Transfer', 'Архивы, резервные копии и перенос'), body => installZipImportSettings(body, plugin))
         renderSettingsGroup(containerEl, plugin, 'image-optimization', t('Image Optimization', 'Оптимизация изображений'), body => installImageOptimizationSettings(body, plugin))
         installIdMarkerSettings(containerEl, plugin, {
@@ -546,13 +546,16 @@ function patchSettingsSearch(source, ts, converter) {
 
 function patchInterfaceSettings(source) {
     source = replaceOnce(source, /this\.setup_workflows\(\)/,
-        "$&\n        installSettingsHeader(this.containerEl, (this as any).plugin, () => this.setup_display())\n" +
+        "$&\n" +
         "        installCardLifecycleSettings(this.containerEl, (this as any).plugin)\n" +
         "        installProjectInfo(this.containerEl, (this as any).plugin, RUDONIUM_BUILD_VERSION)\n" +
+        "        installInterfaceLanguage(this.containerEl, (this as any).plugin, () => this.setup_display())\n" +
         "        finalizeSettingsLayout(this.containerEl, (this as any).plugin)");
 
     source = source
-        .replace(/(['"])Obsidian_to_Anki settings\1/g, "uiFor((this as any).plugin.settings)('Rudonium Anki Toolkit settings', 'Настройки Rudonium Anki Toolkit')")
+        .replace(/containerEl\.createEl\(['"]h2['"],\s*\{\s*text:\s*['"]Obsidian_to_Anki settings['"]\s*\}\)/,
+            "installSettingsHelp(containerEl, (this as any).plugin)\n        containerEl.createDiv({ cls: 'rudonium-mode-slot' })")
+        .replace(/containerEl\.createEl\(['"]a['"],\s*\{[^}]*For more information check the wiki[^}]*\}\)[^\n]*/g, "")
         .replace(/(['"])Formatting information\1/g, "uiFor((this as any).plugin.settings)('Card formatting', 'Формат карточек')")
         .replace(/(?:let|const) syntax_settings = containerEl\.createEl\('h3',\s*\{\s*text:\s*'Syntax Settings'\s*\}\)/,
             `const syntax = containerEl.createEl('details', { cls: 'anki-settings-disclosure' })
@@ -578,7 +581,7 @@ function patchInterfaceSettings(source) {
     return "import { uiFor } from './interface-language'\n" +
         "import { bindSyntaxEdit, installCardLifecycleSettings } from './card-lifecycle-settings'\n" +
         "import { finalizeSettingsLayout } from './settings-layout'\n" +
-        "import { installSettingsHeader, installProjectInfo, legacySettingLabel, legacySettingDescription } from './interface-settings-ui'\n" +
+        "import { installSettingsHelp, installInterfaceLanguage, installProjectInfo, legacySettingLabel, legacySettingDescription } from './interface-settings-ui'\n" +
         "declare const RUDONIUM_BUILD_VERSION: string\n" + source;
 }
 

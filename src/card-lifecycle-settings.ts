@@ -46,8 +46,12 @@ async function saveChange(plugin: MyPlugin, change: (current: Settings) => Parti
     await withFastScanReadLock(plugin, () => savePluginDataInOrder(plugin, async () => {
         const current = plugin.settings
         const patch = change(current)
-        const previous = await plugin.loadData()
-        await plugin.saveData({ ...previous, settings: { ...current, ...patch },
+        const previous: unknown = await plugin.loadData()
+        if (previous != null && (typeof previous !== 'object' || Array.isArray(previous))) {
+            throw new Error(uiFor(plugin.settings)('Saved plugin data is invalid.', 'Сохранённые данные плагина повреждены.'))
+        }
+        const data = previous && typeof previous === 'object' ? previous : {}
+        await plugin.saveData({ ...data, settings: { ...current, ...patch },
             'Added Media': plugin.added_media, 'File Hashes': plugin.file_hashes, fields_dict: plugin.fields_dict })
         Object.assign(current, patch)
     }))
@@ -61,7 +65,7 @@ export function bindSyntaxEdit(input: TextComponent, plugin: MyPlugin, key: stri
         if (event.key === 'Enter' && !event.isComposing) input.inputEl.blur()
         if (event.key === 'Escape') { input.setValue(value()); input.inputEl.blur() }
     })
-    input.inputEl.addEventListener('blur', async () => {
+    const saveOnBlur = async () => {
         const next = input.getValue()
         if (next === value()) return
         input.setDisabled(true)
@@ -72,7 +76,8 @@ export function bindSyntaxEdit(input: TextComponent, plugin: MyPlugin, key: stri
             })
         } catch (error) { new Notice(uiDiagnostic(error, uiFor(plugin.settings))) }
         finally { input.setValue(value()).setDisabled(false) }
-    })
+    }
+    input.inputEl.addEventListener('blur', () => { void saveOnBlur() })
 }
 
 export function installCardLifecycleSettings(container: HTMLElement, plugin: MyPlugin): void {

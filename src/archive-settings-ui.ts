@@ -44,7 +44,8 @@ class ArchiveFoldersModal extends Modal {
     private readonly draft: ArchiveTransferSettings
     private closed = false
     private busy = false
-    private timer?: ReturnType<typeof setTimeout>
+    private timerWindow?: Window
+    private timer?: number
     private previewRevision = 0
 
     constructor(private readonly plugin: MyPlugin, private readonly saved?: () => void) {
@@ -88,8 +89,9 @@ class ArchiveFoldersModal extends Modal {
         const updateSummary = () => {
             summary.setText(describeArchiveScope(draft, t))
             const revision = ++this.previewRevision
-            if (this.timer) clearTimeout(this.timer)
-            this.timer = setTimeout(() => {
+            if (this.timer !== undefined) this.timerWindow?.clearTimeout(this.timer)
+            this.timerWindow = this.contentEl.ownerDocument.defaultView ?? window
+            this.timer = this.timerWindow.setTimeout(() => {
                 void previewArchiveFiles(plugin, { useSavedScope: true, settings: draft }).then(result => {
                     if (this.closed || revision !== this.previewRevision) return
                     preview.setText(t(
@@ -164,7 +166,7 @@ class ArchiveFoldersModal extends Modal {
     onClose(): void {
         this.closed = true
         this.previewRevision++
-        if (this.timer) clearTimeout(this.timer)
+        if (this.timer !== undefined) this.timerWindow?.clearTimeout(this.timer)
         if (dialogs.get(this.plugin) === this) dialogs.delete(this.plugin)
     }
 }
@@ -211,8 +213,8 @@ export function installArchiveSettings(container: HTMLElement, plugin: MyPlugin,
         const row = new Setting(section).setName(t('Archive contents', 'Состав архива'))
             .setDesc(t('Save the folder selection once and reuse it for later ZIP packages.', 'Сохраните выбор папок один раз и используйте его для следующих ZIP-пакетов.'))
         row.addButton(button => button.setButtonText(t('Choose Folders', 'Выбрать папки')).onClick(() => openArchiveFolders(plugin, () => { render(); actions.changed?.() })))
-            .addButton(button => button.setButtonText(t('Create ZIP', 'Создать ZIP')).onClick(actions.create))
-            .addButton(button => button.setButtonText(t('Import ZIP', 'Импорт ZIP')).onClick(actions.import))
+            .addButton(button => button.setButtonText(t('Create ZIP', 'Создать ZIP')).onClick(() => actions.create()))
+            .addButton(button => button.setButtonText(t('Import ZIP', 'Импорт ZIP')).onClick(() => actions.import()))
         new Setting(section).setName(t('Only changed files', 'Только изменённые файлы'))
             .setDesc(t('Compare with the last successful package for this selection. The first package includes the full selection.',
                 'Сравнивать с последним успешным пакетом для этого выбора папок. Первый пакет содержит весь выбранный состав.'))

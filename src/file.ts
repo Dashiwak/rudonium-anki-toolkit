@@ -28,8 +28,8 @@ import { formatLocalIdDate } from './anki-id-marker'
 import { FROZEN_FIELDS_DICT } from './interfaces/field-interface'
 import { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { FileData } from './interfaces/settings-interface'
-import { Note, InlineNote, RegexNote, CLOZE_ERROR, NOTE_TYPE_ERROR, TAG_SEP, ID_REGEXP_STR, TAG_REGEXP_STR } from './note'
-import { Md5 } from 'ts-md5/dist/md5';
+import { Note, InlineNote, RegexNote, CLOZE_ERROR, NOTE_TYPE_ERROR, TAG_SEP, TAG_REGEXP_STR } from './note'
+import { Md5 } from 'ts-md5';
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
@@ -140,10 +140,10 @@ abstract class AbstractFile {
     }
 
     getHash(): string {
-        return Md5.hashStr(this.file) as string
+        return Md5.hashStr(this.file)
     }
 
-    abstract scanFile(): void
+    abstract scanFile(): Promise<void>
 
     scanDeletions() {
         for (let match of this.file.matchAll(this.data.EMPTY_REGEXP)) {
@@ -155,7 +155,7 @@ abstract class AbstractFile {
     getContextAtIndex(position: number): string {
         let result: string = this.path
         let currentContext: HeadingCache[] = []
-        if (!(this.file_cache.hasOwnProperty('headings'))) {
+        if (!this.file_cache?.headings) {
             return result
         }
         for (let currentHeading of this.file_cache.headings) {
@@ -555,7 +555,7 @@ export class AllFile extends AbstractFile {
                 patterns.push(this.customRegexpPattern(expression, hasId, hasTags, noteType));
             }
         }
-        const matchesByPattern = patterns.length ? await matchCustomRegexps(this.file, patterns, options) : new Map();
+        const matchesByPattern = patterns.length ? await matchCustomRegexps(this.file, patterns, options) : new Map<string, readonly RegExpMatchArray[]>();
         let guard: ((start: number) => boolean) | undefined;
         if (!pageOnly && Object.values(this.custom_regexps ?? {}).includes(tableCardExpression)) {
             const conflicts = tableIdConflicts(this.file, start => (guard ??= presetStartGuard(this.file, this.ignore_spans))(start));

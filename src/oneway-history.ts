@@ -102,7 +102,8 @@ function readSnapshot(data: string, profile: string, slot: number): Snapshot {
     const row: unknown = JSON.parse(data)
     if (!isObject(row) || row.version !== 1 || row.profile !== profile || !isId(row.revision) ||
         row.revision % 2 !== slot || !Array.isArray(row.notes) ||
-        !row.notes.every(entry => Array.isArray(entry) && entry.length === 2 && isId(entry[0]) && isRecord(entry[1])) ||
+        !row.notes.every((entry: unknown): entry is [number, OneWayRecord] =>
+            Array.isArray(entry) && entry.length === 2 && isId(entry[0]) && isRecord(entry[1])) ||
         new Set(row.notes.map(entry => entry[0])).size !== row.notes.length) {
         throw new Error('Invalid one-way sync history.')
     }

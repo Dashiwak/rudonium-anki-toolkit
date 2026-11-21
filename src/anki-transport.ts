@@ -43,7 +43,10 @@ export function withAnkiDeadline<T>(operation: () => Promise<T>, description: st
             return operation()
         }).then(
             value => { cleanup(); resolve(value) },
-            error => { cleanup(); reject(error) },
+            (error: unknown) => {
+                cleanup()
+                reject(error instanceof Error ? error : new Error(String(error)))
+            },
         )
     })
 }

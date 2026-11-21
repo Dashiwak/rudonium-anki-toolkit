@@ -25,7 +25,7 @@ type DeckKind = 'filtered' | 'ordinary' | 'missing' | 'unknown'
 function deckKind(response: unknown): DeckKind {
     if (response === false) return 'missing'
     if (!response || typeof response !== 'object' || Array.isArray(response) || !('dyn' in response)) return 'unknown'
-    const { dyn } = response as { dyn: unknown }
+    const { dyn } = response
     if (dyn === true || dyn === 1) return 'filtered'
     if (dyn === false || dyn === 0) return 'ordinary'
     return 'unknown'
@@ -74,10 +74,10 @@ export async function readFilteredAnkiDecks(decks: Iterable<string>,
             const reply = await read('multi', { actions: batch.map(deck => ({
                 action: 'getDeckConfig', version: 6, params: { deck },
             })) }).catch(() => undefined)
-            const rows = Array.isArray(reply) && reply.length === batch.length ? reply : []
+            const rows: readonly unknown[] = Array.isArray(reply) && reply.length === batch.length ? reply : []
             batch.forEach((deck, i) => {
                 const item = rows[i]
-                checked.push([deck, item && item.error === null ? deckKind(item.result) : 'unknown'])
+                checked.push([deck, item && typeof item === 'object' && 'error' in item && item.error === null && 'result' in item ? deckKind(item.result) : 'unknown'])
             })
         }
         return checked

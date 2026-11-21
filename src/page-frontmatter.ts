@@ -173,7 +173,7 @@ function scanValue(line: string, closing: string[], quote: string): { quote: str
 }
 
 function propertyTag(value: string): boolean {
-    const scalar = /^(?:("|')([^"'\r\n]*)\1|([^#\s,\[\]]+))[ \t]*(?:#.*)?$/u.exec(value.trim())
+    const scalar = /^(?:("|')([^"'\r\n]*)\1|([^#\s,[\]]+))[ \t]*(?:#.*)?$/u.exec(value.trim())
     return !!scalar && /^#?anki-page$/iu.test(scalar[2] ?? scalar[3])
 }
 
@@ -188,7 +188,7 @@ function taggedYaml(text: string, after: number, close: number, indent: number, 
         }
         const array = /^\[(.*)\][ \t]*(?:#.*)?$/su.exec(value)
         if (!array) return false
-        const entries = /\s*(?:'([^']*)'|"([^"\\]*)"|([^'",\s\[\]#]+))\s*(?:,|$)/gyu
+        const entries = /\s*(?:'([^']*)'|"([^"\\]*)"|([^'",\s[\]#]+))\s*(?:,|$)/gyu
         let match, marked = false
         while (entries.lastIndex < array[1].length) {
             match = entries.exec(array[1])
@@ -265,7 +265,7 @@ function inspect(text: string, bounds: YamlBounds) {
                 } else if (!sequenceItem && !/^(?:[^'":#\s][^:]*|'[^']*'|"[^"]*")[ \t]*:(?:[ \t]|$)/u.test(row)) {
                     unsafe = true
                 }
-                const flow = /^(?:[^'":#\s][^:]*|'[^']*'|"[^"]*")[ \t]*:[ \t]+(["'{\[].*)$/u.exec(row)
+                const flow = /^(?:[^'":#\s][^:]*|'[^']*'|"[^"]*")[ \t]*:[ \t]+(["'{[].*)$/u.exec(row)
                 if (flow) {
                     const state = scanValue(flow[1], closing, '')
                     quote = state.quote
@@ -296,7 +296,7 @@ export function pageYamlClaims(text: string): PropertyId[] {
     const known = new Set(claims.map(property => property.digitsStart))
     let line = 2, start = bounds.first, newline = text.indexOf('\n', bounds.first)
     for (const candidate of header.matchAll(/(?:^|[,{\s])((?:(?:rudonium-id|anki-page-ID)|'(?:rudonium-id|anki-page-ID)'|"(?:rudonium-id|anki-page-ID)")[ \t]*:[ \t]*)(['"]?)([1-9]\d*)\2(?=[ \t,}\r\n]|$)/gmu)) {
-        const digitsStart = bounds.first + candidate.index! + candidate[0].length - candidate[2].length - candidate[3].length
+        const digitsStart = bounds.first + candidate.index + candidate[0].length - candidate[2].length - candidate[3].length
         const legacy = candidate[1].includes('rudonium-id')
         if (legacy && !includeRetired) continue
         const id = Number(candidate[3])

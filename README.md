@@ -7,7 +7,7 @@ Write flashcards in Obsidian and review them in desktop Anki. Rudonium links eac
 
 **Repository and support:** [GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit) is the primary development repository. The [GitHub repository](https://github.com/Dashiwak/rudonium-anki-toolkit) is a mirror for source-code distribution and Obsidian releases. Please send bug reports, questions, and feature requests to [GitFlic Issues](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue), or [contact the maintainer by email](mailto:dashiwak@yandex.ru).
 
-[Documentation](docs/README.md) · [Quick start](docs/en/quick-start.md) · [Migrate existing card files](docs/en/migrate-card-files.md) · [Suspension, deletion and shared fields](docs/en/card-controls.md) · [0.10.3 beta release notes](docs/releases/0.10.3.md) · [Support on GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
+[Documentation](docs/README.md) · [Quick start](docs/en/quick-start.md) · [Migrate existing card files](docs/en/migrate-card-files.md) · [Suspension, deletion and shared fields](docs/en/card-controls.md) · [Release notes](CHANGELOG.md) · [Support on GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
 ## What you can do
 
@@ -25,17 +25,17 @@ Write flashcards in Obsidian and review them in desktop Anki. Rudonium links eac
 
 You need desktop Obsidian **1.15.1 or later**, desktop Anki, and the **AnkiConnect** add-on. Install the add-on in Anki, restart Anki and open the profile you want to use. [AnkiConnect](https://ankiweb.net/shared/info/2055492159)
 
-1. In the GitFlic project’s Releases section, open tag `0.10.3` and download `Rudonium-0.10.3.zip`. [GitFlic project](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit)
+1. Open the latest release on GitFlic and download the installer ZIP bearing its version number. [GitFlic project](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit)
 2. Extract the ZIP into your vault’s `.obsidian/plugins/` folder. It contains the `rudonium-anki-toolkit/` directory with `main.js`, `manifest.json` and the stylesheet if the build produced one. If your vault uses a custom configuration directory, use it in place of `.obsidian`.
-3. Open **Settings → Community plugins** and enable **Rudonium Anki Toolkit**. When updating, close Obsidian, replace the release files in the existing plugin folder and reopen the vault. The version in the plugin’s settings should be **0.10.3**.
+3. Open **Settings → Community plugins** and enable **Rudonium Anki Toolkit**. When updating, close Obsidian, replace the release files in the existing plugin folder and reopen the vault. The version in the plugin’s settings should match the release you downloaded.
 
-To build from source, use Node.js 22.18 or later. After a successful GitFlic preparation, the unpacked plugin is in `GitFlic-0.10.3/install/rudonium-anki-toolkit/` and the installer is in `GitFlic-0.10.3/release/Rudonium-0.10.3.zip`. [Build instructions](PUBLISHING.md)
+To build from source, use Node.js 22.18 or later and npm. Run `Prepare-GitFlic.cmd` to build the plugin and print the paths to its `main.js` and installer ZIP. [Build instructions](PUBLISHING.md)
 
-**Upgrading from a development build.** Back up the vault and Anki collection, wait for active sync operations to finish and disable the old plugin. Development builds 1.6.4–1.6.6 already use the current folder. Replace only the runtime files there and keep the settings, caches and journals. Install the 0.10.3 beta manually when upgrading from 1.6.6 because 0.10.3 has a lower version number. If you used `rupos-anki-toolkit` or the original Export to Anki plugin, keep its folder for the migration preview. Re-enable Rudonium and check the default deck before exporting.
+**Upgrading from a development build.** Back up the vault and Anki collection, wait for active sync operations to finish and disable the old plugin. Development builds 1.6.4–1.6.6 already use the current folder. Replace only the runtime files there and keep the settings, caches and journals. Install the 0.10 series manually when migrating from 1.6.6 because the public version number is lower. If you used `rupos-anki-toolkit` or the original Export to Anki plugin, keep its folder for the migration preview. Re-enable Rudonium and check the default deck before exporting.
 
 ## Set up your first card
 
-Quick Start opens automatically when the vault has neither a configured format nor a complete pair of block markers. Reopen it from **Anki Connection → First Run** or the **Quick Start** command. English is the initial interface language. Check the connection, choose an ordinary Anki deck, select a note type and a Markdown format, and inspect both sides of the example. Save the setup, then use the quick start to export one note. To change the language later, use **Interface Language** at the top of the plugin settings. Reload the plugin to update command-palette labels. [Step-by-step guide](docs/en/quick-start.md)
+Quick Start opens automatically when the vault has neither a configured format nor a complete pair of block markers. Reopen it from **Anki Connection → First Run** or the **Quick Start** command. English is the initial interface language. Check the connection, choose an ordinary Anki deck, select a note type and a Markdown format, and inspect both sides of the example. Save the setup, then use the quick start to export one note. To change the language later, use **Interface Language** at the bottom of the plugin settings. Reload the plugin to update command-palette labels. [Step-by-step guide](docs/en/quick-start.md)
 
 ## Data and access
 

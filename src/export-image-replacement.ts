@@ -54,7 +54,7 @@ function inside(files: DesktopFiles, root: string, target: string): boolean {
 
 function childPath(files: DesktopFiles, root: string, vaultPath: string): string {
     const parts = vaultPath.split('/')
-    if (parts.some(part => !part || part === '.' || part === '..' || /[\\\x00]/.test(part))) {
+    if (parts.some(part => !part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0'))) {
         throw new Error('Invalid path for image replacement.')
     }
     const target = files.path.resolve(root, ...parts)

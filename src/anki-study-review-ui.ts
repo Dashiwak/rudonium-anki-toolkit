@@ -52,7 +52,7 @@ export function ownedMissingStudyLink(fields: readonly [string, string][], vault
                 if (url.username || url.password || url.port || url.hash || names.length !== 1 ||
                     names[0].normalize('NFC') !== vault.normalize('NFC') || sources.length !== 1 ||
                     ids.length !== 1 || ids[0] !== String(id) || !source || !/\.md$/iu.test(source) ||
-                    source.split('/').some(part => !part || part === '.' || part === '..') || /[\\\u0000-\u001f]/u.test(source)) continue
+                    source.split('/').some(part => !part || part === '.' || part === '..') || source.includes('\\') || Array.from(source).some(character => character.charCodeAt(0) < 32)) continue
                 paths.add(source)
             } catch {
                 // Ошибочная ссылка не подтверждает принадлежность записи.

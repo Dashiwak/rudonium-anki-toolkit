@@ -233,11 +233,15 @@ function digest(text: string): string {
     return Md5.hashStr(text) as string
 }
 
+function isSnapshotRow(row: unknown): row is [number, SyncRecord] {
+    return Array.isArray(row) && row.length === 2 && isId(row[0]) && isRecord(row[1])
+}
+
 function parseSnapshot(text: string, profile: string, slot?: number): SyncSnapshot {
     const value: unknown = JSON.parse(text)
     if (!isObject(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4) || value.profile !== profile ||
         !isId(value.revision) || (slot !== undefined && value.revision % 2 !== slot) || !Array.isArray(value.records) ||
-        !value.records.every(row => Array.isArray(row) && row.length === 2 && isId(row[0]) && isRecord(row[1]) &&
+        !value.records.every((row: unknown): row is [number, SyncRecord] => isSnapshotRow(row) &&
             (value.version !== 1 || !hasExtraFields(row[1])) &&
             (value.version === 4 || value.version === 3 || row[1].suspension === undefined && row[1].deletionSource === undefined)) ||
         new Set(value.records.map(row => row[0])).size !== value.records.length) {
@@ -329,11 +333,12 @@ function makeDelta(base: string, seq: number, previous: string, rows: DeltaRow[]
 function parseDelta(text: string | undefined, base: string): Delta | undefined {
     if (!text) return
     try {
-        const data = JSON.parse(text)
+        const data: unknown = JSON.parse(text)
         if (!isObject(data) || data.base !== base || typeof data.seq !== 'number' || !Number.isSafeInteger(data.seq) ||
             data.seq < 0 || data.seq > journalMaxUpdates || typeof data.previous !== 'string' || !Array.isArray(data.rows) ||
             (data.seq === 0 ? data.previous !== '' || data.rows.length !== 0 : !/^[a-f0-9]{32}$/u.test(data.previous)) ||
-            !data.rows.every(r => Array.isArray(r) && r.length === 2 && isId(r[0]) && (r[1] === null || isRecord(r[1]))) ||
+            !data.rows.every((row): row is DeltaRow => Array.isArray(row) && row.length === 2 &&
+                isId(row[0]) && (row[1] === null || isRecord(row[1]))) ||
             new Set(data.rows.map(r => r[0])).size !== data.rows.length) return
         const result = makeDelta(base, data.seq, data.previous, data.rows)
         return result.checksum === data.checksum ? result : undefined
@@ -392,7 +397,8 @@ export class BidirectionalState {
             let saved: SyncSnapshot | undefined
             let seal = false
             if (cached?.path === basePath && cached.profile === profile && disk.every((text, slot) => text === cached.disk[slot])) {
-                saved = JSON.parse(disk[cached.selected]!)
+                // These exact bytes already passed parseSnapshot for this vault and profile.
+                saved = JSON.parse(disk[cached.selected]!) as SyncSnapshot
                 seal = cached.seal
             } else {
                 const selected = selectSnapshot(disk, basePath, profile)

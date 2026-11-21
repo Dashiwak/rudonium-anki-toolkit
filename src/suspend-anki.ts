@@ -13,7 +13,10 @@ function invalid(): Error {
     return new Error('Anki could not confirm the cards, template numbers, or suspension state. Open a fresh preview. / Не удалось подтвердить карточки Anki, номера шаблонов или их статус. Откройте новый предпросмотр.')
 }
 function id(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 }
-function read(action: string, params: Record<string, unknown>): Promise<any> {
+function record(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+function read(action: string, params: Record<string, unknown>): Promise<unknown> {
     return withAnkiDeadline(() => AnkiConnect.invoke(action, params), 'AnkiConnect ' + action)
 }
 
@@ -36,9 +39,11 @@ export async function readSuspendCards(profile: string, notes: ReadonlyMap<numbe
     for (let offset = 0; offset < ids.length; offset += flagBatchSize) {
         const cards = ids.slice(offset, offset + flagBatchSize)
         const flags: unknown = await read('areSuspended', { cards })
-        if (!Array.isArray(flags) || flags.length !== cards.length || flags.some(flag => typeof flag !== 'boolean')) throw invalid()
+        if (!Array.isArray(flags) || flags.length !== cards.length) throw invalid()
         cards.forEach((cardId, i) => {
-            const slot = { cardId, number: null, suspended: flags[i] }
+            const suspended: unknown = flags[i]
+            if (typeof suspended !== 'boolean') throw invalid()
+            const slot: SuspendCard = { cardId, number: null, suspended }
             cardsById.set(cardId, slot)
             result.get(owners.get(cardId)!)!.push(slot)
         })
@@ -55,8 +60,8 @@ export async function readSuspendCards(profile: string, notes: ReadonlyMap<numbe
         const pending = new Set(cards)
         if (!Array.isArray(rows) || rows.length !== cards.length) throw invalid()
         for (const row of rows) {
-            if (!row || !pending.delete(row.cardId) || row.note !== owners.get(row.cardId) ||
-                !Number.isSafeInteger(row.ord) || row.ord < 0 || !Number.isSafeInteger(row.ord + 1)) throw invalid()
+            if (!record(row) || !id(row.cardId) || !pending.delete(row.cardId) || row.note !== owners.get(row.cardId) ||
+                typeof row.ord !== 'number' || !Number.isSafeInteger(row.ord) || row.ord < 0 || !Number.isSafeInteger(row.ord + 1)) throw invalid()
             cardsById.get(row.cardId)!.number = row.ord + 1
         }
     }
@@ -80,12 +85,18 @@ export async function verifySuspendCards(profile: string, expected: CardMap, tar
         const pending = new Set(batch)
         if (!Array.isArray(rows) || rows.length !== batch.length) throw invalid()
         for (const row of rows) {
-            if (!row || !pending.delete(row.noteId) || !Array.isArray(row.cards) ||
+            if (!record(row) || !id(row.noteId) || !pending.delete(row.noteId) || !Array.isArray(row.cards) ||
                 row.profile !== undefined && row.profile !== profile) throw invalid()
             const slots = expected.get(row.noteId)!
             const ids = new Set(slots.map(slot => slot.cardId))
-            if (row.cards.length !== slots.length || row.cards.some((key: unknown) => !id(key) || !ids.delete(key))) throw invalid()
-            owners.set(row.noteId, row.cards)
+            const keys: readonly unknown[] = row.cards
+            const cards: number[] = []
+            if (keys.length !== slots.length) throw invalid()
+            for (const key of keys) {
+                if (!id(key) || !ids.delete(key)) throw invalid()
+                cards.push(key)
+            }
+            owners.set(row.noteId, cards)
             if (slots.some(slot => slot.number !== null)) numbered.add(row.noteId)
         }
     }

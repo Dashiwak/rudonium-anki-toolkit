@@ -79,15 +79,6 @@ function fixture(runtime, mode) {
 test('preview off syncs an independent card and keeps deletion or conflict for manual review', async t => {
     const runtime = await loadSync(overlay.directory)
     t.after(runtime.dispose)
-    const storedDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
-    Object.defineProperty(globalThis, 'document', {configurable:true, value:{
-        createElement: tag => ({tag}),
-        createDocumentFragment: () => ({append(text, button) { this.text = text.textContent; this.button = button }}),
-    }})
-    t.after(() => {
-        if (storedDocument) Object.defineProperty(globalThis, 'document', storedDocument)
-        else delete globalThis.document
-    })
     for (const kind of ['conflict','marked','missing']) {
         const h = fixture(runtime, 'remove')
         await h.apply()
@@ -103,11 +94,12 @@ test('preview off syncs an independent card and keeps deletion or conflict for m
         assert.equal(h.host.dialog, undefined, kind)
         assert.match(h.file.text,/Neighbor :: New independent answer/,kind)
         assert.equal(h.host.calls.some(call=>call.action==='deleteNotes'),false)
-        const notice = h.host.notices.at(-1)
-        assert.ok(notice.text.includes('review'),kind)
-        assert.equal(notice.button.textContent,'Open preview')
-        await notice.button.onclick({stopPropagation(){}})
-        const review = h.host.dialog
+        assert.ok(h.host.notices.every(message => typeof message === 'string' && !/review|preview/i.test(message)), kind)
+        h.host.notices.length = 0
+        assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'stopped', kind)
+        assert.equal(h.host.dialog, undefined, kind)
+        assert.deepEqual(h.host.notices, [], 'an unresolved item alone must stay quiet on the next run')
+        const review = await h.preview()
         assert.ok(review,kind)
         assert.equal(review.preview.scopeLabel,h.file.path)
         assert.equal(typeof review.preview.mountPreference,'function')
@@ -121,6 +113,63 @@ test('preview off syncs an independent card and keeps deletion or conflict for m
             assert.equal(decisions[0].key,id + (kind==='marked' ? ':delete' : ':deletion'))
         }
     }
+})
+
+test('first bidirectional run leaves different answers intact without a preview prompt; explicit preview and opt-in still work', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'remove')
+    useHost(h.host)
+    h.host.notes.get(id).fields.Back.value = 'Different answer in Anki'
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'stopped')
+    assert.equal(h.host.dialog, undefined)
+    assert.equal(h.file.text, initial)
+    assert.equal(h.host.notes.get(id).fields.Back.value, 'Different answer in Anki')
+    assert.ok(h.host.notices.every(message => typeof message === 'string' && !/review|preview/i.test(message)))
+    for (const explicit of [true, false]) {
+        h.plugin.settings.BIDIRECTIONAL_PREVIEW = !explicit
+        h.host.dialog = undefined
+        if (explicit) await runtime.previewBidirectionalSync(h.plugin, {currentOnly:true})
+        else assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'stopped')
+        assert.ok(h.host.dialog.preview.rows.some(row => row.id === id && row.changes.some(change => change.decision === 'conflict')))
+    }
+})
+
+test('automatic run reports a real read failure and can retry without opening the preview', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    useHost(h.host)
+    const request = h.host.request
+    h.host.request = (action, params) => {
+        if (action === 'notesInfo') throw Error('Anki connection lost')
+        return request(action, params)
+    }
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'failed')
+    assert.equal(h.host.dialog, undefined)
+    assert.match(h.host.notices.at(-1), /Anki connection lost/)
+    assert.equal(h.file.text, initial)
+    h.host.request = request
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+    assert.equal(h.host.dialog, undefined)
+})
+
+test('malformed browser selection holds the target until Anki confirms its selection', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    await h.apply()
+    h.host.dialog = undefined
+    h.host.notes.get(id).fields.Back.value = 'Saved in Anki'
+    const request = h.host.request
+    h.host.request = (action, params) => action === 'guiSelectedNotes' ? [String(id)] : request(action, params)
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'failed')
+    assert.match(h.host.notices.at(-1), /invalid browser selection/)
+    assert.equal(h.host.dialog, undefined)
+    assert.equal(h.file.text, initial)
+    h.host.request = request
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+    assert.match(h.file.text, /Old :: Saved in Anki/)
 })
 
 function assertSource(runtime, file, mode) {

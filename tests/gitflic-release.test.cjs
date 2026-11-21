@@ -211,6 +211,40 @@ test("a maintained checkout builds edited sources and refreshes provenance witho
     assert.match(fs.readFileSync(path.join(built, "main.js"), "utf8"), /local edit/);
     assert.equal(fs.existsSync(path.join(built, "node_modules")), false);
     assert.deepEqual(fs.readFileSync(path.join(checkout, "PROVENANCE.json")), oldProvenance);
+    // Exercise the same entry point that the permanent Windows launcher invokes.
+    fs.cpSync(path.join(kit, "Build"), path.join(checkout, "Build"), { recursive: true });
+    fs.copyFileSync(overlay.file("vault-backup-zip.ts"), path.join(checkout, "src/vault-backup-zip.ts"));
+    const run = () => require("node:child_process").spawnSync(process.execPath,
+        [path.join(checkout, "Build", "prepare-gitflic.cjs")], { encoding: "utf8", cwd: dir });
+    const builds = path.join(dir, "Rudonium-Builds");
+    const output = path.join(builds, manifest.version + ".1");
+    pkg.rudoniumBuild = 0;
+    write("package.json", JSON.stringify(pkg));
+    const invalid = run();
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /positive integer rudoniumBuild/);
+    assert.equal(fs.existsSync(builds), false);
+    pkg.rudoniumBuild = 1;
+    write("package.json", JSON.stringify(pkg));
+    const prepared = run();
+    assert.equal(prepared.status, 0, prepared.stderr);
+    assert.deepEqual(fs.readdirSync(output).sort(), ["install", "release"]);
+    const main = path.join(output, "install", manifest.id, "main.js");
+    const verified = fs.readFileSync(main);
+    assert.ok(prepared.stdout.includes(main));
+    assert.ok(verified.toString().includes("// local edit"));
+    assert.ok(fs.existsSync(path.join(output, "release", "Rudonium-" + manifest.version + ".zip")));
+    const repeated = run();
+    assert.notEqual(repeated.status, 0);
+    assert.ok(repeated.stderr.includes(output));
+    assert.deepEqual(fs.readFileSync(main), verified);
+    pkg.rudoniumBuild = 2;
+    write("package.json", JSON.stringify(pkg));
+    write("pack.cjs", "process.exit(1)");
+    const failed = run();
+    assert.notEqual(failed.status, 0);
+    assert.deepEqual(fs.readdirSync(builds), [manifest.version + ".1"]);
+    assert.deepEqual(fs.readFileSync(main), verified);
 });
 
 test("Prepare prints the final GitFlic folder and keeps checked sources separately if the release rebuild fails", t => {
@@ -267,4 +301,15 @@ test("Prepare prints the final GitFlic folder and keeps checked sources separate
     assert.notEqual(blocked.status, 0);
     assert.match(blocked.stderr, /Unexpected file.*private.anki2/);
     assert.equal(fs.readdirSync(dir).filter(name => name.startsWith("Sources-")).length, 1);
+});
+
+test("the checkout supplies release notes matching its manifest before a clean build starts", () => {
+    const root = path.resolve(__dirname, "..");
+    const version = require("../manifest.json").version;
+    const notes = `docs/releases/${version}.md`;
+    assert.ok(fs.statSync(path.join(root, notes)).isFile());
+    assert.ok(fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8").includes(`(${notes})`));
+    for (const filename of ["README.md", "README.ru.md"]) {
+        assert.ok(fs.readFileSync(path.join(root, filename), "utf8").includes("(CHANGELOG.md)"));
+    }
 });

@@ -42,7 +42,7 @@ function indexSource(text: string, syntax?: DuplicateMarkerSyntax) {
     const problem = suspendLabelProblem(suspendLabel(syntax), syntax)
     if (problem) throw new Error(problem)
     const lines = text.split(/\r\n|\n|\r/u), starts = [0]
-    for (const match of text.matchAll(/\r\n|\n|\r/gu)) starts.push(match.index! + match[0].length)
+    for (const match of text.matchAll(/\r\n|\n|\r/gu)) starts.push(match.index + match[0].length)
     const marked = new Map<number, SuspendMark>(), ids = new Map<number, number>()
     const deletion = (syntax?.['Delete Note Line'] || 'DELETE').toLowerCase()
     const conflict = (id: number) => new Error('Conflicting markers at ID ' + id + '. / Несовместимые метки у ID ' + id + '.')
@@ -88,7 +88,7 @@ function indexSource(text: string, syntax?: DuplicateMarkerSyntax) {
 }
 
 export function readSuspendMarkers(text: string, syntax?: DuplicateMarkerSyntax): Map<number, SuspendMark> {
-    return mayHaveSuspendMarker(text, syntax) ? indexSource(text, syntax).marked : new Map()
+    return mayHaveSuspendMarker(text, syntax) ? indexSource(text, syntax).marked : new Map<number, SuspendMark>()
 }
 
 export function rewriteSuspendMarkers(text: string, changes: ReadonlyMap<number, SuspendSelection | null>,

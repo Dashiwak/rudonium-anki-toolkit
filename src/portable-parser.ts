@@ -261,7 +261,7 @@ export function readDeckDirective(markdown: string, pattern: RegExp): DeckDirect
     const flags = pattern.global ? pattern.flags : pattern.flags + 'g'
     let first: DeckDirective | undefined
     for (const match of markdown.matchAll(new RegExp(pattern.source, flags))) {
-        const offset = match.index! + Math.max(0, match[0].search(/\S/u))
+        const offset = match.index + Math.max(0, match[0].search(/\S/u))
         const deck = match[1]?.trim()
         if (!deck || isProtected(offset)) continue
         if (!first) first = { deck, offset }

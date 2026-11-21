@@ -38,7 +38,7 @@ const source = readModule('interface-settings-ui')
     .replace("'./interface-language'", JSON.stringify(languageModule))
     .replace("'./plugin-identity'", JSON.stringify(identityModule))
     .replace("'./settings-layout'", JSON.stringify(asModule(readModule('settings-layout'))))
-const { installSettingsHeader, installProjectInfo, registerSupportCommand, legacySettingLabel, legacySettingDescription } = await import(asModule(source))
+const { installSettingsHelp, installInterfaceLanguage, installProjectInfo, registerSupportCommand, legacySettingLabel, legacySettingDescription } = await import(asModule(source))
 const release = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'))
 
 test('Fresh and legacy settings without a language show English. Explicit Russian is preserved.', () => {
@@ -48,27 +48,30 @@ test('Fresh and legacy settings without a language show English. Explicit Russia
     assert.equal(uiFor({ INTERFACE_LANGUAGE: 'ru' })('English', 'Русский'), 'Русский')
 })
 
-test('Settings header follows the title, rewrites the original support target and changes the language', async () => {
+test('Help precedes the mode switch and both languages can be selected at the bottom of settings', async () => {
     const generated = installer.patchInterfaceSettings("containerEl.createEl('h2', {text: 'Obsidian_to_Anki settings'})\nthis.setup_workflows()")
-    assert.match(generated, /installSettingsHeader\(this\.containerEl,/)
+    assert.match(generated, /installSettingsHelp\(containerEl,/)
+    assert.doesNotMatch(generated, /Obsidian_to_Anki settings/)
+    const actual = readFileSync(new URL('../src/settings.ts', import.meta.url), 'utf8')
+    const layout = actual.slice(actual.indexOf('setup_display(): void'))
+    const calls = ['installSettingsHelp(', 'const modeContainer =', 'installNoteTypeRules(', 'this.setup_workflows(modeContainer)', 'installProjectInfo(', 'installInterfaceLanguage(']
+    assert.ok(calls.every((call, i) => layout.includes(call) && (i === 0 || layout.indexOf(call) > layout.indexOf(calls[i - 1]))))
+    assert.doesNotMatch(layout, /For more information check the wiki|Rudonium Anki Toolkit settings/)
     assert.ok(generated.includes('installProjectInfo(this.containerEl, (this as any).plugin, RUDONIUM_BUILD_VERSION)'))
     for (const [initial, next, label, linkText] of [
         [undefined, 'ru', 'Interface Language', 'Rudonium help on GitFlic'],
         ['ru', 'en', 'Язык интерфейса', 'Помощь по Rudonium на GitFlic'],
     ]) {
-        let placed, saved, redrawn, replacement
-        const top = { createEl(tag, options) { return { tag, ...options } } }
-        const oldLink = { textContent: 'For more information check the wiki', replaceWith(anchor) { replacement = anchor } }
-        const title = { after(node) { placed = node } }
-        const root = { querySelector: query => query === '.setting-item-heading' ? title : null, createDiv: () => top,
-            querySelectorAll: query => query === 'a' ? [oldLink] : [] }
+        let saved, redrawn, link
+        const root = { createEl(tag, options) { link = { tag, ...options } },
+            querySelectorAll() { return [] }, querySelector() { return null } }
         const plugin = { settings: { INTERFACE_LANGUAGE: initial }, async saveAllData() { saved = this.settings.INTERFACE_LANGUAGE } }
-        installSettingsHeader(root, plugin, () => { redrawn = true })
-        assert.equal(placed, top)
-        assert.deepEqual(replacement, { tag: 'a', text: linkText, attr: { href: supportUrl } })
-        assert.equal(top.setting.label, label)
-        assert.equal(top.setting.value, initial ?? 'en')
-        await top.setting.change(next)
+        installSettingsHelp(root, plugin)
+        assert.deepEqual(link, { tag: 'a', text: linkText, attr: { href: supportUrl } })
+        installInterfaceLanguage(root, plugin, () => { redrawn = true })
+        assert.equal(root.setting.label, label)
+        assert.equal(root.setting.value, initial ?? 'en')
+        await root.setting.change(next)
         assert.equal(saved, next)
         assert.ok(redrawn)
     }
@@ -86,9 +89,9 @@ test('About, the help command and both public guides share a single support dest
     let destination
     Object.defineProperty(globalThis, 'window', { configurable: true, value: { open(url) { destination = url } } })
     t.after(() => previous ? Object.defineProperty(globalThis, 'window', previous) : delete globalThis.window)
-    for (const [language, about, label, commandName] of [
-        ['en', 'About the plugin', 'Help and issues on GitFlic', 'Get help on GitFlic'],
-        ['ru', 'О плагине', 'Помощь и обращения на GitFlic', 'Обратиться за помощью на GitFlic'],
+    for (const [language, about, commandName] of [
+        ['en', 'About the plugin', 'Get help on GitFlic'],
+        ['ru', 'О плагине', 'Обратиться за помощью на GitFlic'],
     ]) {
         elements.length = 0
         destination = undefined
@@ -102,7 +105,9 @@ test('About, the help command and both public guides share a single support dest
         assert.ok(elements.some(el => el.text?.includes('Obsidian to Anki') &&
             el.attr.href === 'https://github.com/ObsidianToAnki/Obsidian_to_Anki'))
         assert.ok(elements.some(el => el.attr?.href === 'mailto:' + authorEmail))
-        assert.ok(elements.some(el => el.text === label && el.attr?.href === expected))
+        assert.equal(elements.some(el => el.attr?.href === expected), false)
+        installSettingsHelp(root, plugin)
+        assert.equal(elements.filter(el => el.attr?.href === expected).length, 1)
         assert.ok(elements.some(el => el.text === 'GNU GPLv3'))
         registerSupportCommand(plugin)
         assert.equal(command.id, 'open-gitverse-support')
@@ -122,4 +127,55 @@ test('autoscan slider shows minutes and manual mode in both languages', () => {
     assert.equal(legacySettingLabel(key, uiFor({ INTERFACE_LANGUAGE: 'ru' })), 'Интервал автосканирования (минуты)')
     assert.match(legacySettingDescription(key, '', uiFor()), /0 to scan manually/)
     assert.match(legacySettingDescription(key, '', uiFor({ INTERFACE_LANGUAGE: 'ru' })), /0 для ручного запуска/)
+})
+
+test('saved automatic scans restart on load, use one interval, stop at zero and cannot restart after unload', async t => {
+    const { load } = await import('./benchmark/migration-modules.cjs').then(m => m.default)
+    const timers = new Map()
+    const clock = {
+        next: 0,
+        setInterval(fn, delay) { timers.set(++this.next, { fn, delay }); return this.next },
+        clearInterval(id) { timers.delete(id) },
+    }
+    let cleanup, sliderChanged, scans = 0
+    class Row {
+        setName() { return this }
+        setDesc() { return this }
+        setHeading() { return this }
+        addToggle() { return this }
+        addText() { return this }
+        addSlider(install) {
+            install({ setLimits() { return this }, setValue() { return this }, setDynamicTooltip() { return this },
+                onChange(fn) { sliderChanged = fn; return this } })
+            return this
+        }
+    }
+    const raw = readFileSync(new URL('../src/settings.ts', import.meta.url), 'utf8')
+    const { settings: { SettingsTab } } = await load(['settings'], { PluginSettingTab: class {}, Setting: Row,
+        uiFor: () => en => en, legacySettingLabel: key => key, legacySettingDescription: () => '',
+        installDefaultDeckSetting() {}, clock,
+    }, { settings: "import { clock } from 'test-clock'\nconst window = clock\n" + raw })
+    const plugin = { settings: { Defaults: { 'Scheduling Interval': 5 } }, register(fn) { cleanup = fn },
+        async saveAllData() {}, async scanVault() { scans++ } }
+    const tab = new SettingsTab({}, plugin)
+    t.after(() => cleanup())
+    tab.containerEl = { createDiv() { return {} } }
+    assert.equal(timers.size, 1)
+    const timer = [...timers.values()][0]
+    assert.equal(timer.delay, 300000)
+    timer.fn()
+    assert.equal(scans, 1)
+    tab.setup_defaults()
+    await sliderChanged(10)
+    assert.equal(timers.size, 1)
+    assert.equal([...timers.values()][0].delay, 600000)
+    await sliderChanged(0)
+    assert.equal(timers.size, 0)
+    let saved
+    plugin.saveAllData = () => new Promise(resolve => { saved = resolve })
+    const pending = sliderChanged(15)
+    cleanup()
+    saved()
+    await pending
+    assert.equal(timers.size, 0)
 })

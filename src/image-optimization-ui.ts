@@ -135,13 +135,13 @@ export function installImageOptimizationSettings(container: HTMLElement, plugin:
         .setDesc(t('Preview the savings and select which originals to replace. Available with automatic optimization off.', 'Оцените экономию места и выберите оригиналы для замены. Этим можно воспользоваться и при выключенной автоматической оптимизации.'))
         .addButton(button => {
             previewButton = button.setButtonText(t('Optimize Images in Obsidian', 'Оптимизировать изображения в Obsidian')).buttonEl
-            button.onClick(async () => {
+            button.onClick(() => {
                 if (openingPreview) return
                 openingPreview = true
                 feedback = undefined
                 render()
                 try {
-                    await openLocalImageOptimization(plugin)
+                    openLocalImageOptimization(plugin)
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error)
                     feedback = { text: message, error: true }

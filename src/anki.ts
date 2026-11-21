@@ -2,11 +2,23 @@ const ANKI_PORT: number = 8765
 
 import type { AnkiConnectNote } from './interfaces/note-interface'
 
-export interface AnkiConnectRequest {
-	action: string,
-	version: 6,
-	params: any
+interface RequestParams {
+    multi: { actions: AnkiConnectRequest[] }
+    addNote: { note: AnkiConnectNote }
+    createDeck: { deck: string }
+    deleteNotes: { notes: number[] }
+    updateNoteFields: { note: { id: number; fields: Record<string, string> } }
+    notesInfo: { notes: number[] }
+    changeDeck: { cards: number[]; deck: string }
+    removeTags: { notes: number[]; tags: string }
+    addTags: { notes: number[]; tags: string }
+    getTags: Record<string, never>
+    storeMediaFile: { filename: string; data: string } | { filename: string; path: string }
 }
+
+type Action = keyof RequestParams
+type RequestFor<A extends Action> = { action: A; version: 6; params: RequestParams[A] }
+export type AnkiConnectRequest = { [A in Action]: RequestFor<A> }[Action]
 
 // Helper function for parsing the result of a multi, also used for the top-level envelope.
 export function parse<T>(response: { error: string | null; result: T }): T
@@ -51,27 +63,27 @@ export function invoke(action: string, params = {}): Promise<unknown> {
 
 // All the rest of these functions only return request objects as opposed to actually carrying out the action. For efficiency!
 
-function request(action: string, params={}): AnkiConnectRequest {
+function request<A extends Action>(action: A, params: RequestParams[A]): RequestFor<A> {
 	return {action, version:6, params}
 }
 
-export function multi(actions: AnkiConnectRequest[]): AnkiConnectRequest {
+export function multi(actions: AnkiConnectRequest[]) {
 	return request('multi', {actions: actions})
 }
 
-export function addNote(note: AnkiConnectNote): AnkiConnectRequest {
+export function addNote(note: AnkiConnectNote) {
 	return request('addNote', {note: note})
 }
 
-export function createDeck(deck: string): AnkiConnectRequest {
+export function createDeck(deck: string) {
 	return request('createDeck', {deck: deck})
 }
 
-export function deleteNotes(note_ids: number[]): AnkiConnectRequest {
+export function deleteNotes(note_ids: number[]) {
 	return request('deleteNotes', {notes: note_ids})
 }
 
-export function updateNoteFields(id: number, fields: Record<string, string>): AnkiConnectRequest {
+export function updateNoteFields(id: number, fields: Record<string, string>) {
 	return request(
 		'updateNoteFields', {
 			note: {
@@ -82,7 +94,7 @@ export function updateNoteFields(id: number, fields: Record<string, string>): An
 	)
 }
 
-export function notesInfo(note_ids: number[]): AnkiConnectRequest {
+export function notesInfo(note_ids: number[]) {
 	return request(
 		'notesInfo', {
 			notes: note_ids
@@ -90,7 +102,7 @@ export function notesInfo(note_ids: number[]): AnkiConnectRequest {
 	)
 }
 
-export function changeDeck(card_ids: number[], deck: string): AnkiConnectRequest {
+export function changeDeck(card_ids: number[], deck: string) {
 	return request(
 		'changeDeck', {
 			cards: card_ids,
@@ -99,7 +111,7 @@ export function changeDeck(card_ids: number[], deck: string): AnkiConnectRequest
 	)
 }
 
-export function removeTags(note_ids: number[], tags: string): AnkiConnectRequest {
+export function removeTags(note_ids: number[], tags: string) {
 	return request(
 		'removeTags', {
 			notes: note_ids,
@@ -108,7 +120,7 @@ export function removeTags(note_ids: number[], tags: string): AnkiConnectRequest
 	)
 }
 
-export function addTags(note_ids: number[], tags: string): AnkiConnectRequest {
+export function addTags(note_ids: number[], tags: string) {
 	return request(
 		'addTags', {
 			notes: note_ids,
@@ -117,11 +129,11 @@ export function addTags(note_ids: number[], tags: string): AnkiConnectRequest {
 	)
 }
 
-export function getTags(): AnkiConnectRequest {
-	return request('getTags')
+export function getTags() {
+	return request('getTags', {})
 }
 
-export function storeMediaFile(filename: string, data: string): AnkiConnectRequest {
+export function storeMediaFile(filename: string, data: string) {
 	return request(
 		'storeMediaFile', {
 			filename: filename,
@@ -130,7 +142,7 @@ export function storeMediaFile(filename: string, data: string): AnkiConnectReque
 	)
 }
 
-export function storeMediaFileByPath(filename: string, path: string): AnkiConnectRequest {
+export function storeMediaFileByPath(filename: string, path: string) {
 	return request(
 		'storeMediaFile', {
 			filename: filename,

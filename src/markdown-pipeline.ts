@@ -137,7 +137,7 @@ const memoByFormatter = new WeakMap<object, Map<string, string>>()
 
 /** Медиа и ссылки проходят через исходный конвертер каждый раз. */
 export function memoizeMarkdownField(owner: object, text: string, cloze: boolean, highlights: boolean, render: () => string): string {
-    if (text.length > 1024 || /[\[\]<>!]/.test(text)) return render()
+    if (text.length > 1024 || /[[\]<>!]/.test(text)) return render()
     let memo = memoByFormatter.get(owner)
     if (!memo) {
         memo = new Map()

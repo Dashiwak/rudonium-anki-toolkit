@@ -1,10 +1,9 @@
 
-import { readFileSync } from 'fs';
 import { browser } from '@wdio/globals';
 
-const fse = require('fs-extra');
-const path = require('path');
-const assert = require('assert');
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { ok as assert } from 'node:assert';
 
 const test_name = (path.basename(__filename) as string).split('.')[0] 
 const test_name_fmt = test_name.split('_').reduce((acc,s) => { return acc + ' ' + s.charAt(0).toUpperCase() + s.slice(1)}) + " Test"
@@ -61,21 +60,21 @@ describe(test_name_fmt, () => {
     //     // cp -Rf tests/defaults/test_config tests/
 
     //     try {
-    //         fse.removeSync('tests/test_vault');
-    //         if (fse.pathExistsSync('tests/test_vault'))
+    //         fs.rmSync('tests/test_vault');
+    //         if (fs.existsSync('tests/test_vault'))
     //             console.log('The path still exists. Remove Failed');
     //         else
     //             console.log('Remove Success.')
 
-    //         fse.copySync(`tests/defaults/test_vault`, `tests/test_vault`, { overwrite: true });
-    //         if (fse.pathExistsSync('tests/test_vault'))
+    //         fs.cpSync(`tests/defaults/test_vault`, `tests/test_vault`, { recursive: true, force: true, verbatimSymlinks: true });
+    //         if (fs.existsSync('tests/test_vault'))
     //             console.log('Copied default Test_vault.');
     //         else
     //             console.log('Could not copy default Test_vault.')
     //         console.log('success copying default vault !');
 
-    //         fse.copySync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { overwrite: true });
-    //         if (fse.pathExistsSync(`tests/test_vault/${test_name}`))
+    //         fs.cpSync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { recursive: true, force: true, verbatimSymlinks: true });
+    //         if (fs.existsSync(`tests/test_vault/${test_name}`))
     //             console.log('Copied default Test_vault_suite.');
     //         else
     //             console.log('Could not copy default Test_vault_suite.')
@@ -88,52 +87,49 @@ describe(test_name_fmt, () => {
 
     it('should send All-done message to console post sync', async () => {
         try {
-            // fse.removeSync('tests/test_vault');
+            // fs.rmSync('tests/test_vault');
             // Wait for previous run Obsidian's test files to be saved properly
-            while (fse.pathExistsSync('tests/test_vault/unlock'))
+            while (fs.existsSync('tests/test_vault/unlock'))
             {
                 console.log('tests/test_vault still exists. Waiting for it be removed ...');
                 await delay(100);
             }
 
-            fse.copySync(`tests/defaults/test_vault`, `tests/test_vault`, { overwrite: true });
-            if (fse.pathExistsSync('tests/test_vault'))
+            fs.cpSync(`tests/defaults/test_vault`, `tests/test_vault`, { recursive: true, force: true, verbatimSymlinks: true });
+            if (fs.existsSync('tests/test_vault'))
                 console.log('Copied default Test_vault.');
             else
                 console.log('Could not copy default Test_vault.')
             console.log('success copying default vault !');
 
-            fse.copySync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { overwrite: true });
-            if (fse.pathExistsSync(`tests/test_vault/${test_name}`))
+            fs.cpSync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { recursive: true, force: true, verbatimSymlinks: true });
+            if (fs.existsSync(`tests/test_vault/${test_name}`))
                 console.log('Copied default Test_vault_suite.');
             else
                 console.log('Could not copy default Test_vault_suite.')
 
-            if (fse.pathExistsSync(`tests/defaults/test_vault_suites/${test_name}/.obsidian`))
-                fse.copySync(`tests/defaults/test_vault_suites/${test_name}/.obsidian`, `tests/test_vault/.obsidian`, { overwrite: true });
+            if (fs.existsSync(`tests/defaults/test_vault_suites/${test_name}/.obsidian`))
+                fs.cpSync(`tests/defaults/test_vault_suites/${test_name}/.obsidian`, `tests/test_vault/.obsidian`, { recursive: true, force: true, verbatimSymlinks: true });
           
 
-            // fse.copySync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { overwrite: true });
-            // if (fse.pathExistsSync(`tests/test_vault/${test_name}`))
+            // fs.cpSync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { recursive: true, force: true, verbatimSymlinks: true });
+            // if (fs.existsSync(`tests/test_vault/${test_name}`))
             //     console.log('Copied default Test_vault_suite.');
             // else
             //     console.log('Could not copy default Test_vault_suite.')
             
-            // fse.removeSync('tests/config/.local/share/Anki2');
-            // fse.copySync('tests/defaults/test_config/.local/share/Anki2', `tests/config/.local/share/Anki2`, { overwrite: true });
+            // fs.rmSync('tests/config/.local/share/Anki2');
+            // fs.cpSync('tests/defaults/test_config/.local/share/Anki2', `tests/config/.local/share/Anki2`, { recursive: true, force: true, verbatimSymlinks: true });
 
-            fse.writeFile('tests/test_config/reset_perms', 'meow', (err) => {
-                if (err)
-                    console.log('reset_perms file could not be created. Err: ', err);
-            });
+            await fs.promises.writeFile('tests/test_config/reset_perms', 'meow');
 
 
-        } catch (err) {
-            console.error(err)
+        } catch (error) {
+            throw new Error('Preparing the test vault failed', { cause: error });
         }
         // ${test_name}
         // try {
-        //     fse.copySync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { overwrite: true });
+        //     fs.cpSync(`tests/defaults/test_vault_suites/${test_name}`, `tests/test_vault/${test_name}`, { recursive: true, force: true, verbatimSymlinks: true });
         //     console.log('success copying vault !');
         // } catch (err) {
         //     console.error(err)
@@ -198,8 +194,8 @@ describe(test_name_fmt, () => {
     })
 
     it('should have Anki card IDs in Obsidian note', async () => {
-        // const fileDefault = readFileSync( path.join(__dirname,`./../../tests/defaults/test_vault_suites/${test_name}/${test_name}.md`), 'utf-8');
-        const filePostTest = readFileSync( path.join(__dirname,`./../../tests/test_vault/${test_name}/${test_name}.md`), 'utf-8');
+        // const fileDefault = fs.readFileSync( path.join(__dirname,`./../../tests/defaults/test_vault_suites/${test_name}/${test_name}.md`), 'utf-8');
+        const filePostTest = fs.readFileSync( path.join(__dirname,`./../../tests/test_vault/${test_name}/${test_name}.md`), 'utf-8');
         
         const ID_REGEXP_STR = /\n?(?:<!--)?(?:ID: (\d+).*?)/g;
         const ID_REGEXP_STR_CARD = /<!-- CARD -->/g;
@@ -211,7 +207,7 @@ describe(test_name_fmt, () => {
         
         assert (number_of_cards == number_of_test_cards);
         // assert( fileDefault.split('\n').length == filePostTest.split('\n').length-number_of_cards ) 
-        // fse.writeFile('tests/test_vault/unlock', 'meow', (err) => {
+        // fs.writeFile('tests/test_vault/unlock', 'meow', (err) => {
         //     if (err)
         //         console.log('reset_perms file could not be created. Err: ', err);
         // });
@@ -241,24 +237,20 @@ describe(test_name_fmt, () => {
         
         await delay(3000); // esp for PostTest ss of Anki and wait for obsidian teardown
 
-        try {
-            function errHandler(err) {
-                if (err) {
-                    console.log(`Error on trying to copy vault_suite ${test_name}:`, err);
-                }
+        for (const phase of ['PreTest', 'PostTest']) {
+            const screenshot = 'Anki ' + phase + '_' + test_name + '.png';
+            try {
+                await fs.promises.copyFile(path.join('tests/test_config', screenshot), path.join('logs', test_name, screenshot));
+            } catch (error) {
+                // A driver can close before its optional Anki screenshot is captured.
+                if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
             }
-
-            fse.copyFile(`tests/test_config/Anki PreTest_${test_name}.png`, `logs/${test_name}/Anki PreTest_${test_name}.png`, errHandler);
-            fse.copyFile(`tests/test_config/Anki PostTest_${test_name}.png`, `logs/${test_name}/Anki PostTest_${test_name}.png`, errHandler);
-        }
-        catch( e ) {
-            console.error( "We've thrown! Whoops!", e );
         }
     })
 
     it('should have not have Anki ID in note', async () => {
-        const fileDefault = readFileSync( path.join(__dirname,`./../../tests/defaults/test_vault_suites/${test_name}/${test_name}.md`), 'utf-8');
-        const filePostTest = readFileSync( path.join(__dirname,`./../../tests/test_vault/${test_name}/${test_name}.md`), 'utf-8');
+        const fileDefault = fs.readFileSync( path.join(__dirname,`./../../tests/defaults/test_vault_suites/${test_name}/${test_name}.md`), 'utf-8');
+        const filePostTest = fs.readFileSync( path.join(__dirname,`./../../tests/test_vault/${test_name}/${test_name}.md`), 'utf-8');
         
         const ID_REGEXP_STR = /\n?(?:<!--)?(?:ID: (\d+).*?)/g;
         const ID_REGEXP_STR_CARD = /<!-- CARD -->/g;
@@ -271,10 +263,7 @@ describe(test_name_fmt, () => {
         expect(number_of_cards).toBe(0)
         expect(number_of_test_cards).toBe(1)
 
-        fse.writeFile('tests/test_vault/unlock', 'meow', (err) => {
-            if (err)
-                console.log('reset_perms file could not be created. Err: ', err);
-        });
+        await fs.promises.writeFile('tests/test_vault/unlock', 'meow');
 
         await delay(5000); // >3000ms req; the last test of this spec, wait for anki and obsidian to close properly
     })

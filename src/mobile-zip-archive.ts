@@ -95,16 +95,16 @@ function metadata(path: string): boolean {
 }
 
 export async function mobileSha256(bytes: Uint8Array): Promise<string> {
-    if (!globalThis.crypto?.subtle) throw problem('This device has no Web Crypto API.', 'На устройстве недоступен Web Crypto API.')
+    if (typeof crypto === 'undefined' || !crypto.subtle) throw problem('This device has no Web Crypto API.', 'На устройстве недоступен Web Crypto API.')
     const input = new Uint8Array(bytes.byteLength)
     input.set(bytes)
-    const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', input.buffer))
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', input.buffer))
     return Array.from(digest, value => value.toString(16).padStart(2, '0')).join('')
 }
 
 function token(): string {
-    if (!globalThis.crypto?.getRandomValues) throw problem('Secure random values are unavailable.', 'Недоступен защищённый генератор идентификаторов.')
-    return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('')
+    if (typeof crypto === 'undefined' || !crypto.getRandomValues) throw problem('Secure random values are unavailable.', 'Недоступен защищённый генератор идентификаторов.')
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), value => value.toString(16).padStart(2, '0')).join('')
 }
 
 function number64(view: DataView, offset: number): number {

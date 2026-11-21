@@ -10,9 +10,9 @@ Quick Start opens automatically when the vault has no configured format or compl
 
 ## Install or update
 
-Download `Rudonium-0.10.3.zip` from release tag `0.10.3`. Close Obsidian and extract the archive into your vault’s `.obsidian/plugins/`. Reopen the vault and enable the plugin in **Settings → Community plugins**. [GitFlic project](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit)
+Download the install archive (`Rudonium-<version>.zip`) from the latest published release. Close Obsidian and extract the archive into your vault’s `.obsidian/plugins/`. Reopen the vault and enable the plugin in **Settings → Community plugins**. [GitFlic project](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit)
 
-If Rudonium’s settings show an older number such as **1.6.6** alongside **0.10.3**, close Obsidian and replace `main.js`, `manifest.json` and any stylesheet together from the same release in `.obsidian/plugins/rudonium-anki-toolkit/`. Keep your settings, caches and journals. Reopen the vault. Select **Interface Language** at the top of the plugin settings to change the language.
+If Rudonium’s settings show a different version from the release you installed, close Obsidian and replace `main.js`, `manifest.json` and any stylesheet together from the same release in `.obsidian/plugins/rudonium-anki-toolkit/`. Keep your settings, caches and journals. Reopen the vault. Select **Interface Language** at the bottom of the plugin settings to change the language.
 
 ## Connect
 
@@ -40,7 +40,7 @@ The bidirectional preview checks notes that already have IDs. To add a new card,
 
 ## Sync one file
 
-From the command palette, choose **Sync Current File with Anki**. One-way export processes the recognised cards in the open Markdown file, including new cards. Bidirectional mode applies verified changes to linked records. Turn on **Preview every sync** to review each run. With automatic preview off, items needing a decision stay pending. Open the preview from the notice or the preview command. The same preference is available inside the preview. Use the cursor action for a new card. The preview shows the selected path, and switching tabs keeps the original target.
+From the command palette, choose **Sync Current File with Anki**. One-way export processes the recognised cards in the open Markdown file, including new cards. Bidirectional mode applies verified changes to linked records. Turn on **Preview every sync** to review each run. With automatic preview off, conflicts and deletions stay pending without a pop-up. Choose **Preview now** in the sync settings when you want to review them. The same preference is available inside the preview. Use the cursor action for a new card. The preview shows the selected path, and switching tabs keeps the original target.
 
 ## Add another format
 

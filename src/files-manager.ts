@@ -71,6 +71,10 @@ function collectNoteIds(content: string): number[] {
         .filter(id => Number.isSafeInteger(id) && id > 0)
 }
 
+function isAnkiRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * Извлекает result из успешного ответа AnkiConnect. Null может быть нормальным
  * результатом операции. Undefined означает ошибку или неполный ответ.
@@ -78,8 +82,7 @@ function collectNoteIds(content: string): number[] {
 function fastResult(response: unknown): unknown {
     if (typeof response === "object" && response !== null &&
         "result" in response && "error" in response) {
-        const envelope = response as { result: unknown; error: unknown };
-        if (envelope.error === null) return envelope.result;
+        if (response.error === null) return response.result;
     }
     return undefined;
 }
@@ -99,11 +102,11 @@ function checkFastResponses(
         errors.push(location + ": expected " + requests.length + " responses, got " + responses.length);
     }
     requests.forEach((request, index) => {
-        const response = responses[index];
+        const response: unknown = responses[index];
         const result = fastResult(response);
         const name = location + " / " + request.action + "[" + (index + 1) + "]";
         if (result === undefined) {
-            const error = response && typeof response === "object" ? response.error : undefined;
+            const error = response && typeof response === "object" && "error" in response ? response.error : undefined;
             const deferred = typeof error === "string" && /^This action was not sent\. (Anki Browse: ID |Deck type unverified: )/.test(error);
             errors.push(deferred ? error.slice("This action was not sent. ".length) : name + ": " + (error ?? "missing or malformed response"));
         } else if (request.action === "multi") {
@@ -119,7 +122,7 @@ function checkFastResponses(
 
 /*Class for managing a list of files, and their Anki requests.*/
 import { ParsedSettings } from './interfaces/settings-interface'
-import { App, TFile, CachedMetadata, Notice } from 'obsidian'
+import { App, TFile } from 'obsidian'
 import { AllFile } from './file'
 import * as AnkiConnect from './anki'
 
@@ -305,7 +308,7 @@ export class FileManager {
                 }
                 // MD5 — отпечаток всего текста. Используем тот же алгоритм, что и штатный
                 // getHash, чтобы сравнивать с хешем последней подтверждённой проверки.
-                const hash = Md5.hashStr(content) as string;
+                const hash = Md5.hashStr(content);
                 if (scan.expectedPreviewHashes && scan.expectedPreviewHashes.get(path) !== hash) {
                     this.scanErrors.push(path + ": Markdown changed after the preview. Open Preview Export again.");
                     return undefined;
@@ -315,7 +318,7 @@ export class FileManager {
                     if (this.cursorRecovery && (path !== this.cursorRecovery.path || marker?.token !== this.cursorRecovery.token)) throw staleCursorCard();
                     if (this.cursorCard && marker) throw new Error("Review Pending Anki Creations before syncing a single card. / Сначала проверьте незавершённое создание записей.");
                     if (marker) {
-                        this.recoverySources.set(path, { token: marker.token, raw: content, cleanHash: Md5.hashStr(marker.clean) as string });
+                        this.recoverySources.set(path, { token: marker.token, raw: content, cleanHash: Md5.hashStr(marker.clean) });
                         content = marker.clean;
                     }
                 } catch (error) {
@@ -424,7 +427,7 @@ export class FileManager {
                 let targetOffset: number | undefined;
                 if (this.cursorCard) {
                     targetOffset = cursorCardOffset(this.cursorCard, path, content);
-                    if (this.cursorCard.id !== undefined && !existingIds!.has(this.cursorCard.id)) throw new Error("Linked Anki note is missing. / Связанная запись Anki не найдена.");
+                    if (this.cursorCard.id !== undefined && !existingIds.has(this.cursorCard.id)) throw new Error("Linked Anki note is missing. / Связанная запись Anki не найдена.");
                 } else if (this.recoverySources.has(path)) {
                     const source = this.recoverySources.get(path)!;
                     const pending = (await this.getRecovery?.())?.byToken(source.token);
@@ -881,13 +884,16 @@ export class FileManager {
             const response: unknown = await withAnkiDeadline(() => AnkiConnect.invoke("notesInfo", { notes: batch }),
                 "Anki note recovery details");
             if (!Array.isArray(response)) return false;
-            for (const row of response) {
-                if (!row || !pending.delete(row.noteId)) return false;
+            const rows: readonly unknown[] = response;
+            for (const row of rows) {
+                if (!isAnkiRecord(row) || typeof row.noteId !== "number" || !pending.delete(row.noteId)) return false;
                 const expected = known.get(row.noteId)!;
-                if (row.modelName !== expected.modelName || !row.fields || typeof row.fields !== "object" ||
+                const fields = row.fields;
+                if (row.modelName !== expected.modelName || !isAnkiRecord(fields) ||
                     Object.entries(expected.fields).some(([name, value]) => {
-                        const actual = row.fields[name]?.value;
-                        return typeof actual !== "string" || actual.normalize("NFC") !== value.normalize("NFC");
+                        const field = fields[name];
+                        return !isAnkiRecord(field) || typeof field.value !== "string" ||
+                            field.value.normalize("NFC") !== value.normalize("NFC");
                     })) return false;
             }
             if (pending.size) return false;

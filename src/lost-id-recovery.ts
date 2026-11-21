@@ -78,7 +78,7 @@ function overlappingCards(cards: readonly CardPreviewCandidate[]) {
 
 function numberLines(text: string) {
     const positions = [0]
-    for (const match of text.matchAll(/\r\n?|\n/gu)) positions.push(match.index! + match[0].length)
+    for (const match of text.matchAll(/\r\n?|\n/gu)) positions.push(match.index + match[0].length)
     return (offset: number) => {
         let low = 0, high = positions.length
         while (low + 1 < high) {

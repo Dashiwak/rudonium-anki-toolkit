@@ -80,6 +80,7 @@ async function fixture(allowDelete = false, schema = ['Front', 'Back']) {
         settingToData: async (_app, settings, fields_dict) => ({ fields_dict, custom_regexps: settings.CUSTOM_REGEXPS || {} }),
         checkAnkiNoteExistence: async ids => new Map(ids.map(id => [id, [...cards.values()].some(c => c.note === id)])),
         checkWarmAnkiNoteExistence: async ids => new Map(ids.map(id => [id, true])), showAnkiProfileProblem: noop,
+        isRecord: value => value !== null && typeof value === 'object' && !Array.isArray(value),
         parseExistingNoteSnapshot: row => row, parseExplicitLinkedField: noop, localizeExportError: x => x,
         auditRead: invoke, auditDeckForFile: noop, singleAuditDeck: noop, uiDiagnostic: (_text, message) => message,
     }

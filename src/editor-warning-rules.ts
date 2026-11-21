@@ -86,7 +86,7 @@ export function inspectEditorCardLines(lines: readonly EditorWarningLine[], opti
             for (const match of line.text.matchAll(/!\[\[([^\]\r\n]+)\]\]|!\[[^\]\r\n]*\]\((<[^>\r\n]+>|[^\s)]+)\)/gu)) {
                 const target = (match[1]?.split('|', 1)[0] ?? match[2]?.replace(/^<|>$/g, '') ?? '').trim()
                 if (target && !external.test(target) && !options.resolves(target)) {
-                    warnings.push(createWarning('attachment', target, match.index!, match[0].length))
+                    warnings.push(createWarning('attachment', target, match.index, match[0].length))
                 }
             }
         }

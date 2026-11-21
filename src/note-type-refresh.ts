@@ -29,7 +29,7 @@ const modelsPerBatch = 50
 
 function validatedNames(value: unknown, description: string): string[] {
     if (!Array.isArray(value) || value.length === 0 ||
-        !value.every(name => typeof name === 'string' && name.trim()) || new Set(value).size !== value.length) {
+        !value.every((name: unknown): name is string => typeof name === 'string' && name.trim().length > 0) || new Set(value).size !== value.length) {
         throw new Error(`Anki returned an invalid or empty list of ${description}.`)
     }
     return value
@@ -93,7 +93,7 @@ export async function readNoteTypeSchema(deadline: number, signal?: AbortSignal)
                     if (typeof row !== 'object' || !row || !('error' in row) || !('result' in row)) {
                         throw new Error(`Anki returned an invalid response for note type “${name}”.`)
                     }
-                    const { error, result } = row as { error: unknown; result: unknown }
+                    const { error, result } = row
                     if (error !== null) throw new Error(`Could not read note type “${name}”. ${String(error)}`)
                     fields.push([name, validatedNames(result, `fields for “${name}”`)])
                 })

@@ -107,7 +107,7 @@ async function checkedPath(root: string, relative: string, allowPrivate = false,
     let current = root
     for (let index = 0; index < parts.length; index++) {
         const part = parts[index]
-        if (!part || part === '.' || part === '..' || /[\\\u0000]/u.test(part)) throw new Error('Invalid path. / Недопустимый путь.')
+        if (!part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0')) throw new Error('Invalid path. / Недопустимый путь.')
         const directoryStat = await fs.promises.lstat(current).catch(error => {
             if (missing(error)) return undefined
             throw error
@@ -400,15 +400,15 @@ export async function compareZipImport(plugin: MyPlugin, archive: ZipImportArchi
 
 function readJournal(value: unknown, root: string): Journal {
     if (!object(value) || value.version !== 1 || typeof value.id !== 'string' || !transactionPattern.test(value.id) ||
-        value.root !== root || !['pending', 'committed', 'restored'].includes(String(value.status)) || !Array.isArray(value.entries) ||
-        !value.entries.length || value.entries.some(row => !object(row) || typeof row.path !== 'string' || !safeFilePath(row.path) ||
-            row.before !== null && (typeof row.before !== 'string' || !digestPattern.test(row.before)) ||
-            typeof row.after !== 'string' || !digestPattern.test(row.after) || typeof row.sourceHash !== 'string' ||
-            !digestPattern.test(row.sourceHash) || typeof row.markdown !== 'boolean') ||
+        value.root !== root || (value.status !== 'pending' && value.status !== 'committed' && value.status !== 'restored') || !Array.isArray(value.entries) ||
+        !value.entries.length || !value.entries.every((row: unknown): row is JournalEntry => object(row) && typeof row.path === 'string' && safeFilePath(row.path) &&
+            (row.before === null || typeof row.before === 'string' && digestPattern.test(row.before)) &&
+            typeof row.after === 'string' && digestPattern.test(row.after) && typeof row.sourceHash === 'string' &&
+            digestPattern.test(row.sourceHash) && typeof row.markdown === 'boolean') ||
         new Set(value.entries.map(row => key(row.path))).size !== value.entries.length) {
         throw new Error('Could not verify the ZIP import recovery journal. / Не удалось проверить журнал восстановления ZIP.')
     }
-    return value as unknown as Journal
+    return { version: 1, id: value.id, status: value.status, root, entries: value.entries }
 }
 
 async function pendingJournal(ctx: Awaited<ReturnType<typeof context>>): Promise<Journal | undefined> {

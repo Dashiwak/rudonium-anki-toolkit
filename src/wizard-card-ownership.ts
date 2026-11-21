@@ -23,7 +23,7 @@ export function multilineOwnership(text: string, expressions: Record<string, str
     const blocks: Block[] = []
     let opened: number | undefined
     for (const marker of text.matchAll(/^:::(anki)?[ \t]*(?=\r?$)/gm)) {
-        const pos = marker.index!
+        const pos = marker.index
         if (protectedAt(pos)) {
             if (opened !== undefined) fail(pos, 'Move the boundary marker out of markup.', 'Переместите строку маркера за пределы разметки.')
             continue
@@ -60,8 +60,8 @@ export function multilineOwnership(text: string, expressions: Record<string, str
         for (const match of text.matchAll(new RegExp(pattern.source, pattern.global ? pattern.flags : pattern.flags + 'g'))) {
             const first = match[0].search(/\S/)
             if (first < 0) continue
-            const pos = match.index! + first
-            if (!protectedAt(pos) && overlaps(pos, match.index! + match[0].length)) {
+            const pos = match.index + first
+            if (!protectedAt(pos) && overlaps(pos, match.index + match[0].length)) {
                 fail(pos, 'A card or file directive overlaps the block.', 'В блок попала служебная команда или другая карточка.')
             }
         }

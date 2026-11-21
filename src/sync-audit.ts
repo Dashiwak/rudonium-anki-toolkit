@@ -682,7 +682,7 @@ function checkedIds(response: unknown, action: string): number[] {
 export async function readSyncAuditDeckNames(signal?: AbortSignal, timeoutMs = readTimeoutMs): Promise<string[]> {
     const names = await auditRead('deckNames', {}, signal, timeoutMs)
     checkAbort(signal)
-    if (!Array.isArray(names) || !names.every(name => typeof name === 'string' && name)) {
+    if (!Array.isArray(names) || !names.every((name: unknown): name is string => typeof name === 'string' && name.length > 0)) {
         throw new Error('deckNames: invalid deck names')
     }
     return names

@@ -165,7 +165,7 @@ function lineRanges(text: string): LineRange[] {
     const result: LineRange[] = []
     let start = 0
     for (const match of text.matchAll(lineBreak)) {
-        const end = match.index!
+        const end = match.index
         const next = end + match[0].length
         result.push({ start, end, next })
         start = next

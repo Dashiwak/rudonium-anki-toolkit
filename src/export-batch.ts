@@ -59,7 +59,7 @@ function collectActions(requests: readonly AnkiConnectRequest[], replies: unknow
 
 function isEnvelope(response: unknown): response is { result: unknown; error: string | null } {
     if (typeof response !== 'object' || response === null || !('result' in response) || !('error' in response)) return false
-    const { result, error } = response as { result: unknown; error: unknown }
+    const { result, error } = response
     return result !== undefined && (error === null || (typeof error === 'string' && result === null))
 }
 

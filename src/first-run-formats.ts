@@ -68,7 +68,7 @@ function markerProbe(settings: FormatSettings): (source: string) => boolean {
                     if (blocked(pos + at)) continue
                     const word = match[0]
                     const next = row[at + word.length] ?? ''
-                    if (word === inline && (!at || /[ \t]/.test(row[at - 1])) && /[ \t\[|]/.test(next)) inlineOpen = true
+                    if (word === inline && (!at || /[ \t]/.test(row[at - 1])) && /[ \t[|]/.test(next)) inlineOpen = true
                     if (word === inlineEnd && inlineOpen && (!next || !/\w/.test(next))) return true
                 }
             }

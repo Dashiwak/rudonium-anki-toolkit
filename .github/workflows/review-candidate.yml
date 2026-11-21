@@ -2,7 +2,8 @@ name: Build review candidate
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/obsidian-review-0.10.4']
+    branches: ['work/**', 'fix/**', 'main', 'master']
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
 permissions:
   contents: read
 
@@ -17,6 +18,9 @@ jobs:
         with:
           node-version: '22.18.0'
           cache: npm
+      - name: Match the release tag to the manifest
+        if: github.ref_type == 'tag'
+        run: node -e "if (process.env.GITHUB_REF_NAME !== require('./manifest.json').version) process.exit(1)"
       - name: Run Rudonium regression tests
         run: npm test
       - name: Build from lockfile and compare two clean rebuilds
@@ -50,7 +54,7 @@ jobs:
           cp eslint.config.mjs "$RUNNER_TEMP/review-tools/"
       - name: Lint plugin sources, manifest and license
         run: |
-          node "$RUNNER_TEMP/review-tools/node_modules/eslint/bin/eslint.js" --config "$RUNNER_TEMP/review-tools/eslint.config.mjs" main.ts 'src/**/*.ts' manifest.json LICENSE --format json --output-file "$RUNNER_TEMP/obsidian-eslint.json"
+          node "$RUNNER_TEMP/review-tools/node_modules/eslint/bin/eslint.js" --config "$RUNNER_TEMP/review-tools/eslint.config.mjs" main.ts 'src/**/*.ts' wdio.conf.ts manifest.json LICENSE --format json --output-file "$RUNNER_TEMP/obsidian-eslint.json"
       - name: Retain diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,3 +62,27 @@ jobs:
           name: obsidian-eslint-${{ github.sha }}
           path: ${{ runner.temp }}/obsidian-eslint.json
           if-no-files-found: warn
+
+
+  attest:
+    if: github.ref_type == 'tag'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rudonium-candidate-${{ github.sha }}
+          path: candidate
+      - name: Attest the verified Obsidian assets
+        uses: actions/attest@v4
+        with:
+          create-storage-record: false
+          subject-path: |
+            candidate/install/rudonium-anki-toolkit/main.js
+            candidate/install/rudonium-anki-toolkit/manifest.json
+            candidate/install/rudonium-anki-toolkit/styles.css
