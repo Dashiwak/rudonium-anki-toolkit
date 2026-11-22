@@ -32,7 +32,7 @@ const hostModule = asModule(`
     }
 `)
 const { uiFor } = await import(languageModule)
-const { supportUrl, authorEmail } = await import(identityModule)
+const { supportUrl } = await import(identityModule)
 const source = readModule('interface-settings-ui')
     .replace("'obsidian'", JSON.stringify(hostModule))
     .replace("'./interface-language'", JSON.stringify(languageModule))
@@ -48,16 +48,16 @@ test('Fresh and legacy settings without a language show English. Explicit Russia
     assert.equal(uiFor({ INTERFACE_LANGUAGE: 'ru' })('English', 'Русский'), 'Русский')
 })
 
-test('Help precedes the mode switch and both languages can be selected at the bottom of settings', async () => {
+test('Help precedes the mode switch and the language selector appears immediately above About', async () => {
     const generated = installer.patchInterfaceSettings("containerEl.createEl('h2', {text: 'Obsidian_to_Anki settings'})\nthis.setup_workflows()")
     assert.match(generated, /installSettingsHelp\(containerEl,/)
     assert.doesNotMatch(generated, /Obsidian_to_Anki settings/)
     const actual = readFileSync(new URL('../src/settings.ts', import.meta.url), 'utf8')
     const layout = actual.slice(actual.indexOf('setup_display(): void'))
-    const calls = ['installSettingsHelp(', 'const modeContainer =', 'installNoteTypeRules(', 'this.setup_workflows(modeContainer)', 'installProjectInfo(', 'installInterfaceLanguage(']
+    const calls = ['installSettingsHelp(', 'const modeContainer =', 'installNoteTypeRules(', 'this.setup_workflows(modeContainer)', 'installInterfaceLanguage(', 'installProjectInfo(']
     assert.ok(calls.every((call, i) => layout.includes(call) && (i === 0 || layout.indexOf(call) > layout.indexOf(calls[i - 1]))))
     assert.doesNotMatch(layout, /For more information check the wiki|Rudonium Anki Toolkit settings/)
-    assert.ok(generated.includes('installProjectInfo(this.containerEl, (this as any).plugin, RUDONIUM_BUILD_VERSION)'))
+    assert.match(generated, /installInterfaceLanguage\(this\.containerEl,[^\n]*\n\s*installProjectInfo\(this\.containerEl, \(this as any\)\.plugin, RUDONIUM_BUILD_VERSION\)/)
     for (const [initial, next, label, linkText] of [
         [undefined, 'ru', 'Interface Language', 'Rudonium help on GitFlic'],
         ['ru', 'en', 'Язык интерфейса', 'Помощь по Rudonium на GitFlic'],
@@ -77,7 +77,7 @@ test('Help precedes the mode switch and both languages can be selected at the bo
     }
 })
 
-test('About, the help command and both public guides share a single support destination', t => {
+test('About and public guides use GitFlic Issues, and the existing GitFlic help command is preserved', t => {
     const elements = []
     const root = {
         createEl(tag, options = {}) { elements.push({ tag, ...options }); return this },
@@ -89,9 +89,9 @@ test('About, the help command and both public guides share a single support dest
     let destination
     Object.defineProperty(globalThis, 'window', { configurable: true, value: { open(url) { destination = url } } })
     t.after(() => previous ? Object.defineProperty(globalThis, 'window', previous) : delete globalThis.window)
-    for (const [language, about, commandName] of [
-        ['en', 'About the plugin', 'Get help on GitFlic'],
-        ['ru', 'О плагине', 'Обратиться за помощью на GitFlic'],
+    for (const [language, about, commandName, issueLabel] of [
+        ['en', 'About the plugin', 'Get help on GitFlic', 'Questions and bug reports on GitFlic'],
+        ['ru', 'О плагине', 'Обратиться за помощью на GitFlic', 'Вопросы и сообщения об ошибках на GitFlic'],
     ]) {
         elements.length = 0
         destination = undefined
@@ -104,10 +104,12 @@ test('About, the help command and both public guides share a single support dest
         assert.ok(elements.some(el => el.text?.includes('manifest.json') && el.text.includes('1.6.6')))
         assert.ok(elements.some(el => el.text?.includes('Obsidian to Anki') &&
             el.attr.href === 'https://github.com/ObsidianToAnki/Obsidian_to_Anki'))
-        assert.ok(elements.some(el => el.attr?.href === 'mailto:' + authorEmail))
-        assert.equal(elements.some(el => el.attr?.href === expected), false)
-        installSettingsHelp(root, plugin)
+        assert.ok(elements.some(el => el.text?.includes('dashiwak')))
+        assert.ok(elements.some(el => el.tag === 'a' && el.attr?.href === supportUrl && el.text === issueLabel))
+        assert.ok(elements.every(el => !el.attr?.href?.startsWith('mailto:') && !el.text?.includes('@')))
         assert.equal(elements.filter(el => el.attr?.href === expected).length, 1)
+        installSettingsHelp(root, plugin)
+        assert.equal(elements.filter(el => el.attr?.href === expected).length, 2)
         assert.ok(elements.some(el => el.text === 'GNU GPLv3'))
         registerSupportCommand(plugin)
         assert.equal(command.id, 'open-gitverse-support')
@@ -116,9 +118,47 @@ test('About, the help command and both public guides share a single support dest
         assert.equal(destination, expected)
     }
     for (const file of ['README.md', 'README.ru.md', 'CONTRIBUTING.md', 'docs/en/quick-start.md', 'docs/ru/quick-start.md']) {
-        assert.ok(readFileSync(new URL('../' + file, import.meta.url), 'utf8').includes(expected), file)
+        assert.ok(readFileSync(new URL('../' + file, import.meta.url), 'utf8').includes(supportUrl), file)
     }
-    assert.equal(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).bugs.url, expected)
+    assert.equal(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).bugs.url, supportUrl)
+})
+
+test('changing language in the open SettingsTab redraws About immediately below the selector', async () => {
+    const { load } = await import('./benchmark/migration-modules.cjs').then(module => module.default)
+    const raw = readFileSync(new URL('../src/settings.ts', import.meta.url), 'utf8')
+    const noop = () => {}
+    const { settings: { SettingsTab } } = await load(['settings'], {
+        PluginSettingTab: class {}, installInterfaceLanguage, installProjectInfo, installSettingsHelp,
+        installNoteTypeRules: noop, installFolderTagSettings: noop, installCardLifecycleSettings: noop,
+        finalizeSettingsLayout: noop,
+    }, { settings: raw.replace('declare const RUDONIUM_BUILD_VERSION: string', 'const RUDONIUM_BUILD_VERSION = ' + JSON.stringify(release.version)) })
+    const children = []
+    const root = {
+        empty() { children.length = 0 },
+        createDiv() { return this.createEl('div') },
+        createEl(tag, options) {
+            const node = { ...this, tag, ...options }
+            children.push(node)
+            return node
+        },
+        createSpan(options) { return this.createEl('span', options) },
+        set setting(row) { children.push(row) },
+        querySelectorAll() { return [] },
+        querySelector() { return null },
+    }
+    const plugin = { settings: {}, manifest: release, register: noop, saveAllData: async () => {} }
+    const tab = new SettingsTab({}, plugin)
+    tab.containerEl = root
+    for (const name of ['setup_syntax', 'setup_defaults', 'setup_buttons', 'setup_workflows']) tab[name] = noop
+    tab.display()
+    for (const [language, about, next] of [['Interface Language', 'About the plugin', 'ru'], ['Язык интерфейса', 'О плагине', 'en']]) {
+        const index = children.findIndex(node => node.label === language)
+        assert.ok(index >= 0)
+        assert.equal(children[index + 1].cls, 'rudonium-settings-about')
+        assert.equal(children[index + 1].setting.label, about)
+        assert.ok(children.some(node => node.attr?.href === supportUrl))
+        await children[index].change(next)
+    }
 })
 
 test('autoscan slider shows minutes and manual mode in both languages', () => {

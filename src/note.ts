@@ -48,7 +48,7 @@ abstract class AbstractNote {
     note_type: string
     field_names: string[]
     current_field: string
-    ID_REGEXP: RegExp = /(?:<!--)?ID: (\d+)/
+    ID_REGEXP: RegExp = /^[ \t]*(?:<!--[ \t]*)?ID:[ \t]*(\d+)(?!\d|[.,]\d|[eE][+-]?\d)/u
     formatter: FormatConverter
     curly_cloze: boolean
 	highlights_to_cloze: boolean
@@ -120,7 +120,7 @@ abstract class AbstractNote {
 export class Note extends AbstractNote {
 
     getSplitText(): string[] {
-        return this.text.split("\n")
+        return this.text.split(/\r?\n/u)
     }
 
     getIdentifier(): number | null {
@@ -179,7 +179,7 @@ export class Note extends AbstractNote {
 export class InlineNote extends AbstractNote {
 
     static TAG_REGEXP: RegExp = /Tags: (.*)/;
-    static ID_REGEXP: RegExp = /(?:<!--)?ID: (\d+)/;
+    static ID_REGEXP: RegExp = /(?:<!--[ \t]*(?=ID:[^\r\n]*?-->)|(?<!\S))ID:[ \t]*(\d+)(?!\d|[.,]\d|[eE][+-]?\d)/gu;
     static TYPE_REGEXP: RegExp = /\[(.*?)\]/;
 
     getSplitText(): string[] {
@@ -187,7 +187,12 @@ export class InlineNote extends AbstractNote {
     }
 
     getIdentifier(): number | null {
-        const result = this.text.match(InlineNote.ID_REGEXP)
+        const candidates = Array.from(this.text.matchAll(InlineNote.ID_REGEXP))
+        const explicit = candidates.filter(marker => marker[0].startsWith('<!--'))
+        const dated = candidates.filter(marker => /^[ \t]*\|[ \t]*\d{4}-\d{2}-\d{2}(?!\d)/u.test(this.text.slice(marker.index + marker[0].length)))
+        const markers = explicit.length ? explicit : dated.length ? dated : candidates
+        if (markers.length > 1) throw new Error('Ambiguous inline Anki ID. Keep one explicit <!--ID: 123--> marker. / Неоднозначный ID строчной карточки. Оставьте один явный маркер <!--ID: 123-->.')
+        const result = markers[0]
         if (result) {
             this.text = this.text.slice(0,result.index).trim()
             return parseInt(result[1])

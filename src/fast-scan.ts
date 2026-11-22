@@ -32,7 +32,7 @@ import { settingToData } from './setting-to-data'
 import { openExportPreview, openExportProgress, openExportRunReport, openExportRecovery, singleAuditDeck, auditDeckForFile,
     dismissMissingCardReview, isReportedDuplicateAddError, showDuplicateFirstFieldNotice, showMissingAnkiCardNotice } from './export-review-ui'
 import type { ExportRepairTarget, ExportPreviewRow, ExportProgress, ExportRunReport, ExportRecoveryRow } from './export-review-ui'
-import { isExportCardIssue, localizeExportError } from './card-export-diagnostics'
+import { fieldReviewIssue, isExportCardIssue, localizeExportError } from './card-export-diagnostics'
 import type { ExportCardIssue } from './card-export-diagnostics'
 import type { ExportDeckMove } from './anki-delta'
 import { checkCloudFolder, openCloudFolderCheck } from './cloud-folder-check'
@@ -150,8 +150,8 @@ const cachePreviews = new WeakMap<CacheOptimizationPlan, {
 }>()
 
 /** Настройки аудита и архивов не меняют разметку карточек или кеш экспорта. */
-export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW'> {
-    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, ...scanSettings } = settings
+export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW' | 'BIDIRECTIONAL_CONFLICT_POLICY'> {
+    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, BIDIRECTIONAL_CONFLICT_POLICY, ...scanSettings } = settings
     return scanSettings
 }
 
@@ -1403,11 +1403,12 @@ interface ExportControl {
 
 export type ExportScanOutcome = ExportRunReport['outcome'] | 'busy'
 
-export async function scanVaultFast(plugin: MyPlugin, force = false, currentOnly = false,
+export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled' = false, currentOnly = false,
     onlyPaths?: ReadonlySet<string>, confirmedDeletions?: ReadonlyMap<string, ReadonlySet<number>>,
     control?: ExportControl, confirmedDeckMoves?: ReadonlyMap<string, readonly ExportDeckMove[]>,
     previewProfile?: string, confirmedFields?: ReadonlySet<string>): Promise<ExportScanOutcome> {
     const t = uiFor(plugin.settings)
+    const force = scan === true
     // Capture the command target before waiting for locks, profile checks or the state index.
     const current = currentOnly ? plugin.app.workspace.getActiveFile() : null
     const currentPath = current?.path
@@ -1437,8 +1438,14 @@ export async function scanVaultFast(plugin: MyPlugin, force = false, currentOnly
         return 'stopped'
     }
     if (plugin.settings.BIDIRECTIONAL_SYNC === true && !(cursor && cursor.id === undefined) && !cursorRecovery) {
-        if (!control) return runBidirectionalSync(plugin, { currentFile: current && currentPath ? { file: current, path: currentPath } : undefined, paths: onlyPaths, force })
-        return 'stopped'
+        // A retry belongs to its one-way export and profile. Switching modes must not turn it into an import.
+        if (control || previewProfile !== undefined) {
+            new Notice(t('This action belongs to a one-way export. Switch to one-way mode and retry, or start a new bidirectional sync.',
+                'Это действие относится к одностороннему экспорту. Переключитесь на односторонний режим и повторите или запустите новую двустороннюю синхронизацию.'))
+            return 'stopped'
+        }
+        return runBidirectionalSync(plugin, { currentFile: current && currentPath ? { file: current, path: currentPath } : undefined,
+            paths: onlyPaths, force, scheduled: scan === 'scheduled' })
     }
     if (hasPendingBidirectionalWrite(plugin.app)) {
         new Notice(t(pendingBidirectionalWriteMessage, 'Дождитесь завершения предыдущей операции двусторонней синхронизации.'))
@@ -2295,11 +2302,12 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
     }))
 
     const summary = submitted ? t(`${submitted} file(s) submitted to Anki.`, `В Anki отправлено файлов: ${submitted}.`) : undefined
-    const show = (detail: string, deck?: string, duplicate?: number) => {
+    const show = (detail: string, deck?: string, duplicate?: number, reviewPath?: string) => {
         showExportIssueNotice(
             [t('Export to Anki', 'Экспорт в Anki'), summary, detail].filter(Boolean).join('\n'), t,
-            audit ? () => audit(deck) : undefined,
+            !reviewPath && audit ? () => audit(deck) : undefined,
             duplicate === undefined ? undefined : () => openDuplicateIdReview(plugin, duplicate),
+            reviewPath ? () => { void waitForFastScanIdle(plugin).then(() => previewVaultExport(plugin, undefined, new Set([reviewPath]))) } : undefined,
         )
     }
     let remaining = messages
@@ -2365,11 +2373,14 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
     if (remaining.some(message => message !== first) || first !== undefined && deferred) {
         detail += `\n${t('Details are in the last export report.', 'Подробности — в отчёте о последнем экспорте.')}`
     }
-    show(detail, deferred ? undefined : deckForMessages(remaining), duplicate)
+    const firstPath = first && pathOf(first)
+    const reviewPath = firstPath && first && fieldReviewIssue(first.slice(firstPath.length + 2)) ? firstPath : undefined
+    show(detail, deferred ? undefined : deckForMessages(remaining), duplicate, reviewPath)
 }
 
-function showExportIssueNotice(message: string, t: ReturnType<typeof uiFor>, audit?: () => void, reviewDuplicate?: () => void): void {
-    if (typeof document === 'undefined' || !audit && !reviewDuplicate) {
+function showExportIssueNotice(message: string, t: ReturnType<typeof uiFor>, audit?: () => void, reviewDuplicate?: () => void,
+    previewFile?: () => void): void {
+    if (typeof document === 'undefined' || !audit && !reviewDuplicate && !previewFile) {
         new Notice(message, 9000)
         return
     }
@@ -2390,6 +2401,7 @@ function showExportIssueNotice(message: string, t: ReturnType<typeof uiFor>, aud
         actions.append(button)
         button.onclick = event => { event.stopPropagation(); notice.hide(); run() }
     }
+    if (previewFile) action(t('Preview file export', 'Предпросмотр экспорта файла'), previewFile, true)
     if (audit) action(t('Run Audit', 'Провести аудит'), audit, true)
     if (reviewDuplicate) action(t('Review Duplicates', 'Проверить дубликаты'), reviewDuplicate)
 }

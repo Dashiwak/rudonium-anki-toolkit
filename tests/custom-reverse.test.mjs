@@ -96,6 +96,44 @@ test('Clearing Bahnhof in Anki leaves a linked empty answer in Knowledge and Rem
     }
 })
 
+test('Knowledge and RemNote keep bold text editable in both directions for the Marian column card', async t => {
+    const runtime = await loadSync(overlay.directory); t.after(runtime.dispose)
+    const { knowledgeBulletExpression, remNoteExpression } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    const question = 'В память о каких событиях поставили **Мариинскую колонну** на главной площади?'
+    const answer = 'В связи со свадьбами двух единокровных сестёр императора Леопольда I.'
+    const render = value => value.replace(/\*\*([^*]+)\*\*/gu, '<strong>$1</strong>')
+    for (const rule of [knowledgeBulletExpression, remNoteExpression]) {
+        const h = fixture(runtime, { rule, names, body: '- ' + question + ' :: ' + answer,
+            values: [render(question).replaceAll('strong>', 'b>'), answer, '', '', ''] })
+        const decorate = note => { for (const name of Object.keys(note.fields)) note.fields[name] = render(note.fields[name]) }
+        h.host.decorateRegexNote = decorate
+        h.host.decorateFields = decorate
+        if (rule === remNoteExpression) {
+            h.host.includeUnclaimedRegex = true
+            h.edit(h.file.text.replace('## City', '## Карточки'))
+        }
+        const original = h.file.text
+        const seed = await h.preview()
+        assert.ok(seed.preview.canApply, JSON.stringify(seed.preview))
+        assert.deepEqual(seed.preview.rows.flatMap(row => row.issues ?? []), [])
+        await seed.apply(new Map())
+        assert.equal(h.file.text, original)
+        assert.equal(h.host.writes.length, 0)
+        h.notes.fields.Front.value = render(question.replace('событиях', 'торжествах'))
+        const inbound = await h.preview()
+        assert.equal(inbound.preview.rows.flatMap(row => row.changes).find(c => c.field === 'Front')?.decision, 'anki')
+        await inbound.apply(new Map())
+        assert.equal(h.file.text, original.replace('событиях', 'торжествах'))
+        h.edit(h.file.text.replace('Мариинскую колонну', 'колонну Марии'))
+        await (await h.preview()).apply(new Map())
+        assert.deepEqual(h.host.writes.map(note => Object.keys(note.fields)), [['Front']])
+        assert.equal(h.notes.fields.Front.value, render(question.replace('событиях', 'торжествах').replace('Мариинскую колонну', 'колонну Марии')))
+        assert.equal((await h.preview()).preview.canApply, false)
+        assert.deepEqual(h.notes.cards, [id + 60])
+    }
+})
+
 test('Conflicting local replacement and Anki clearing wait for explicit selection on the linked ID', async t => {
     const runtime = await loadSync(overlay.directory); t.after(runtime.dispose)
     const { knowledgeBulletExpression: rule } = await module('card-format-presets')
@@ -213,8 +251,21 @@ test('Conflicting values require a selection. A replacement containing the delim
     assert.ok(h.file.text.includes('Remote'))
     h.notes.fields.Back.value = 'Part|Second'
     const unsafe = await h.preview()
-    assert.equal(unsafe.preview.canApply,false); assert.match(JSON.stringify(unsafe.preview.rows), /boundary/)
-    assert.ok(!h.file.text.includes('Part'))
+    assert.equal(unsafe.preview.canApply, false)
+    const change = unsafe.preview.rows.flatMap(row => row.changes).find(c => c.field === 'Back')
+    assert.deepEqual([change.decision, change.allowedSide, change.canChooseDirection, change.recommendedSide],
+        ['conflict', 'obsidian', false, undefined])
+    assert.match(JSON.stringify(unsafe.preview.rows), /separator/)
+    const stable = h.file.text
+    await unsafe.apply(new Map())
+    assert.equal(h.notes.fields.Back.value, 'Part|Second')
+    await (await h.preview()).apply(new Map([[change.key, 'anki']]))
+    assert.equal(h.file.text, stable)
+    assert.equal(h.notes.fields.Back.value, 'Part|Second')
+    await (await h.preview()).apply(new Map([[change.key, 'obsidian']]))
+    assert.equal(h.notes.fields.Back.value, 'Remote')
+    assert.equal(h.file.text, stable)
+    assert.equal((await h.preview()).preview.canApply, false)
 })
 
 test('Dirty unrelated editor permits verified external deletion, dirty editor containing the affected ID blocks deletion', async t => {
@@ -252,6 +303,25 @@ test('Proposed Markdown is parsed before either side is written; conflicting own
     const bad = await h.preview()
     assert.equal(bad.preview.canApply,false)
     assert.ok(bad.preview.rows.some(r => r.issues?.length))
+})
+
+test('A generated backlink in Front preserves the live Anki field order check', async t => {
+    const runtime = await loadSync(overlay.directory); t.after(runtime.dispose)
+    const h = fixture(runtime, { rule: delimitedRule(2, '|'), names: ['Front', 'Back', 'Other'],
+        body: 'Word | Old', values: ['Word', 'Old', ''] })
+    const suffix = '<br><a href="obsidian://anki-card?vault=QA&amp;file=Dictionary.md&amp;nid=' + id + '" class="obsidian-link">Obsidian</a>'
+    h.host.sourceSettings = { add_file_link: true, file_link_fields: { Basic: 'Front' } }
+    h.host.decorateRegexNote = note => { note.fields.Front += suffix }
+    h.notes.fields.Front.value += suffix
+    await (await h.preview()).apply(new Map())
+    h.notes.fields.Front.order = 2
+    h.notes.fields.Other.order = 0
+    h.notes.fields.Back.value = 'Changed'
+    const next = await h.preview()
+    assert.equal(next.preview.canApply, false, JSON.stringify(next.preview))
+    assert.match(next.preview.rows.flatMap(row => row.issues ?? []).join(' '), /order/)
+    assert.equal(h.host.writes.length, 0)
+    assert.ok(h.file.text.includes('Word | Old'))
 })
 
 test('Plain intraword underscores in both directions preserve a linked note; Markdown emphasis stays in manual review', async t => {
@@ -296,6 +366,80 @@ test('Exact Knowledge rule keeps five capture positions, optional metadata and t
         assert.equal(h.host.writes.at(-1).id, id)
         assert.deepEqual(Object.keys(h.host.writes.at(-1).fields), ['Back'])
         assert.equal((await h.preview()).preview.canApply, false)
+    }
+})
+
+test('Knowledge: switching to one-way uses the last verified Front and keeps the Anki ID and review cards', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression: rule } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    const h = fixture(runtime, { rule, names, body: '- Казематы :: Ответ :: R',
+        values: ['Казематы', 'Ответ', 'R', '', ''] })
+    const cardIds = [...h.notes.cards]
+    await (await h.preview()).apply(new Map())
+    h.notes.fields.Front.value = 'Казематы+'
+    await (await h.preview()).apply(new Map())
+    assert.match(h.file.text, /Казематы\+ :: Ответ :: R/)
+    h.notes.fields.Front.value = 'Казематы0000'
+    const history = await runtime.openOneWayHistory(h.plugin, 'QA')
+    async function oneWay() {
+        const question = h.file.text.match(/^- (.+?) ::/m)[1]
+        const src = {id, path:h.file.path, modelName:'Basic', fields:{Front:question}, authoredFields:['Front'],
+            deck:'Knowledge', tags:[]}
+        return runtime.delta.prepareExistingNoteChanges([src],(_path,why)=>assert.fail(why),
+            new Map([[id,h.notes]]),undefined,{history,allowDeckMoves:false})
+    }
+    assert.equal((await oneWay()).size,0, 'only the Anki editor changed since the two-way receipt')
+    h.edit(h.file.text.replace('Казематы+', 'Казематы++'))
+    const both = await h.preview()
+    const front = both.preview.rows.flatMap(row => row.changes ?? []).find(field => field.field === 'Front')
+    assert.equal(front?.decision, 'conflict')
+    h.plugin.settings.BIDIRECTIONAL_SYNC = false
+    const changes = await oneWay()
+    const [write] = changes.get(h.file.path)
+    assert.equal(write.action,'updateNoteFields')
+    assert.deepEqual(write.params.note,{id,fields:{Front:'Казематы++'}})
+    await h.host.request(write.action,write.params)
+    const receipts = []
+    assert.deepEqual(await runtime.delta.verifyExistingNoteFieldWrites(changes,(_path,why)=>assert.fail(why), {
+        models:new Map([[id,'Basic']]), capture:receipt=>receipts.push(receipt),
+    }),[])
+    history.apply(receipts)
+    await history.flush()
+    assert.equal(h.notes.fields.Front.value, 'Казематы++')
+    assert.deepEqual(h.notes.cards, cardIds)
+    assert.ok(h.file.text.includes('<!--ID: '+id+' -->'))
+    assert.equal((await oneWay()).size,0)
+    h.plugin.settings.BIDIRECTIONAL_SYNC = true
+    h.notes.fields.Front.value = 'Новая правка в Anki'
+    const returned = await h.preview()
+    assert.equal(returned.preview.rows.flatMap(row => row.changes ?? []).find(row => row.field === 'Front')?.decision, 'anki')
+    await returned.apply(new Map())
+    assert.ok(h.file.text.includes('Новая правка в Anki :: Ответ :: R'))
+})
+
+test('first two-way sync consults only verified one-way fields in the same profile and model', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const [oldProfile, oldModel, question, remote, direction] of [
+        ['QA','Basic','Казематы+', 'Казематы', 'obsidian'],
+        ['QA','Basic','Казематы', 'Казематы0000', 'anki'],
+        ['QA','Basic','Казематы+', 'Казематы0000', 'conflict'],
+        ['Other','Basic','Казематы+', 'Казематы', 'conflict'],
+        ['QA','Other','Казематы+', 'Казематы', 'conflict'],
+    ]) {
+        const h = fixture(runtime, {rule:'^Q=(.+?) -> A=(.+)$', names:['Front','Back'],
+            body:'Q='+question+' -> A=Ответ',values:[remote,'Ответ']})
+        const history = await runtime.openOneWayHistory(h.plugin, oldProfile)
+        history.apply([{id,modelName:oldModel,fields:{Front:'Казематы',Back:'Ответ'}}])
+        await history.flush()
+        const first = await h.preview()
+        assert.equal(first.preview.rows.flatMap(row => row.changes ?? []).find(field => field.field === 'Front')?.decision, direction)
+        await first.apply(new Map())
+        assert.ok(h.file.text.includes('Q='+(direction === 'anki' ? remote : question)+' -> A=Ответ'))
+        assert.equal(h.notes.fields.Front.value, direction === 'obsidian' ? question : remote)
+        assert.deepEqual(h.notes.cards,[id+60])
     }
 })
 
@@ -396,4 +540,122 @@ test('an interrupted 0.9.7 annex write releases only the absent field and resume
     assert.deepEqual(h.host.writes,[])
     assert.equal((await h.preview()).preview.canApply,false)
     assert.equal(h.notes.fields['Импортированный'].value,'Keep Anki')
+})
+
+test('mode switches preserve a deliberate revert and independent edits after a newer one-way export', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const [local, remote, direction, legacy] of [
+        ['First', 'Second', 'obsidian', false],
+        ['Second', 'First', 'anki', false],
+        ['First', 'Third', 'conflict', false],
+        ['Third', 'First', 'conflict', false],
+        ['First', 'Second', 'conflict', true],
+    ]) {
+        const h = fixture(runtime, {rule:'^Q=(.+?) -> A=(.+)$', names:['Front','Back'],
+            body:'Q=First -> A=Answer', values:['First','Answer']})
+        await (await h.preview()).apply(new Map())
+        const path = '.obsidian/plugins/rudonium/bidirectional-sync.json'
+        if (legacy) {
+            const state = await runtime.BidirectionalState.open(h.plugin.app.vault.adapter,path,'QA')
+            const previous = { ...state.get(id) }
+            delete previous.pairReceipt
+            await state.checkpoint([[id,previous]])
+        }
+        // Send and verify an actual export, including its receipt, before returning to two-way sync.
+        h.plugin.settings.BIDIRECTIONAL_SYNC = false
+        h.edit(h.file.text.replace('Q=First', 'Q=Second'))
+        const history = await runtime.openOneWayHistory(h.plugin, 'QA')
+        const source = {id, path:h.file.path, modelName:'Basic', fields:{Front:'Second'}, authoredFields:['Front'],
+            deck:'Knowledge', tags:[]}
+        const actions = await runtime.delta.prepareExistingNoteChanges([source],(_path,why)=>assert.fail(why),
+            new Map([[id,h.notes]]),undefined,{history,allowDeckMoves:false})
+        for (const request of actions.get(h.file.path)) await h.host.request(request.action, request.params)
+        const receipts = []
+        const issues = await runtime.delta.verifyExistingNoteFieldWrites(actions,(_path,why)=>assert.fail(why),
+            {models:new Map([[id,'Basic']]),capture:receipt=>receipts.push(receipt)})
+        assert.deepEqual(issues, [])
+        history.apply(receipts)
+        await history.flush()
+        h.edit(h.file.text.replace('Q=Second', 'Q='+local))
+        h.notes.fields.Front.value = remote
+        h.plugin.settings.BIDIRECTIONAL_SYNC = true
+        const dialog = await h.preview()
+        const row = dialog.preview.rows.flatMap(note => note.changes).find(field => field.field === 'Front')
+        assert.equal(row?.decision, direction, JSON.stringify([local,remote,legacy]))
+        await dialog.apply(new Map())
+        const pending = direction === 'conflict'
+        const expected = direction === 'anki' ? remote : local
+        assert.ok(h.file.text.includes('Q='+(pending ? local : expected)+' -> A=Answer'))
+        assert.equal(h.notes.fields.Front.value, pending ? remote : expected)
+        assert.deepEqual(h.notes.cards,[id+60])
+        assert.ok(h.file.text.includes('<!--ID: '+id+' -->'))
+    }
+})
+
+test('an undated dictionary bullet uses its actual custom export rule on the first sync', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression } = await module('card-format-presets')
+    const rule = knowledgeBulletExpression.replace('^- ', '^[-] ')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    const question = 'Казематы', back = 'Сводчатые помещения внутри крепостных укреплений'
+    const h = fixture(runtime, { rule, names, body: '- ' + question + ' :: ' + back + ' :: R',
+        values: [question, back, 'R', '', ''] })
+    const original = h.file.text.replace('## City\r\n', '').replace(' -->', '-->')
+    h.edit(original)
+    const history = await runtime.openOneWayHistory(h.plugin, 'QA')
+    history.apply([{ id, modelName: 'Basic', fields: { Front: question, Back: back } }])
+    await history.flush()
+    h.notes.fields.Front.value = 'Новые казематы'
+    const inbound = await h.preview()
+    assert.equal(inbound.preview.rows.flatMap(row => row.changes).find(change => change.field === 'Front')?.decision, 'anki')
+    await inbound.apply(new Map())
+    assert.equal(h.file.text, original.replace(question, 'Новые казематы'))
+    h.edit(h.file.text.replace(back, 'Обновлённое описание'))
+    await (await h.preview()).apply(new Map())
+    assert.deepEqual(h.host.writes.map(op => [op.id, op.fields]), [[id, { Back: 'Обновлённое описание' }]])
+
+    // The source is now cached. Unsupported remote formatting must not be reported as a missing Markdown rule.
+    await h.preview()
+    h.notes.fields.Front.value = '<table><tr><td>Сложная разметка</td></tr></table>'
+    const blocked = await h.preview()
+    assert.equal(blocked.preview.canApply, false)
+    assert.ok(blocked.preview.rows.some(row => row.issues?.some(reason => reason.includes('formatting'))))
+})
+
+test('legacy dictionary syntax cannot claim a different export range or model', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    for (const wrongRange of [false, true]) {
+        const rule = knowledgeBulletExpression.replace('^- ', wrongRange ? '^## City\\r?\\n- ' : '^[-] ')
+        const h = fixture(runtime, { rule, names, body: '- Казематы :: Ответ :: R', values: ['Поздняя правка', 'Ответ', 'R', '', ''] })
+        if (!wrongRange) h.host.decorateRegexNote = note => { note.modelName = 'Other' }
+        const plan = await h.preview()
+        assert.equal(plan.preview.canApply, false)
+        assert.ok(plan.preview.rows.some(row => row.issues?.length))
+        assert.deepEqual(h.host.writes, [])
+    }
+})
+
+test('a Knowledge rule assigned to another model keeps the existing linked dictionary owner', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    const h = fixture(runtime, { rule: '', names, body: '- Казематы :: Ответ :: R', values: ['Обновлено в Anki', 'Ответ', 'R', '', ''] })
+    h.host.expressions = h.plugin.settings.CUSTOM_REGEXPS = { Other: knowledgeBulletExpression }
+    h.plugin.fields_dict.Other = names
+    h.edit(h.file.text.replace('## City', '## Карточки'))
+    const original = h.file.text
+    const history = await runtime.openOneWayHistory(h.plugin, 'QA')
+    history.apply([{ id, modelName: 'Basic', fields: { Front: 'Казематы', Back: 'Ответ' } }])
+    await history.flush()
+    const plan = await h.preview()
+    assert.equal(plan.preview.rows.flatMap(row => row.changes).find(change => change.field === 'Front')?.decision, 'anki')
+    await plan.apply(new Map())
+    assert.equal(h.file.text, original.replace('Казематы', 'Обновлено в Anki'))
+    assert.deepEqual(h.host.writes, [])
 })

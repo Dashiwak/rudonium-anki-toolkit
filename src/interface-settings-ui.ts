@@ -9,7 +9,7 @@ import type MyPlugin from '../main'
 import { interfaceLanguage, uiFor } from './interface-language'
 import type { UiText } from './interface-language'
 import { redrawSettingsPreservingLayout } from './settings-layout'
-import { supportUrl, authorEmail } from './plugin-identity'
+import { supportUrl } from './plugin-identity'
 
 export function registerSupportCommand(plugin: MyPlugin): void {
     plugin.addCommand({
@@ -71,7 +71,8 @@ export function installProjectInfo(container: HTMLElement, plugin: MyPlugin, bui
     }
     const contact = section.createEl('p')
     contact.createSpan({ text: t('Author: dashiwak · ', 'Автор: dashiwak · ') })
-    contact.createEl('a', { text: authorEmail, attr: { href: 'mailto:' + authorEmail } })
+    contact.createEl('a', { text: t('Questions and bug reports on GitFlic', 'Вопросы и сообщения об ошибках на GitFlic'),
+        attr: { href: supportUrl } })
     const links = section.createEl('p')
     links.createEl('a', { text: 'GNU GPLv3', attr: { href: 'https://www.gnu.org/licenses/gpl-3.0.html' } })
     section.createEl('a', {

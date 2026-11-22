@@ -82,6 +82,8 @@ export interface ExportDeckMove {
 }
 
 export interface NoteSnapshot {
+    /** Optional notesInfo modification time in Unix seconds. */
+    mod?: number
     modelName: string
     fields: Record<string, unknown>
     tags: string[]
@@ -113,7 +115,8 @@ export function parseExistingNoteSnapshot(row: unknown): NoteSnapshot | undefine
     if (!isRecord(row) || typeof row.modelName !== 'string' || !row.modelName || !isRecord(row.fields) ||
         !Array.isArray(row.tags) || !row.tags.every(tag => typeof tag === 'string') ||
         !Array.isArray(row.cards) || !row.cards.every(isId) || new Set(row.cards).size !== row.cards.length) return
-    return { modelName: row.modelName, fields: row.fields, tags: row.tags, cards: row.cards }
+    return { modelName: row.modelName, fields: row.fields, tags: row.tags, cards: row.cards,
+        ...(isId(row.mod) ? { mod: row.mod } : {}) }
 }
 
 export function snapshotFields(note: NoteSnapshot): [string, string][] {
@@ -128,6 +131,27 @@ export function snapshotKey(note: NoteSnapshot): string {
         [...note.cards].sort((left, right) => left - right)])
 }
 
+export function isMissingAnkiNoteError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : error
+    return typeof message === 'string' &&
+        /\b(?:notes?(?: ids?)?(?: \d+)? (?:(?:was|were) )?(?:not found|does not exist)|unknown note id|no such note)\b/i.test(message)
+}
+
+// Some connectors reject an entire notesInfo batch if even one note disappeared during the export.
+async function readAvailableNoteRows(notes: number[]): Promise<unknown> {
+    try {
+        return await readAnki('notesInfo', { notes })
+    } catch (error) {
+        if (!isMissingAnkiNoteError(error)) throw error
+        const found: unknown = await readAnki('findNotes', { query: `nid:${notes.join(',')}` })
+        const requested = new Set(notes)
+        if (!Array.isArray(found) || found.length >= notes.length) throw error
+        const surviving = found.filter(isId)
+        if (surviving.length !== found.length || surviving.some(id => !requested.delete(id))) throw error
+        return surviving.length ? readAnki('notesInfo', { notes: surviving }) : []
+    }
+}
+
 /** Свежий пакет используется только для сверки операций предпросмотра. */
 export async function readReviewedNoteSnapshots(ids: readonly number[]): Promise<Map<number, NoteSnapshot>> {
     const result = new Map<number, NoteSnapshot>()
@@ -136,7 +160,7 @@ export async function readReviewedNoteSnapshots(ids: readonly number[]): Promise
         const batch = requestedIds.slice(offset, offset + readBatchSize)
         const requested = new Set(batch)
         const seen = new Set<number>()
-        const rows: unknown = await readAnki('notesInfo', { notes: batch })
+        const rows: unknown = await readAvailableNoteRows(batch)
         if (!Array.isArray(rows)) throw new Error('notesInfo did not return reviewed notes')
         for (const row of rows) {
             if (!isRecord(row) || !isId(row.noteId) || !requested.has(row.noteId)) continue
@@ -186,6 +210,13 @@ export function managedFieldEntries(source: ExistingNoteSource): [string, string
     return Object.entries(source.fields).filter(([name, value]) => authored ? authored.has(name) : value !== '')
 }
 
+function isNonemptyPlainText(value: string): boolean {
+    if (/[<>]|\[sound:|\{\{c\d+::/iu.test(value)) return false
+    // Anki stores MathJax and legacy LaTeX as text even though the card displays a formula.
+    if (/\\(?:\(|\[)|\[(?:latex|\$\$?)\]/iu.test(value)) return false
+    return value.replace(/&(?:nbsp|#0*160|#x0*a0);/giu, ' ').trim() !== ''
+}
+
 async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnapshot, prior: OneWayRecord | undefined,
     policy: ExistingNotePolicy, report: (path: string, message: string) => void): Promise<{
         fields: Record<string, string>; cardIds?: readonly number[]
@@ -227,8 +258,12 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
             kept?.push(name)
             continue
         }
-        if (fixed || base !== undefined && base === oneWayFieldDigest(remote)) {
-            const hazards = cardFieldHazards(name, remote, wanted)
+        const hazards = cardFieldHazards(name, remote, wanted)
+        // A newly edited, previously confirmed text field belongs to this export.
+        // A concurrent deletion or a change affecting study cards still needs a choice.
+        const editedText = base !== undefined && !unchangedSource && hazards.length === 0 &&
+            isNonemptyPlainText(remote) && isNonemptyPlainText(wanted)
+        if (fixed || editedText || base !== undefined && base === oneWayFieldDigest(remote)) {
             const cardImpact = hazards.length ? await readImpact(hazards) : undefined
             if (cardImpact && !policy.reviewOperation) {
                 needsStudyReview(name)
@@ -247,7 +282,6 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
             changed[name] = wanted
             continue
         }
-        const hazards = cardFieldHazards(name, remote, wanted)
         const cardImpact = hazards.length ? await readImpact(hazards) : undefined
         const conflict: OneWayFieldConflict = { id: source.id, name, source: wanted, actual: remote,
             kind: base === undefined ? 'untracked' : 'both', cardImpact }
@@ -262,7 +296,7 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
             continue
         }
         const detail = base === undefined ? 'no confirmed previous value is available' : 'Obsidian and Anki both changed'
-        report(source.path, `Anki note ${source.id}, field “${name}” needs review: ${detail}. The Anki value was kept.`)
+        report(source.path, `Anki note ${source.id}, field “${name}” needs review: ${detail}. Choose the value in Preview Export.`)
     }
     if (Object.keys(matched).length) policy.capture?.({ id: source.id, modelName: source.modelName, fields: matched,
         ...(source.namedLayout && { namedLayout: source.namedLayout }) })
@@ -309,7 +343,7 @@ async function readNoteSnapshots(sources: ReadonlyMap<number, ExistingNoteSource
         const requested = new Set(batch)
         let response: unknown[]
         try {
-            const rows: unknown = await readAnki('notesInfo', { notes: batch })
+            const rows: unknown = await readAvailableNoteRows(batch)
             if (!Array.isArray(rows)) throw new Error('expected an array of notes')
             response = rows
         } catch (error) {
@@ -740,7 +774,7 @@ export async function verifyExistingNoteFieldWrites(
     for (let offset = 0; offset < ids.length; offset += readBatchSize) {
         const batch = ids.slice(offset, offset + readBatchSize)
         try {
-            const response = await readAnki('notesInfo', { notes: batch })
+            const response = await readAvailableNoteRows(batch)
             if (!Array.isArray(response)) throw new Error('notesInfo: expected an array of notes')
             let selection: Set<number> | undefined
             const stored = new Map<number, Record<string, unknown> | undefined>()

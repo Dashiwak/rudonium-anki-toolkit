@@ -4,7 +4,7 @@
  * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
  * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
  */
-import { currentCardExpression, hasLinkedAnswerSlot, isKnowledgeBullet, isRemNoteBullet, remNoteExpression } from './card-format-presets'
+import { currentCardExpression, hasLinkedAnswerSlot, isKnowledgeBullet, isRemNoteBullet, knowledgeBulletExpression, remNoteExpression } from './card-format-presets'
 import { sameEditorText, makeSpanOverlap } from './markdown-pipeline'
 import { MarkdownView, Notice } from 'obsidian'
 import type { App, TFile } from 'obsidian'
@@ -12,7 +12,7 @@ import type MyPlugin from '../main'
 import * as AnkiConnect from './anki'
 import { observeSourceFields, sourceSuffixes, sourceSuffixMap } from './bidirectional-source-fields'
 import type { SourceFieldUpdates, SourceSuffixes } from './bidirectional-source-fields'
-import { isRecord, parseExistingNoteSnapshot, snapshotKey } from './anki-delta'
+import { isMissingAnkiNoteError, isRecord, parseExistingNoteSnapshot, snapshotKey } from './anki-delta'
 import type { NoteSnapshot } from './anki-delta'
 import { AnkiProfileError, checkPinnedAnkiProfile, requireExpectedAnkiProfile } from './anki-profile'
 import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from './anki-transport'
@@ -46,12 +46,12 @@ import { explicitDeletes, cleanConfirmedDeletes, deletionSignature, sourceRemova
 import type { ExplicitDeletes, SourceRemoval } from './deletion-source'
 import { resolveSyncScope, scanProfileFreeSettings, syncScopeSignature } from './sync-profiles'
 import { indexVaultIds } from './vault-id-index'
-import { applyMarkdownPatches, isEditableBlockField, isEditableMarkdownField, planExplicitBlockPatches,
+import { applyMarkdownPatches, isEditableBlockField, isEditableMarkdownField, MarkdownFieldBoundaryError, planExplicitBlockPatches,
     planLinkedBulletPatches, readCardTagOverride, readEditableAnkiBlockField, readEditableAnkiField,
     readGeneratedAnkiBacklink, reconcileCardTags, writeEditableAnkiBlockField, writeEditableAnkiField } from './bidirectional-markdown'
 import type { MarkdownPatch } from './bidirectional-markdown'
 import { BidirectionalState, matchesPendingSyncValue, mergeSyncValues, normalizeSyncTags, sameSyncExtras, syncValuesEqual } from './bidirectional-state'
-import type { SyncBacklinks, SyncChangeField, SyncChoices, SyncField, SyncRecord, SyncValue } from './bidirectional-state'
+import type { PairBases, SyncBacklinks, SyncChangeField, SyncChoices, SyncField, SyncRecord, SyncValue } from './bidirectional-state'
 import { isBidirectionalFieldName, isGeneratedBidirectionalField, readBidirectionalFieldRules, readTemplateFieldReferences } from './bidirectional-fields'
 import type { BidirectionalFieldDirection } from './bidirectional-fields'
 import { cardFieldHazards, sameCardIds } from './anki-card-impact'
@@ -91,7 +91,7 @@ export function hasPendingBidirectionalWrite(app: App): boolean {
     return pendingAnkiWrites.has(app)
 }
 
-interface Scope { currentOnly?: boolean; currentFile?: { file: TFile; path: string }; paths?: ReadonlySet<string>; force?: boolean; card?: CursorCardTarget }
+interface Scope { currentOnly?: boolean; currentFile?: { file: TFile; path: string }; paths?: ReadonlySet<string>; force?: boolean; card?: CursorCardTarget; scheduled?: boolean }
 type SourceCard = LinkedBullet | BidirectionalBlock
 interface DeleteFile {
     commands?: ExplicitDeletes
@@ -112,6 +112,7 @@ interface SourceFile {
 }
 type SourceStamp = readonly [mtime: number, ctime: number, size: number, revision: number]
 interface LocalCard {
+    exportedPair?: Pick<SyncValue, 'front' | 'back'>
     sourceSuffixes?: SourceSuffixes
     sourceBodies?: Record<string, string>
     pageShared?: Readonly<Record<string, string>>
@@ -123,6 +124,11 @@ interface LocalCard {
     deletionSource?: string
 }
 interface Link extends LocalCard {
+    requiresOutboundChoice?: ReadonlySet<SyncChangeField>
+    initialTagBase?: readonly string[]
+    clockMod?: number
+    needsClockContext?: boolean
+    pairBases?: PairBases
     fieldBases?: ReadonlyMap<string, string | null>
     releaseOneWayField?: boolean
     namedFieldModel?: string
@@ -181,7 +187,7 @@ interface Plan {
 }
 
 function configuration(plugin: MyPlugin): string {
-    return JSON.stringify([scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings)), plugin.fields_dict, syncScopeSignature(plugin.settings)])
+    return JSON.stringify([scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings)), plugin.fields_dict, syncScopeSignature(plugin.settings), plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY ?? 'latest'])
 }
 
 function protectedStatePath(plugin: MyPlugin): string {
@@ -215,9 +221,7 @@ async function readNoteBatch(notes: number[], requested: Set<number>, profile: s
     try {
         return await read(notes)
     } catch (error) {
-        const message = error instanceof Error ? error.message : error
-        if (typeof message !== 'string' ||
-            !/\b(?:notes?(?: ids?)?(?: \d+)? (?:(?:was|were) )?(?:not found|does not exist)|unknown note id|no such note)\b/i.test(message)) throw error
+        if (!isMissingAnkiNoteError(error)) throw error
 
         // Строгие коннекторы отклоняют весь пакет, когда запись пропала. Повторяем запрос только для проверенной части пакета.
         await checkPinnedAnkiProfile(profile)
@@ -324,7 +328,10 @@ function sourceFieldsSnapshot(snapshot: NoteSnapshot, bullet: SourceCard, genera
         if (raw === undefined || !raw.endsWith(suffix)) return
         const body = raw.slice(0, raw.length - suffix.length)
         if (!pair.includes(name) && body !== update.body) return
-        fields[name] = { value: body }
+        // Preserve Anki's actual field order when stripping generated File/Context suffixes.
+        const field = fields[name]
+        if (!isRecord(field)) return
+        fields[name] = { ...field, value: body }
     }
     return { ...snapshot, fields }
 }
@@ -334,6 +341,33 @@ function matchesPreview(snapshot: NoteSnapshot | undefined, link: Link, expected
     const clean = sourceFieldsSnapshot(snapshot, link.bullet, link.generated, written)
     const remote = clean && decodeAnkiNote(clean, link.bullet, link.extraDirections)
     return !!remote?.value && syncValuesEqual(remote.value, expected) && sameBacklinks(remote.backlinks, link.ankiBacklinks)
+}
+
+// A one-way export can establish a newer baseline while an older two-way checkpoint
+// still equals one side, particularly after someone deliberately restores an older value.
+async function confirmedPairBases(link: Link, note: NoteSnapshot, history: () => Promise<OneWayHistory>): Promise<PairBases | undefined> {
+    if (!link.exportedPair || link.record?.pending) return
+    const different = (['front', 'back'] as const).filter(field => !fieldEqual(link.obsidian, link.anki, field))
+    if (!different.length) return
+    const prior = (await history()).get(link.bullet.id, note.modelName)
+    if (!prior) return
+    const pair = explicitBlock(link.bullet)?.fieldPair ?? ['Front', 'Back']
+    const anchor = link.record?.pairReceipt
+    const bases: PairBases = {}
+    for (const field of different) {
+        const name = pair[field === 'front' ? 0 : 1]
+        const hash = prior.fields[name]
+        const raw = rawField(note, name)
+        if (!hash || raw === undefined) continue
+        if (anchor?.model === note.modelName && hash === anchor[field]) continue
+        const common = hash === oneWayFieldDigest(raw) ? link.anki[field] :
+            hash === oneWayFieldDigest(link.exportedPair[field]) ? link.obsidian[field] : null
+        if (link.record?.base && anchor?.model !== note.modelName) {
+            // Legacy checkpoints cannot prove which of two incompatible histories is newer.
+            if (common === null || common.normalize('NFC') !== link.record.base[field].normalize('NFC')) bases[field] = null
+        } else bases[field] = common
+    }
+    return bases
 }
 
 function tagSetsEqual(left: string[], right: string[]): boolean {
@@ -400,7 +434,130 @@ function targetFor(link: Link, choices: SyncChoices = {}): { value: SyncValue; c
         }
         return mergeSyncValues(undefined, obsidian, anki, choices, directions)
     }
-    return mergeSyncValues(record?.base, obsidian, anki, choices, directions, link.fieldBases)
+    const merged = mergeSyncValues(record?.base, obsidian, anki, choices, directions, link.fieldBases, link.pairBases, link.initialTagBase)
+    // A manual arrow can also reverse an ordinary baseline-derived text change.
+    for (const field of ['front', 'back'] as const) {
+        const choice = choices[field]
+        if (choice) merged.value[field] = link[choice][field]
+    }
+    for (const [name, direction] of directions ?? []) {
+        const choice = choices[`extra:${name}`]
+        if (choice && direction === 'both' && merged.value.extra) merged.value.extra[name] = link[choice].extra![name]
+    }
+    for (const field of link.requiresOutboundChoice ?? []) {
+        if (choices[field] !== 'obsidian' && !merged.conflicts.includes(field)) merged.conflicts.push(field)
+    }
+    return merged
+}
+
+/** Obsidian uses Unix milliseconds, Anki uses whole Unix seconds. Reject mixed units. */
+function validFileTime(time: number): boolean {
+    return Number.isFinite(time) && time >= 100_000_000_000 && time < 10_000_000_000_000
+}
+
+function validNoteTime(time: unknown): time is number {
+    return typeof time === 'number' && Number.isInteger(time) && validFileTime(time * 1000)
+}
+
+function otherNoteDigest(link: Link, note: NoteSnapshot): string {
+    const owned = new Set([...(explicitBlock(link.bullet)?.fieldPair ?? ['Front', 'Back']),
+        ...Array.from(link.extraDirections?.keys() ?? [])])
+    const other = Object.keys(note.fields).sort().filter(name => !owned.has(name)).map(name => [name, rawField(note, name)])
+    return oneWayFieldDigest(JSON.stringify([note.modelName, other, [...note.tags].sort(), [...note.cards].sort((a, b) => a - b)]))
+}
+
+// A file timestamp also reflects prose, other cards and tags. Recreate the confirmed file
+// with only this field restored before using that timestamp to settle overlapping edits.
+function clockAppliesToField(link: Link, note: NoteSnapshot, key: string): boolean {
+    const localTime = link.source.stamp[0]
+    if (!validFileTime(localTime) || link.source.file.stat.mtime !== localTime || link.record?.pending) return false
+    const pair = key === 'front' || key === 'back' ? key : undefined
+    const extra = key.startsWith('extra:') ? key.slice(6) : undefined
+    if (!pair && !extra) return false
+    // Only after there is a two-way baseline can null represent incompatible legacy
+    // histories. On the first sync it means both sides changed since a one-way receipt.
+    if (link.record?.base && (pair && link.pairBases?.[pair] === null || extra && link.fieldBases?.get(extra) === null)) return false
+    const clock = link.record?.clockContext
+    const base = link.record?.base
+    // Only a first sync compares the file's save time directly with the linked note's.
+    // With an older two-way baseline and no clock fingerprint, an unrelated file edit
+    // cannot prove which overlapping change is newer. One-sided edits are already resolved.
+    if (!clock) return !base
+    if (!base || localTime <= clock.mtime || otherNoteDigest(link, note) !== clock.other) return false
+    const previous = pair ? base[pair] : base.extra?.[extra!]
+    if (previous === undefined) return false
+    const restore = (v: SyncValue): SyncValue => pair ? { ...v, [pair]: previous }
+        : { ...v, extra: { ...v.extra, [extra!]: previous } }
+    const baseline = activeBaseline(base, link.obsidian)
+    if (!syncValuesEqual(restore(link.anki), baseline) || !syncValuesEqual(restore(link.obsidian), baseline)) return false
+    try {
+        const pairField = pair ? { [labels[pair]]: previous } : {}
+        const extraField = extra ? { [extra]: previous } : {}
+        const text = link.source.content
+        const patches = 'explicitFields' in link.bullet
+            ? planExplicitBlockPatches(text, link.bullet, { ...pairField, ...extraField })
+            : planLinkedBulletPatches(text, link.bullet, pairField, undefined, extraField)
+        return oneWayFieldDigest(applyMarkdownPatches(text, patches)) === clock.file
+    } catch {
+        return false
+    }
+}
+
+async function fillNoteTimes(notes: ReadonlyMap<number, NoteSnapshot>, ids: readonly number[], profile: string): Promise<void> {
+    // Some AnkiConnect builds provide mod only through notesModTime. Query only the
+    // notes needing a clock decision. A missing optional action leaves manual review.
+    const missing = ids.filter(id => notes.has(id) && notes.get(id)!.mod === undefined)
+    for (let offset = 0; offset < missing.length; offset += readBatchSize) {
+        const batch = missing.slice(offset, offset + readBatchSize)
+        await checkPinnedAnkiProfile(profile)
+        let response: unknown
+        try {
+            response = await auditRead('notesModTime', { notes: batch }, undefined, 5000)
+        } catch {
+            return
+        }
+        await checkPinnedAnkiProfile(profile)
+        if (!isResponseList(response) || response.length !== batch.length) continue
+        const requested = new Set(batch), valid = new Map<number, number>()
+        for (const row of response) {
+            if (!isRecord(row) || typeof row.noteId !== 'number' || !requested.delete(row.noteId) || !validNoteTime(row.mod)) break
+            valid.set(row.noteId, row.mod)
+        }
+        if (valid.size === batch.length) for (const [id, mod] of valid) notes.get(id)!.mod = mod
+    }
+}
+
+async function recommendLatest(links: readonly Link[], rows: readonly BidirectionalPreviewRow[],
+    notes: ReadonlyMap<number, NoteSnapshot>, profile: string): Promise<void> {
+    const byId = new Map(links.map(link => [link.bullet.id, link]))
+    const candidates = new Map<number, BidirectionalPreviewChange[]>()
+    for (const row of rows) {
+        const link = byId.get(row.id), note = notes.get(row.id)
+        if (!link || !note || row.issues?.length || row.duplicates?.length) continue
+        const candidatesForNote = row.changes.filter(change => change.decision === 'conflict' &&
+            change.canChooseDirection && !change.allowedSide &&
+            clockAppliesToField(link, note, change.key.slice(String(row.id).length + 1)))
+        if (candidatesForNote.length) candidates.set(row.id, candidatesForNote)
+    }
+    await fillNoteTimes(notes, [...candidates.keys()], profile)
+    for (const [id, changes] of candidates) {
+        const link = byId.get(id)!
+        const mod = notes.get(id)!.mod
+        const local = Math.floor(link.source.stamp[0] / 1000)
+        if (!validNoteTime(mod) || local === mod || mod <= (link.record?.clockContext?.mod ?? 0)) continue
+        link.clockMod = mod
+        for (const change of changes) change.recommendedSide = local > mod ? 'obsidian' : 'anki'
+    }
+}
+
+async function readPlannedNotes(items: readonly Operation[], profile: string): Promise<Map<number, NoteSnapshot>> {
+    const notes = await readNotes(items.map(({link}) => link.bullet.id), profile)
+    const timed = items.filter(({link}) => link.clockMod !== undefined)
+    await fillNoteTimes(notes, timed.map(({link}) => link.bullet.id), profile)
+    for (const {link} of timed) {
+        if (notes.get(link.bullet.id)?.mod !== link.clockMod || link.source.file.stat.mtime !== link.source.stamp[0]) throw stalePlan()
+    }
+    return notes
 }
 
 function previewChanges(link: Link): BidirectionalPreviewChange[] {
@@ -416,6 +573,7 @@ function previewChanges(link: Link): BidirectionalPreviewChange[] {
             obsidian: valueFor(link.obsidian, field), anki: valueFor(link.anki, field),
             decision: target.conflicts.includes(field) ? 'conflict' : sameAsLocal ? 'obsidian' : sameAsRemote ? 'anki' : 'merge',
             merged: valueFor(target.value, field),
+            canChooseDirection: field !== 'tags' && !link.record?.pending,
         }]
     })
     for (const [name, update] of Object.entries(link.generated ?? {})) {
@@ -432,6 +590,7 @@ function previewChanges(link: Link): BidirectionalPreviewChange[] {
         rows.push({ key: `${link.bullet.id}:${key}`, field, obsidian: local, anki: remote, merged,
             decision: target.conflicts.includes(key) ? 'conflict'
                 : merged.normalize('NFC') === local.normalize('NFC') ? 'obsidian' : 'anki',
+            canChooseDirection: !link.record?.pending && direction === 'both' && !link.outboundBlocked?.has(field),
             allowedSide: direction === 'to-anki' ? 'obsidian'
                 : direction === 'to-obsidian' || link.outboundBlocked?.has(field) ? 'anki' : undefined })
     }
@@ -604,20 +763,48 @@ function readSourceCards(text: string, syntax: DuplicateMarkerSyntax, expression
     }
     text = maskLegacyFieldSections(text)
     const blocks = findBidirectionalBlocks(text, syntax, modelFields)
-    let bullets = findLinkedBullets(text, readers.length > 0, syntax)
+    const inspected = findLinkedBullets(text, readers.length > 0, syntax, Object.values(expressions).some(Boolean))
+    const legacy = inspected.filter(bullet => bullet.requiresExportMatch)
+    let bullets = legacy.length ? inspected.filter(bullet => !bullet.requiresExportMatch) : inspected
     if (bullets.length && readers.some(reader => reader.format === 'knowledge')) {
-        bullets = bullets.filter(bullet => !isKnowledgeBullet(text, bullet.start))
+        bullets = bullets.filter(bullet => {
+            if (!isKnowledgeBullet(text, bullet.start)) return true
+            legacy.push(bullet)
+            return false
+        })
     }
     if (blocks.length && bullets.length) {
         const overlaps = makeSpanOverlap(blocks.map(block => [block.start, block.end]))
         bullets = bullets.filter(card => !overlaps(card.start, card.end))
     }
     const cards: SourceCard[] = blocks.length ? [...blocks, ...bullets] : bullets
-    if (!readers.length || bullets.length === markers.length &&
-        bullets.every((bullet, i) => bullet.id === markers[i].id && bullet.markerLine === markers[i].line)) return cards
-    const claimed = makeSpanOverlap(cards.map(card => [card.start, card.end]))
-    const wanted = cursorId === undefined ? markers : markers.filter(marker => marker.id === cursorId)
-    return [...cards, ...findPresetBlocks(text, readers, wanted, claimed, syntax)]
+    if (readers.length && !(bullets.length === markers.length &&
+        bullets.every((bullet, i) => bullet.id === markers[i].id && bullet.markerLine === markers[i].line))) {
+        const claimed = makeSpanOverlap(cards.map(card => [card.start, card.end]))
+        const wanted = cursorId === undefined ? markers : markers.filter(marker => marker.id === cursorId)
+        for (const block of findPresetBlocks(text, readers, wanted, claimed, syntax)) cards.push(block)
+    }
+    if (legacy.length) {
+        const claimed = makeSpanOverlap(cards.map(card => [card.start, card.end]))
+        for (const bullet of legacy) if (!claimed(bullet.start, bullet.end)) cards.push(bullet)
+    }
+    return cards
+}
+
+// One-way export resolves a built-in dictionary bullet against the note's real model. A
+// Knowledge regexp assigned to another model must not displace that already linked owner.
+function resolveLinkedOwners(text: string, entries: SourceCard[], syntax: DuplicateMarkerSyntax,
+    expressions: Readonly<Record<string, string>>, models: ReadonlyMap<number, LinkedBulletModel>): SourceCard[] {
+    const displaced = new Set(entries.filter(card => {
+        const block = explicitBlock(card)
+        const model = models.get(card.id)
+        return block?.format === 'knowledge' && model && block.model !== model.name &&
+            expressions[model.name] !== knowledgeBulletExpression
+    }).map(card => card.id))
+    if (!displaced.size) return entries
+    const originals = new Map(findLinkedBullets(text, true, syntax)
+        .filter(bullet => displaced.has(bullet.id)).map(bullet => [bullet.id, bullet]))
+    return entries.map(card => originals.get(card.id) ?? card)
 }
 
 /** Контрольная точка должна описывать уже записанный Markdown, включая только что изменённые поля и метки. */
@@ -714,10 +901,12 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     const rows: BidirectionalPreviewRow[] = []
     const deletions = new Map<SourceFile, DeleteFile>()
     const dirty = dirtyFiles(plugin)
+    // A manual action must see saved edits even when a sync provider preserved the timestamps and size.
+    const manualPath = scope.scheduled ? undefined : target?.path ?? newCardSource?.path
     const index = await indexVaultIds(plugin, folderScope.allFiles, plugin.settings.Syntax, pathRevision, {
         force: scope.force,
         needsContent: (path, file) => selected.has(path) && !dirty.has(path) &&
-            !cachedSource(file, path, sourceStamp(file, pathRevision(path))),
+            (path === manualPath || scope.paths?.has(path) || !cachedSource(file, path, sourceStamp(file, pathRevision(path)))),
         onFile: (file, path, markers, content) => {
             if (!selected.has(path)) return
             if (dirty.has(path)) {
@@ -725,7 +914,8 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 return
             }
             const stamp = sourceStamp(file, pathRevision(path))
-            const cached = content === undefined ? cachedSource(file, path, stamp) : undefined
+            const previous = cachedSource(file, path, stamp)
+            const cached = content === undefined || previous?.content === content ? previous : undefined
             const text = content ?? cached?.content
             if (text === undefined) throw new Error('the file changed during the preview')
             if (!cached && readRecoveryMarker(text)) {
@@ -847,7 +1037,8 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     const links: Link[] = []
     const idDate = plugin.settings.Defaults['Add Date to Anki IDs'] ? formatLocalIdDate(new Date()) : undefined
     for (const source of sources) {
-        const { file, path, content, cards, stamp } = source
+        const { file, path, content, stamp } = source
+        const cards = source.cards = resolveLinkedOwners(source.parserText ?? content, source.cards, plugin.settings.Syntax, data.custom_regexps, models)
         const firstRow = rows.length
         const firstLink = links.length
         const firstPause = pauses.length
@@ -860,7 +1051,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 sourceModels.length === cached.models.length &&
                 sourceModels.every((model, index) => model?.key === cached.models[index]?.key) ? cached : undefined
             const parsed = reused ? undefined : await manager.parseMarkdown(file, source.parserText ?? content, source.parseIds ?? ids, true, models,
-                cards.filter((card): card is LinkedBullet => !('explicitFields' in card)),
+                cards.filter((card): card is LinkedBullet => 'metadata' in card && !card.requiresExportMatch),
                 false, undefined, !!target, undefined, { shouldStop: () => currentRevision() !== startRevision })
             if (target && parsed) {
                 const atCursor = cardAtOffset(parsed, content, cursorCardOffset(target, path, content))
@@ -874,14 +1065,17 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                     const view = source.parserText === undefined ? text :
                         explicitDeletes(text, plugin.settings.Syntax, data.custom_regexps, data.page_model, directivePatterns)?.masked ?? text
                     const markers = findIdMarkers(view, plugin.settings.Syntax)
-                    const entries = readSourceCards(view, plugin.settings.Syntax, data.custom_regexps, data.page_model, readers, markers, data.fields_dict)
+                    const located = readSourceCards(view, plugin.settings.Syntax, data.custom_regexps, data.page_model, readers, markers, data.fields_dict)
+                    const entries = resolveLinkedOwners(view, located, plugin.settings.Syntax, data.custom_regexps, models)
                     return manager.parseMarkdown(file, view, markers.map(marker => marker.id), true, models,
-                        entries.filter((entry): entry is LinkedBullet => !('explicitFields' in entry)),
+                        entries.filter((entry): entry is LinkedBullet => 'metadata' in entry && !entry.requiresExportMatch),
                         false, undefined, false, undefined, { shouldStop: () => currentRevision() !== readRevision })
                 }
             }
-            const parsedById = parsed && new Map(parsed.notes_to_edit.map(({ identifier, note }, index) =>
-                [identifier, { note, range: parsed.auditNoteRanges?.[index] }] as const))
+            const parsedById = new Map<number, { note: CardPreviewCandidate['note']; range?: [number, number] } | null>()
+            parsed?.notes_to_edit.forEach(({ identifier, note }, i) => {
+                if (identifier != null) parsedById.set(identifier, parsedById.has(identifier) ? null : { note, range: parsed.auditNoteRanges?.[i] })
+            })
             const fileTags = parsed?.global_tags.split(/\s+/u) ?? []
             const yamlTags = parsed ? frontmatterTags(content) : []
             const localCards = reused?.cards ?? new Map<number, LocalCard>()
@@ -902,7 +1096,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                     continue
                 }
                 const snapshot = snapshots.get(id)
-                const candidate = parsedById?.get(id)
+                const candidate = parsedById.get(id)
                 if (target && snapshot && snapshot.modelName !== target.model) throw changedCard()
                 const record = state.get(id)
                 const suffixes = candidate ? sourceSuffixes(candidate.note.fields, id, path, vault.getName(),
@@ -963,6 +1157,13 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 }
                 let local = localCards.get(id)
                 const range = candidate?.range
+                const needsRule = 'metadata' in bullet && bullet.requiresExportMatch
+                // A legacy source may only be edited when the independent forward parser claimed this exact
+                // row and ID. Some older expressions include the preceding newline or skip the bullet prefix.
+                const sameExport = !needsRule || candidate && range && !!data.custom_regexps[candidate.note.modelName] &&
+                    range[0] >= bullet.start - (content[bullet.start - 2] === '\r' ? 2 : content[bullet.start - 1] === '\n' ? 1 : 0) &&
+                    range[0] <= bullet.start + (/^ {0,3}[-+*][ \t]+/u.exec(content.slice(bullet.start, bullet.end))?.[0].length ?? 0) &&
+                    range[1] === bullet.end
                 const blockIsParsed = !block || range && range[0] >= block.start - block.eol.length &&
                     range[0] < content.indexOf('\n', block.start) && range[1] > block.idStart &&
                     range[1] <= block.end + block.eol.length
@@ -971,12 +1172,14 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 const mappedFrontAndBack = block?.layout ? block.layout.names.every((name, i) =>
                     capturedNames?.[i] === name && (!mapping || mapping[i] === name)) : block?.fieldPair ? isLinkedPageSchema(block.model, capturedNames, block.fieldPair) :
                     !block?.format || capturedNames?.[0] === 'Front' && capturedNames[1] === 'Back'
-                if (remote?.value && markerLine !== undefined && candidate && blockIsParsed && mappedFrontAndBack &&
-                    (!block || block.model === snapshot?.modelName)) {
+                if (remote?.value && markerLine !== undefined && candidate && sameExport && blockIsParsed && mappedFrontAndBack &&
+                    candidate.note.modelName === snapshot?.modelName && (!block || block.model === snapshot.modelName)) {
                     const fields = suffixes ? { ...candidate.note.fields } : candidate.note.fields
                     for (const [name, suffix] of Object.entries(suffixes ?? {})) fields[name] = fields[name].slice(0, -suffix.length)
                     local = readLocalCard(content, bullet, suffixes ? { ...candidate.note, fields } : candidate.note, fileTags, yamlTags)
                     if (local) {
+                        const pair = block?.fieldPair ?? ['Front', 'Back']
+                        local.exportedPair = { front: candidate.note.fields[pair[0]], back: candidate.note.fields[pair[1]] }
                         local.frozenFields = parsed?.namedSyncFrozenFields?.(candidate.note.modelName)
                         local.pageShared = pageShared
                     }
@@ -987,7 +1190,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 const pauseIssues: string[] = []
                 let pauseChange: BidirectionalPreviewChange | undefined
                 const marker = source.markers.get(id)?.selection ?? null
-                if (slots && (marker || record?.suspension || slots.some(slot => slot.suspended)) && markerLine !== undefined && (local || candidate && blockIsParsed && candidate.note.modelName === snapshot?.modelName)) {
+                if (slots && (marker || record?.suspension || slots.some(slot => slot.suspended)) && markerLine !== undefined && (local || candidate && sameExport && blockIsParsed && candidate.note.modelName === snapshot?.modelName)) {
                     const label = (selection: SuspendSelection | null) => selection === null ? t('All active', 'Все активны') :
                         selection === 'all' ? t('All paused', 'Все на паузе') :
                             t('Paused: ', 'На паузе: ') + selection.map(n => '#' + n).join(', ')
@@ -1042,10 +1245,14 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 if (!snapshot || !remote?.value || !local || markerLine === undefined) {
                     let problem = !snapshot ? t('This ID was not found or could not be read in the active Anki profile.',
                         'Не удалось найти или прочитать этот ID в активном профиле Anki.') :
-                        block?.layout ? t('The Anki and Markdown fields must have the same verified order and editable text. Check the rule and model fields.',
-                            'Проверьте порядок полей в правиле и типе Anki. Для обратного переноса нужен однозначно сопоставимый текст.') :
-                        t('This card needs plain-text Front and Back fields that can be mapped back to Markdown.',
-                            'У этой карточки должны быть текстовые поля вопроса и ответа, соответствующие разметке Markdown.')
+                        !mappedFrontAndBack || block?.layout && !remote || candidate && candidate.note.modelName !== snapshot.modelName ?
+                            t('The field order differs between the Markdown rule and the Anki note type. Compare them in the rule settings.',
+                                'Порядок полей в правиле Markdown отличается от типа записи Anki. Сверьте их в настройках правила.') :
+                        !local && (!candidate || !sameExport || !blockIsParsed) ?
+                            t('The Markdown rule could not identify this linked card. Check its boundaries and ID.',
+                                'Правило Markdown не распознало эту карточку. Проверьте границы и ID.') :
+                        t('The question or answer contains formatting that cannot be transferred safely. Plain text and simple bold spans are supported.',
+                            'В вопросе или ответе есть разметка, которую нельзя перенести без потерь. Поддерживаются обычный текст и простое полужирное выделение.')
                     if (!snapshot && missing.has(id)) {
                         if (!record?.base) problem = t(
                             'Anki reports this note missing. No previous confirmed sync of this ID in the active profile is recorded. Its Markdown source is kept.',
@@ -1073,7 +1280,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 }
                 const obsidian = extra?.local ? { ...local.obsidian, extra: extra.local } : local.obsidian
                 const anki = extra?.remote ? { ...remote.value, extra: extra.remote } : remote.value
-                const extraIssues = extra?.issues?.length || pauseIssues.length ? [...(extra?.issues ?? []), ...pauseIssues] : undefined
+                let extraIssues = extra?.issues?.length || pauseIssues.length ? [...(extra?.issues ?? []), ...pauseIssues] : undefined
                 // Записи с подтверждённой общей версией и совпавшими сторонами не создают операций.
                 const namedFieldModel = (block?.format === 'page' || block?.namedFieldInsertAt !== undefined) &&
                     (extra?.directions?.size || record?.namedFieldModel === snapshot.modelName) ? snapshot.modelName : undefined
@@ -1088,21 +1295,29 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                     datePatch = block?.idLocation === 'yaml' ? pageIdDatePatch(content, id, idDate) :
                         idDatePatch(line, id, idDate, start)
                 }
-                if (!datePatch && !metadataChanged && !extra?.releaseOneWayField && namedFieldModel === record?.namedFieldModel && (!signature || signature === record?.deletionSource) && baseline && !record?.pending && sameStoredValue(baseline, obsidian) && sameStoredValue(baseline, anki)) {
+                const needsClockContext = !record?.clockContext && validFileTime(source.stamp[0])
+                if (!needsClockContext && !datePatch && !metadataChanged && !extra?.releaseOneWayField && namedFieldModel === record?.namedFieldModel && (!signature || signature === record?.deletionSource) && baseline && !record?.pending && sameStoredValue(baseline, obsidian) && sameStoredValue(baseline, anki)) {
                     if (extraIssues || pauseChange) rows.push({ ...row, issues: extraIssues })
                     continue
                 }
-                const link: Link = { source, bullet, ...local, datePatch, generated, obsidian, anki, deletionSource: signature,
+                const link: Link = { source, bullet, ...local, needsClockContext, datePatch, generated, obsidian, anki, deletionSource: signature,
                     pageContextField: block?.format === 'page' && data.add_context ? data.context_fields?.[snapshot.modelName] : undefined,
                     record, namedFieldModel, fieldBases: extra?.fieldBases, releaseOneWayField: extra?.releaseOneWayField, model: snapshot.modelName, ankiBacklinks: remote.backlinks, extraDirections: extra?.directions,
-                    outboundBlocked: extra?.outboundBlocked, cardIds: block || generated || extra?.directions?.size ? snapshot.cards : undefined }
+                    outboundBlocked: extra?.outboundBlocked, cardIds: block || needsRule || generated || extra?.directions?.size ? snapshot.cards : undefined }
+                link.pairBases = await confirmedPairBases(link, snapshot, priorOneWay)
+                if (!record?.base && !record?.pending && plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY !== 'skip' &&
+                    !fieldEqual(obsidian, anki, 'tags')) {
+                    // Previously confirmed shared tags have a baseline. Other side-only tags
+                    // are additions; preserve them without holding up the linked text fields.
+                    link.initialTagBase = (await priorOneWay()).get(id, snapshot.modelName)?.matchedTags ?? []
+                }
                 const fieldChanges = previewChanges(link)
                 if (datePatch) fieldChanges.push({ key: id + ':id-date', field: t('ID date in Markdown', 'Дата ID в Markdown'),
                     decision: 'merge', obsidian: content.slice(datePatch.start, datePatch.end), anki: '', merged: datePatch.text })
                 if (block && needsReparse(block)) {
                     let problem: string | undefined
                     for (const change of fieldChanges) {
-                        if (change.decision !== 'anki' && change.decision !== 'conflict') continue
+                        if (change.decision !== 'anki' && change.decision !== 'conflict' && !change.canChooseDirection) continue
                         const slot = change.key.slice(String(id).length + 1)
                         const name = slot === 'front' ? 'Front' : slot === 'back' ? 'Back' :
                             slot.startsWith('extra:') ? slot.slice(6) : undefined
@@ -1115,6 +1330,23 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                                 after: content.slice(block.start, patch.start) + patch.text + content.slice(patch.end, end),
                             })
                         } catch (error) {
+                            // The Anki text is losslessly decoded, but its separator would split the
+                            // Markdown field. Only an explicitly selected, verified forward write is possible.
+                            const pairField = slot === 'front' || slot === 'back' ? slot : undefined
+                            const remoteName = pairField && block.fieldPair?.[pairField === 'front' ? 0 : 1]
+                            if (error instanceof MarkdownFieldBoundaryError && block.format === 'custom' && pairField &&
+                                remoteName && !record?.pending && !generated?.[remoteName] && change.obsidian && change.anki &&
+                                block.layout?.separators.some(separator => change.anki.includes(separator)) &&
+                                !cardFieldHazards(remoteName, change.anki, change.obsidian).length) {
+                                link.requiresOutboundChoice = new Set([...(link.requiresOutboundChoice ?? []), pairField])
+                                change.decision = 'conflict'
+                                change.allowedSide = 'obsidian'
+                                change.canChooseDirection = false
+                                extraIssues = [...(extraIssues ?? []), t(
+                                    `${remoteName}: the Anki text contains the Markdown field separator. Choose Obsidian → Anki or skip.`,
+                                    `${remoteName}: в тексте Anki есть разделитель полей Markdown. Выберите Obsidian → Anki или пропустите.`)]
+                                continue
+                            }
                             problem = error instanceof Error ? error.message : String(error)
                             break
                         }
@@ -1160,6 +1392,9 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
             }
         }
     }
+    if (index.complete && plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY !== 'skip') {
+        await recommendLatest(links, rows, snapshots, profile)
+    }
     await requireExpectedAnkiProfile(plugin, profile)
     if (currentRevision() !== startRevision || configuration(plugin) !== config) {
         throw new Error('Files or settings changed during the preview. Run it again.')
@@ -1188,8 +1423,8 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
 interface Operation { link: Link; target: SyncValue; patches: MarkdownPatch[]; requests: AnkiConnect.AnkiConnectRequest[] }
 
 function needsReparse(card: SourceCard): boolean {
-    const block = explicitBlock(card)
-    return !!block && (!!block.layout || block.format === 'page' || block.namedFieldInsertAt !== undefined)
+    if ('metadata' in card) return !!card.requiresExportMatch
+    return !!card.layout || card.format === 'page' || card.namedFieldInsertAt !== undefined
 }
 
 /** Re-run the production parser over the proposed edit. Other rules in the file may also match the new text. */
@@ -1299,7 +1534,7 @@ function canBatchFields(group: readonly Operation[]): boolean {
 }
 
 async function writeFieldPackets(plugin: MyPlugin, plan: Plan, group: readonly Operation[], beforeWrite: () => void,
-    afterVerify: (packet: readonly Operation[]) => void, defer: (item: Operation) => void): Promise<void> {
+    afterVerify: (packet: readonly Operation[], saved: ReadonlyMap<number, NoteSnapshot>) => void, defer: (item: Operation) => void): Promise<void> {
     let offset = 0
     while (offset < group.length) {
         const packet: Operation[] = []
@@ -1313,7 +1548,7 @@ async function writeFieldPackets(plugin: MyPlugin, plan: Plan, group: readonly O
             offset++
         }
         const ids = packet.map(item => item.link.bullet.id)
-        const live = await readNotes(ids, plan.profile)
+        const live = await readPlannedNotes(packet, plan.profile)
         for (const {link} of packet) if (!matchesPreview(live.get(link.bullet.id), link)) throw stalePlan()
         const selected = await selectedBrowseIds(new Set(ids))
         const ready = selected.size ? packet.filter(item => {
@@ -1331,8 +1566,8 @@ async function writeFieldPackets(plugin: MyPlugin, plan: Plan, group: readonly O
         beforeWrite()
         await writeToAnki(plugin.app, {action: 'multi', version: 6,
             params: {actions: ready.map(item => item.requests[0])}})
-        await verifyAnkiTargets(plugin, ready, plan.profile)
-        afterVerify(ready)
+        const saved = await verifyAnkiTargets(plugin, ready, plan.profile)
+        afterVerify(ready, saved)
     }
 }
 
@@ -1365,14 +1600,18 @@ async function verifyAnkiTargets(plugin: MyPlugin, group: readonly Operation[], 
 }
 
 /** При смене режима принадлежность поля остаётся у того же ID и профиля. */
-function confirmedNamedReceipt(item: Operation, note: NoteSnapshot | undefined): OneWayReceipt | undefined {
+function confirmedFieldReceipt(item: Operation, note: NoteSnapshot | undefined): OneWayReceipt | undefined {
     const { link, target } = item
-    if (!note || !link.pageShared && (!link.namedFieldModel || !link.extraDirections?.size)) return
+    if (!note) return
     const eligible = link.namedFieldModel ? Array.from(link.extraDirections?.keys() ?? []) : []
     const shared = link.pageShared && Object.keys(link.pageShared)
-    if (!eligible.length && !shared?.length) return
     const present: string[] = []
     const values = Object.create(null) as Record<string, string>
+    const pair = explicitBlock(link.bullet)?.fieldPair ?? ['Front', 'Back']
+    for (const name of pair) {
+        const value = rawField(note, name)
+        if (value !== undefined) values[name] = value
+    }
     for (const name of eligible) {
         const value = rawField(note, name)
         if (value === undefined) continue
@@ -1384,30 +1623,36 @@ function confirmedNamedReceipt(item: Operation, note: NoteSnapshot | undefined):
         const value = rawField(note, name)
         if (value !== undefined) values[name] = value
     }
-    return { id: link.bullet.id, modelName: note.modelName, fields: values, namedLayout: { eligible, present, shared } }
+    return { id: link.bullet.id, modelName: note.modelName, fields: values,
+        ...(eligible.length || shared?.length ? { namedLayout: { eligible, present, shared } } : {}) }
 }
 
 function needsUpdate(link: Link, target: SyncValue): boolean {
-    return !!link.releaseOneWayField || link.namedFieldModel !== link.record?.namedFieldModel || !!link.datePatch || !!link.generated && Object.entries(link.generated).some(([name, field]) =>
+    return !!link.needsClockContext || !!link.releaseOneWayField || link.namedFieldModel !== link.record?.namedFieldModel || !!link.datePatch || !!link.generated && Object.entries(link.generated).some(([name, field]) =>
         field.before !== field.after || !Object.prototype.hasOwnProperty.call(link.pageShared ?? {}, name) && link.record?.sourceSuffixes?.[name] !== field.after) || !!link.deletionSource && link.deletionSource !== link.record?.deletionSource || !!link.record?.pending || !link.record?.base || !syncValuesEqual(activeBaseline(link.record.base, target), target) ||
         !syncValuesEqual(link.obsidian, target) || !syncValuesEqual(link.anki, target)
+}
+
+function selectedForLink(link: Link, choices: ReadonlyMap<string, BidirectionalSide>): SyncChoices {
+    const id = link.bullet.id
+    const selected: SyncChoices = {}
+    for (const field of fields) {
+        const choice = choices.get(`${id}:${field}`)
+        if (choice) selected[field] = choice
+    }
+    for (const field of link.extraDirections?.keys() ?? []) {
+        const key = `extra:${field}` as const
+        const choice = choices.get(`${id}:${key}`)
+        if (choice) selected[key] = choice
+    }
+    return selected
 }
 
 function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSide>): Operation[] {
     return plan.links.flatMap((link): Operation[] => {
         const id = link.bullet.id
         const block = explicitBlock(link.bullet)
-        const selected: SyncChoices = {}
-        for (const field of fields) {
-            const choice = choices.get(`${id}:${field}`)
-            if (choice) selected[field] = choice
-        }
-        for (const field of link.extraDirections?.keys() ?? []) {
-            const key = `extra:${field}` as const
-            const choice = choices.get(`${id}:${key}`)
-            if (choice) selected[key] = choice
-        }
-        const { value: target, conflicts } = targetFor(link, selected)
+        const { value: target, conflicts } = targetFor(link, selectedForLink(link, choices))
         if (conflicts.length || !needsUpdate(link, target)) return []
         link = resolvedPageContext(link, target.front)
         const localFields: Partial<Record<'Front' | 'Back', string>> = {}
@@ -1565,10 +1810,10 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         const planned = operationsFor(plan, choices)
         const errors: string[] = []
         const defer = (item: Operation) => {
-            errors.push(uiDiagnostic(ankiBrowseMessage(item.link.bullet.id, item.link.obsidian.front), t))
+            if (mode === 'preview') errors.push(uiDiagnostic(ankiBrowseMessage(item.link.bullet.id, item.link.obsidian.front), t))
         }
         const selected = await selectedBrowseIds(new Set(planned.filter(item =>
-            item.patches.length || item.requests.some(request => request.action === 'updateNoteFields')).map(item => item.link.bullet.id)))
+            item.requests.some(request => request.action === 'updateNoteFields')).map(item => item.link.bullet.id)))
         const operations = selected.size ? planned.filter(item => {
             if (!selected.has(item.link.bullet.id)) return true
             defer(item)
@@ -1577,10 +1822,12 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         const chosenPauses = plan.pauses.filter(p => !p.requiresAnkiChoice || choices.get(p.id + ':suspension') === 'anki')
         if (!operations.length && !chosenPauses.length && !plan.deletions.size) {
             if (errors.length) onPartial?.()
-            return errors[0] ?? t('There are no changes with a confirmed choice.', 'Нет изменений с подтверждённым вариантом.')
+            return errors[0] ?? (mode === 'background'
+                ? t('No changes applied.', 'Изменения не применялись.')
+                : t('There are no changes with a confirmed choice.', 'Нет изменений с подтверждённым вариантом.'))
         }
         const state = await BidirectionalState.open(vault.adapter, plan.statePath, plan.profile)
-        const snapshot = await readNotes(operations.map(item => item.link.bullet.id), plan.profile)
+        const snapshot = await readPlannedNotes(operations, plan.profile)
         await requireExpectedAnkiProfile(plugin, plan.profile)
         const bySource = new Map<SourceFile, Operation[]>()
         const dirty = dirtyFiles(plugin)
@@ -1616,7 +1863,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         const fieldOutputs = new Map<SourceFile, string>()
         const failedSources = new Set<SourceFile>()
         const confirmed: [number, SyncRecord][] = []
-        const namedReceipts: OneWayReceipt[] = []
+        const fieldReceipts: OneWayReceipt[] = []
         let profileProblem: AnkiProfileError | undefined
         let dispatchedWrite = false
         let revision = plan.revision
@@ -1630,21 +1877,36 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
             revision = current
             ownWritePath = undefined
         }
+        const fileHashes = new Map<SourceFile, string>()
         const confirm = (item: Operation, sourceHash: string | undefined, note?: NoteSnapshot) => {
-            const receipt = confirmedNamedReceipt(item, note)
-            if (receipt) namedReceipts.push(receipt)
+            const receipt = confirmedFieldReceipt(item, note)
+            if (receipt) fieldReceipts.push(receipt)
             const prior = item.link.namedFieldModel === item.link.record?.namedFieldModel ? item.link.record?.base?.extra : undefined
             const base = prior ? { ...item.target, extra: { ...prior, ...item.target.extra } } : item.target
             // После перевода редактируемого поля в FROZEN его прежняя строка больше не владеет значением.
             if (prior && item.link.pageShared) for (const name of Object.keys(item.link.pageShared)) delete base.extra![name]
-            confirmed.push([item.link.bullet.id, { ...item.link.record, pending: undefined, base, namedFieldModel: item.link.namedFieldModel,
+            const [frontName, backName] = explicitBlock(item.link.bullet)?.fieldPair ?? ['Front', 'Back']
+            const front = receipt?.fields?.[frontName], back = receipt?.fields?.[backName]
+            const pairReceipt = front !== undefined && back !== undefined
+                ? { model: item.link.model, front: oneWayFieldDigest(front), back: oneWayFieldDigest(back) } : undefined
+            const source = item.link.source
+            let clockContext: SyncRecord['clockContext']
+            if (note && validFileTime(source.file.stat.mtime)) {
+                let file = fileHashes.get(source)
+                if (!file) {
+                    file = oneWayFieldDigest(fieldOutputs.get(source) ?? source.content)
+                    fileHashes.set(source, file)
+                }
+                clockContext = { file, other: otherNoteDigest(item.link, note), mtime: source.file.stat.mtime, mod: note.mod }
+            }
+            confirmed.push([item.link.bullet.id, { ...item.link.record, pending: undefined, base, pairReceipt, clockContext, namedFieldModel: item.link.namedFieldModel,
                 sourceSuffixes: item.link.sourceSuffixes, deletionSource: sourceHash }])
         }
         if (!chosenPauses.length && !plan.deletions.size && canBatchFields(operations)) {
             try {
-                await writeFieldPackets(plugin, plan, operations, () => { checkRevision(); dispatchedWrite = true }, packet => {
+                await writeFieldPackets(plugin, plan, operations, () => { checkRevision(); dispatchedWrite = true }, (packet, saved) => {
                     checkRevision()
-                    for (const item of packet) confirm(item, item.link.deletionSource)
+                    for (const item of packet) confirm(item, item.link.deletionSource, saved.get(item.link.bullet.id))
                 }, defer)
             } catch (error) {
                 errors.push(uiDiagnostic(error, t))
@@ -1664,8 +1926,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                 if (requests.length || patches.length) {
                     await requireExpectedAnkiProfile(plugin, plan.profile)
                     if (configuration(plugin) !== plan.configuration) throw stalePlan()
-                    const wanted = group.map(item => item.link.bullet.id)
-                    const current = await readNotes(wanted, plan.profile)
+                    const current = await readPlannedNotes(group, plan.profile)
                     for (const { link } of group) {
                         if (!matchesPreview(current.get(link.bullet.id), link)) throw stalePlan()
                     }
@@ -1750,9 +2011,9 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
             }
         }
         // Храним подтверждение уже проверенных пакетов в контрольной точке исходного профиля даже после переключения.
-        if (namedReceipts.length) {
+        if (fieldReceipts.length) {
             const history = await openOneWayHistory(plugin, plan.profile)
-            history.apply(namedReceipts)
+            history.apply(fieldReceipts)
             await history.flush()
         }
         if (confirmed.length) await state.checkpoint(confirmed)
@@ -1919,6 +2180,10 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
             'Включите двустороннюю синхронизацию в настройках Rudonium.'))
         return 'stopped'
     }
+    let progress: Notice | undefined
+    const progressTimer = scope.scheduled ? undefined : setTimeout(() => {
+        progress = new Notice(t('Checking linked notes in Obsidian and Anki…', 'Проверяю связанные записи в Obsidian и Anki…'), 0)
+    }, 500)
     try {
         if (scope.currentOnly && !scope.currentFile) {
             const file = plugin.app.workspace.getActiveFile()
@@ -1931,19 +2196,25 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
             hasPendingAnkiWrite(plugin.app) ? pendingAnkiWriteMessage : undefined
         const automatic = !previewRequested && plugin.settings.BIDIRECTIONAL_PREVIEW !== true
         let applicable = plan
-        let deferred = false
+        const held = new Set<number>()
+        const automaticChoices = new Map<string, BidirectionalSide>()
         if (automatic) {
-            const held = new Set(plan.rows.filter(row => row.issues?.length || row.duplicates?.length ||
-                row.changes.some(change => change.decision === 'conflict')).map(row => row.id))
+            for (const row of plan.rows) {
+                if (row.issues?.length || row.duplicates?.length) { held.add(row.id); continue }
+                for (const change of row.changes) {
+                    if (change.decision !== 'conflict') continue
+                    if (change.recommendedSide) automaticChoices.set(change.key, change.recommendedSide)
+                    else held.add(row.id)
+                }
+            }
             for (const group of plan.deletions.values()) for (const id of group.evidence.keys()) held.add(id)
-            deferred = held.size > 0 || plan.issues.length > 0
             if (held.size) applicable = { ...plan, deletions: new Map(),
                 links: plan.links.filter(link => !held.has(link.bullet.id)),
                 pauses: plan.pauses.filter(pause => !held.has(pause.id)) }
         }
         const canApply = applicable.complete && !pending && (applicable.deletions.size > 0 ||
             applicable.pauses.some(p => !p.requiresAnkiChoice) || applicable.links.some(link => {
-                const target = targetFor(link)
+                const target = targetFor(link, selectedForLink(link, automaticChoices))
                 return !target.conflicts.length && needsUpdate(link, target.value)
             }))
         if (automatic) {
@@ -1957,15 +2228,21 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 new Notice(t('Could not check all vault IDs. ', 'Не удалось проверить все ID хранилища. ') + detail)
                 return 'failed'
             }
-            if (canApply) {
-                let partial = false
-                const result = await applyPlan(plugin, applicable, new Map(), () => { partial = true }, 'background')
-                if (result) new Notice(result, partial ? 10000 : 4000)
-                if (partial) return 'failed'
-            } else if (!deferred) {
-                new Notice(t('Bidirectional sync: no changes.', 'Двусторонняя синхронизация: изменений нет.'), 4000)
+            let partial = false
+            const result = canApply ? await applyPlan(plugin, applicable, automaticChoices, () => { partial = true }, 'background') : ''
+            const deferred = held.size > 0 || plan.issues.length > 0
+            if (result && (!scope.scheduled || partial)) {
+                new Notice(result, partial ? 10000 : 4000)
+            } else if (!scope.scheduled) {
+                // A normal manual run gives feedback without prompting about cards left for an explicit review.
+                const checked = t(`Linked notes checked: ${plan.scanned}.`, `Связанных записей проверено: ${plan.scanned}.`)
+                const message = deferred ? t(`${checked} No changes applied.`, `${checked} Изменения не применялись.`)
+                    : plan.scanned ? checked + t(' No changes.', ' Изменений нет.')
+                    : t('No linked notes found. To create a note, place the cursor in the card and run Preview Current Card.',
+                        'Связанных записей не найдено. Чтобы создать запись, поставьте курсор в карточку и выполните «Предпросмотр текущей карточки».')
+                new Notice(message, 4000)
             }
-            return deferred ? 'stopped' : 'completed'
+            return partial ? 'failed' : 'completed'
         }
         const source = plan.newCardSource
         const view = source && plan.complete && !pending ? plugin.app.workspace.getActiveViewOfType?.(MarkdownView) : null
@@ -1994,5 +2271,8 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
         const reason = uiDiagnostic(error, t)
         new Notice(t(`Bidirectional sync stopped. ${reason}`, `Двусторонняя синхронизация остановлена. ${reason}`))
         return 'failed'
+    } finally {
+        if (progressTimer !== undefined) clearTimeout(progressTimer)
+        progress?.hide()
     }
 }

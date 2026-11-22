@@ -43,3 +43,61 @@ test('a code fence written inside an HTML or Obsidian comment does not swallow l
         assert.deepEqual(Array.from(findLinkedBullets(input, true), card => card.id), [real])
     }
 })
+
+test('configured block delimiters preserve END prefixes, explicit note IDs and neighboring inline notes under LF and CRLF', async () => {
+    const mods = await load(['setting-to-data', 'note', 'constants', 'card-format-presets', 'bidirectional-blocks', 'anki-id-marker', 'anki'], {
+        activeExportRules: () => [],
+    }, { anki: 'export {}' })
+    const fields = { Basic: ['Front', 'Back'] }, formatter = { format: text => text }
+    for (const [begin, end] of [['START', 'END'], ['[[BEGIN]]', 'END.*']]) {
+        const syntax = {
+            'Begin Note': begin, 'End Note': end, 'Begin Inline Note': 'STARTI', 'End Inline Note': 'ENDI',
+            'Delete Note Line': 'DELETE', 'Frozen Fields Line': 'FROZEN', 'Target Deck Line': 'TARGET DECK', 'File Tags Line': 'FILE TAGS',
+        }
+        const data = await mods['setting-to-data'].settingToData({ vault: { getName: () => 'Vault' } },
+            { Syntax: syntax, Defaults: {} }, fields, [real])
+        for (const eol of ['\n', '\r\n']) {
+            const lines = [begin, 'Basic', 'Front: Station?', 'Back: Bahnhof', end + 'URANCE', end + 'I',
+                end + ' extra', '    ' + end, '<!--ID: ' + real + ' 2026-11-22 local -->', '  ' + end + '  \t', 'STARTI [Basic] Q Back: A ENDI']
+            const source = lines.join(eol), matches = [...source.matchAll(data.NOTE_REGEXP)]
+            assert.equal(matches.length, 1)
+            const note = new mods.note.Note(matches[0][1], fields, false, false, formatter)
+            assert.equal(note.identifier, real)
+            assert.equal(note.note_type, 'Basic')
+            assert.equal(note.getFields().Back, ['Bahnhof', end + 'URANCE', end + 'I', end + ' extra', '    ' + end].join('\n'))
+            const reverse = mods['bidirectional-blocks'].findBidirectionalBlocks(source, syntax, fields)
+            assert.equal(reverse.length, 1)
+            assert.equal(reverse[0].id, real)
+            assert.equal(reverse[0].back, note.getFields().Back)
+            assert.equal([...source.matchAll(data.INLINE_REGEXP)].length, 1)
+            const nested = [begin, 'Basic', 'Front: Unfinished', begin + '  ', 'Basic', 'Front: Intact', 'Back: Kept',
+                '<!--ID: ' + real + '-->', end].join(eol)
+            const nestedMatches = [...nested.matchAll(data.NOTE_REGEXP)]
+            assert.equal(nestedMatches.length, 1)
+            assert.equal(nestedMatches[0].index, nested.indexOf(begin + '  '))
+            assert.equal(mods['bidirectional-blocks'].findBidirectionalBlocks(nested, syntax, fields)[0]?.start, nestedMatches[0].index)
+            assert.equal(new mods.note.Note(nestedMatches[0][1], fields, false, false, formatter).getFields().Front, 'Intact')
+        }
+    }
+})
+
+test('explicit notes keep literal field IDs, and actual block or inline markers keep their own linked ID', async () => {
+    const { note: { Note, InlineNote } } = await load(['note'], {})
+    const fields = { Basic: ['Front', 'Back'] }, formatter = { format: value => value }
+    const body = 'Basic\nFront: Q\nBack: Номер ID: ' + example
+    for (const suffix of ['', '\nID: ' + real + ' | 2026-11-22 свои заметки', '\n  <!-- ID:' + real + ' | 2026-11-22 свои заметки -->']) {
+        const card = new Note(body + suffix, fields, false, false, formatter)
+        assert.equal(card.identifier, suffix ? real : null)
+        assert.equal(card.getFields().Back, 'Номер ID: ' + example)
+    }
+    const inline = '[Basic] Front: Q Back: Номер ID: ' + example
+    for (const tail of [' ID: ' + real + ' | 2026-11-22 ссылка ID: 37', ' <!-- ID:' + real + ' | 2026-11-22 -->']) {
+        const card = new InlineNote(inline + tail, fields, false, false, formatter)
+        assert.equal(card.identifier, real)
+        assert.equal(card.getFields().Back, 'Номер ID: ' + example)
+    }
+    assert.throws(() => new InlineNote(inline + ' ID: ' + real, fields, false, false, formatter), /Ambiguous inline Anki ID/)
+    const literal = new InlineNote('[Basic] Front: Q Back: ObjectID: ' + example, fields, false, false, formatter)
+    assert.equal(literal.identifier, null)
+    assert.equal(literal.getFields().Back, 'ObjectID: ' + example)
+})

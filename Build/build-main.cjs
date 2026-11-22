@@ -11,6 +11,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { cleanupTemporaryDirectory } = require("./workflow-files.cjs");
 const overlay = require("./overlay-source.cjs");
 const { copySuppliedSource } = require("./upstream-source.cjs");
 const { bundleNotice, configureRollup } = require("./release-rollup.cjs");
@@ -143,9 +144,9 @@ function prepareDistribution(source, release) {
         }
         try { fs.renameSync(stage, destination); }
         catch (error) { if (movedPrevious) fs.renameSync(backup, destination); throw error; }
-        if (movedPrevious) fs.rmSync(backup, { recursive: true, force: true });
+        if (movedPrevious) cleanupTemporaryDirectory(backup);
         console.log("Distribution with license notices: " + destination);
-    } finally { fs.rmSync(stage, { recursive: true, force: true }); }
+    } finally { cleanupTemporaryDirectory(stage); }
 }
 
 // Разворачивает законченные исходники для репозитория. Дальнейшая сборка использует
@@ -160,9 +161,11 @@ function prepareRepository(source, directory) {
             const rootEntry = relative.split("/", 1)[0];
             return !["node_modules", ".git", ".github"].includes(rootEntry) && !isUpstreamTestState(relative) && !isFreeFileSyncState(relative);
         } });
-        for (const name of ["README.md", "README.ru.md", "CONTRIBUTING.md", ...legalFiles, "CHANGELOG.md", "PUBLISHING.md", "versions.json", ".gitignore", ".gitattributes"]) {
+        for (const name of ["README.md", "README.ru.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", ...legalFiles, "CHANGELOG.md", "PUBLISHING.md", "versions.json", ".gitignore", ".gitattributes",
+            "Prepare-Release.cmd", "Prepare-GitFlic.cmd", "eslint.config.mjs"]) {
             fs.copyFileSync(path.join(kit, name), path.join(stage, name));
         }
+        fs.cpSync(path.join(kit, ".github"), path.join(stage, ".github"), { recursive: true });
         fs.cpSync(path.join(kit, "docs"), path.join(stage, "docs"), { recursive: true });
         // Both the pinned upstream and the fork use lowercase tests/ on all filesystems.
         fs.cpSync(path.join(kit, "tests"), path.join(stage, "tests"), {
@@ -179,15 +182,16 @@ function prepareRepository(source, directory) {
         // Keep the source-kit tooling available with one canonical copy of the TypeScript files in src/.
         const buildTools = path.join(stage, "Build");
         fs.mkdirSync(buildTools, { recursive: true });
-        for (const entry of fs.readdirSync(__dirname, { withFileTypes: true })) {
-            if (entry.isFile() && entry.name.endsWith(".cjs"))
-                fs.copyFileSync(path.join(__dirname, entry.name), path.join(buildTools, entry.name));
+        for (const name of fs.readdirSync(__dirname)) {
+            const filename = path.join(__dirname, name);
+            if (name.endsWith(".cjs") && fs.lstatSync(filename).isFile())
+                fs.copyFileSync(filename, path.join(buildTools, name));
         }
         fs.writeFileSync(path.join(buildTools, "overlay-files.json"), JSON.stringify(overlay.names(), null, 2) + "\n");
         if (fs.existsSync(destination)) throw new Error("The repository destination already exists.");
         fs.renameSync(stage, destination);
     } finally {
-        fs.rmSync(stage, { recursive: true, force: true });
+        cleanupTemporaryDirectory(stage);
     }
     console.log("Source tree assembled: " + destination);
 }
@@ -327,7 +331,7 @@ async function build() {
         throw error;
     } finally {
         // Удаляем временные исходники и зависимости при успешной сборке и при ошибке.
-        fs.rmSync(temp, { recursive: true, force: true, maxRetries: 2 });
+        cleanupTemporaryDirectory(temp);
     }
 }
 

@@ -13,6 +13,7 @@ import { previewBidirectionalSync } from './bidirectional-sync'
 import { withFastScanReadLock } from './fast-scan'
 import { uiDiagnostic, uiFor } from './interface-language'
 import { installModalLayout } from './modal-layout'
+import { createSettingsGroup } from './settings-layout'
 import { pageCardExpression } from './card-format-presets'
 import { isDeckPageSchema, isLinkedPageSchema } from './page-card'
 import { pageFieldIsAvailable } from './page-named-fields'
@@ -150,16 +151,22 @@ function openBidirectionalFieldSettings(plugin: MyPlugin): void {
     dialog.open()
 }
 
-export function installBidirectionalSettings(container: HTMLElement, plugin: MyPlugin, modeContainer: HTMLElement): void {
+export function installBidirectionalSettings(container: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
-    type Flag = 'BIDIRECTIONAL_SYNC' | 'SKIP_SYNC_ERRORS'
-    const toggleRow = (row: Setting, key: Flag, changed?: () => void) => row.addToggle(toggle =>
-        toggle.setValue(plugin.settings[key] === true).onChange(async value => {
+    const mode = new Setting(container).setName(t('Bidirectional sync', 'Двусторонняя синхронизация'))
+        .setDesc(t('Sync linked fields between Obsidian and Anki. Enable this mode to run a sync or open its preview.',
+            'Обменивается изменениями связанных полей между Obsidian и Anki. Включите этот режим, чтобы запустить синхронизацию или открыть её предпросмотр.'))
+    const options = createSettingsGroup(container, plugin, 'bidirectional-settings', t('Sync settings', 'Настройки синхронизации'))
+    type Option = 'BIDIRECTIONAL_SYNC' | 'SKIP_SYNC_ERRORS' | 'BIDIRECTIONAL_CONFLICT_POLICY'
+    const toggleRow = <K extends Option>(row: Setting, key: K, on: MyPlugin['settings'][K], off: MyPlugin['settings'][K],
+        changed?: () => void) => row.addToggle(toggle => {
+        const isOn = () => (plugin.settings[key] ?? (key === 'BIDIRECTIONAL_CONFLICT_POLICY' ? 'latest' : false)) === on
+        toggle.setValue(isOn()).onChange(async value => {
             toggle.setDisabled(true)
             try {
                 await withFastScanReadLock(plugin, async () => {
                     const previous = plugin.settings[key]
-                    plugin.settings[key] = value
+                    plugin.settings[key] = value ? on : off
                     try { await plugin.saveAllData() } catch (error) {
                         if (previous === undefined) delete plugin.settings[key]
                         else plugin.settings[key] = previous
@@ -167,26 +174,42 @@ export function installBidirectionalSettings(container: HTMLElement, plugin: MyP
                     }
                 })
             } catch (error) {
-                toggle.setValue(plugin.settings[key] === true)
+                toggle.setValue(isOn())
                 new Notice(uiDiagnostic(error, t))
             } finally {
                 toggle.setDisabled(false)
                 changed?.()
             }
-        }))
-    toggleRow(new Setting(container)
-        .setName(t('Skip recoverable card errors', 'Пропускать ошибки отдельных карточек'))
-        .setDesc(t('Continue with other cards and report skipped records.',
-            'Обрабатывать остальные карточки и показывать пропущенные записи.')), 'SKIP_SYNC_ERRORS')
-    const mode = new Setting(modeContainer).setName(t('Bidirectional sync', 'Двусторонняя синхронизация'))
-        .setDesc(t('Reads linked Anki notes on each run. A full check can take around 10× as long as one-way export, depending on the collection.',
-            'При каждом запуске читает связанные записи Anki. Полная проверка может занять примерно в 10 раз больше времени, чем односторонний экспорт. Время зависит от коллекции.'))
-    const options = container.createDiv()
-    const update = () => { options.hidden = plugin.settings.BIDIRECTIONAL_SYNC !== true }
-    toggleRow(mode, 'BIDIRECTIONAL_SYNC', update)
+        })
+    })
     addPreviewPreference(options, plugin, 'settings')
+    toggleRow(new Setting(options)
+        .setName(t('Apply the newer edit', 'Применять более позднюю правку'))
+        .setDesc(t('If both sides edited a field, sync compares the Obsidian file and Anki note timestamps. Fields with an uncertain order are skipped. Turn this off to review all conflicts manually.',
+            'Если поле изменили с обеих сторон, сравнивается время изменения файла Obsidian и записи Anki. Если порядок правок неясен, поле пропускается. Выключите, чтобы разбирать все конфликты вручную.')),
+        'BIDIRECTIONAL_CONFLICT_POLICY', 'latest', 'skip')
+    toggleRow(new Setting(options)
+        .setName(t('Skip recoverable card errors', 'Пропускать ошибки отдельных карточек'))
+        .setDesc(t('Continue with other cards when a record cannot be processed.',
+            'Продолжать обработку остальных карточек, если отдельную запись не удалось обработать.')),
+        'SKIP_SYNC_ERRORS', true, false)
+    let previewButton: HTMLButtonElement | undefined
     new Setting(options)
-        .addButton(button => button.setButtonText(t('Preview now', 'Открыть предпросмотр')).onClick(() => previewBidirectionalSync(plugin)))
+        .addButton(button => {
+            previewButton = button.buttonEl
+            button.setButtonText(t('Preview now', 'Открыть предпросмотр')).onClick(() => previewBidirectionalSync(plugin))
+        })
         .addButton(button => button.setButtonText(t('Additional fields', 'Дополнительные поля')).onClick(() => openBidirectionalFieldSettings(plugin)))
+    let syncButton: HTMLButtonElement | undefined
+    mode.addButton(button => {
+        syncButton = button.buttonEl
+        button.setButtonText(t('Sync now', 'Синхронизировать')).onClick(() => plugin.scanVault())
+    })
+    const update = () => {
+        const disabled = plugin.settings.BIDIRECTIONAL_SYNC !== true
+        if (syncButton) syncButton.disabled = disabled
+        if (previewButton) previewButton.disabled = disabled
+    }
+    toggleRow(mode, 'BIDIRECTIONAL_SYNC', true, false, update)
     update()
 }

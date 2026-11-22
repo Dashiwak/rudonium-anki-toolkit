@@ -1,6 +1,16 @@
 /*! SPDX-License-Identifier: GPL-3.0-only */
 export const pageCardExpression = '@page'
 
+/** Match complete delimiter lines and leave an unfinished opening behind when a new block starts. */
+export function explicitNotePattern(escapedBegin: string, escapedEnd: string): RegExp {
+    if (!escapedBegin || !escapedEnd || escapedBegin === escapedEnd) return /(?!)/g
+    const opening = ' {0,3}' + escapedBegin + String.raw`[ \t]*`
+    const closing = ' {0,3}' + escapedEnd + String.raw`[ \t]*`
+    const boundary = '(?:' + opening + '|' + closing + ')' + String.raw`(?=\r?$)`
+    const bodyLine = '(?!' + boundary + ')' + String.raw`[^\r\n]*\r?\n`
+    return new RegExp('^' + opening + String.raw`\r?\n((?:` + bodyLine + ')+)' + closing + String.raw`(?=\r?$)`, 'gm')
+}
+
 export interface CardFormatPreset {
     id: string
     expression: string

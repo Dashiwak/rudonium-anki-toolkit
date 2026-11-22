@@ -25,8 +25,8 @@ export function addPreviewPreference(container: HTMLElement, plugin: MyPlugin, s
     }
     let mounted: ToggleComponent | undefined
     new Setting(container).setName(t('Preview every sync', 'Предпросмотр при каждом запуске'))
-        .setDesc(t('When off, verified changes sync in the background. Open the preview manually to resolve conflicts or confirm deletions.',
-            'Если выключено, проверенные изменения применяются в фоне. Для разрешения конфликтов и подтверждения удалений откройте предпросмотр вручную.'))
+        .setDesc(t('When off, changes sync in the background. Open the preview manually to review skipped fields or confirm deletions.',
+            'Если выключено, изменения применяются в фоне. Чтобы посмотреть пропущенные поля или подтвердить удаления, откройте предпросмотр вручную.'))
         .addToggle(toggle => {
             mounted = state[surface] = toggle
             render()

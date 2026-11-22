@@ -169,7 +169,7 @@ export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnki
 }
 
 /** Для читаемого предпросмотра и исходного форматированного текста используем текстовые узлы DOM. */
-function renderPair(container: HTMLElement, expected: string, actual: string | undefined, t: UiText): void {
+export function renderFieldComparison(container: HTMLElement, expected: string, actual: string | undefined, t: UiText): void {
     const pair = container.createDiv()
     pair.classList.add('rudonium-sync-difference-pair')
     const difference = actual !== undefined && expected !== actual ? splitField(expected, actual) : undefined
@@ -206,18 +206,18 @@ function renderField(container: HTMLElement, field: FieldDifference, t: UiText):
     const previewMatches = expected === actual && field.expected !== field.actual
     if (previewMatches) section.createEl('p', { text: t('Text previews match. The formatted source differs.',
         'Текст совпадает, форматирование отличается.') })
-    renderPair(section, expected, actual, t)
+    renderFieldComparison(section, expected, actual, t)
     if (expected !== field.expected || actual !== field.actual || previewMatches) {
         const raw = section.createEl('details')
         raw.createEl('summary', { text: t('Compare formatted source (HTML)', 'Сравнить исходное форматирование (HTML)') })
         raw.open = previewMatches
         if (previewMatches) {
-            renderPair(raw, field.expected, field.actual, t)
+            renderFieldComparison(raw, field.expected, field.actual, t)
         } else {
             raw.ontoggle = () => {
                 if (!raw.open) return
                 raw.ontoggle = null
-                renderPair(raw, field.expected, field.actual, t)
+                renderFieldComparison(raw, field.expected, field.actual, t)
             }
         }
     }

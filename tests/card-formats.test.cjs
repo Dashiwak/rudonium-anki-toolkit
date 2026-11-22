@@ -9,6 +9,20 @@ const { pathToFileURL } = require('node:url');
 const { stripTypeScriptTypes } = require('node:module');
 const pageFile = require('./benchmark/page-file.cjs');
 
+test('literal equals in a linked field round-trip while highlight delimiters stay protected', async () => {
+    const { load } = require('./benchmark/migration-modules.cjs');
+    const modules = await load(['bidirectional-markdown'], {});
+    const { readEditableAnkiField, writeEditableAnkiField } = modules['bidirectional-markdown'];
+    for (const literal of ['Казематы===', 'Казематы==', 'a == b', 'x===y']) {
+        assert.equal(readEditableAnkiField(literal), literal);
+        assert.equal(writeEditableAnkiField(literal), literal);
+    }
+    for (const markup of ['==выделено==', 'Казематы====', '===']) {
+        assert.equal(readEditableAnkiField(markup), undefined);
+        assert.throws(() => writeEditableAnkiField(markup));
+    }
+});
+
 test('Preset export, page ID insertion, repeated scan and verified two-way edits', async t => {
     const temp = fs.mkdtempSync(path.join(tmpdir(), 'rudonium-formats-'));
     t.after(() => fs.rmSync(temp, { recursive: true, force: true }));

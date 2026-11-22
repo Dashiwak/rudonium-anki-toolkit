@@ -18,9 +18,20 @@ jobs:
         with:
           node-version: '22.18.0'
           cache: npm
-      - name: Match the release tag to the manifest
-        if: github.ref_type == 'tag'
-        run: node -e "if (process.env.GITHUB_REF_NAME !== require('./manifest.json').version) process.exit(1)"
+      - name: Check the release version across source metadata and the tag
+        shell: bash
+        run: |
+          node <<'JS'
+          const assert = require("node:assert/strict");
+          const manifest = require("./manifest.json");
+          const lockfile = require("./package-lock.json");
+          assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+          for (const entry of [require("./package.json"), lockfile, lockfile.packages[""]]) {
+            assert.equal(entry.version, manifest.version);
+          }
+          assert.equal(require("./versions.json")[manifest.version], manifest.minAppVersion);
+          if (process.env.GITHUB_REF_TYPE === "tag") assert.equal(process.env.GITHUB_REF_NAME, manifest.version);
+          JS
       - name: Run Rudonium regression tests
         run: npm test
       - name: Build from lockfile and compare two clean rebuilds
@@ -31,7 +42,7 @@ jobs:
         with:
           name: rudonium-candidate-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/review-candidate/release/
+            ${{ runner.temp }}/review-candidate/notices/
             ${{ runner.temp }}/review-candidate/install/
           if-no-files-found: error
 
@@ -66,7 +77,7 @@ jobs:
 
   attest:
     if: github.ref_type == 'tag'
-    needs: verify
+    needs: [verify, lint]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -83,6 +94,6 @@ jobs:
         with:
           create-storage-record: false
           subject-path: |
-            candidate/install/rudonium-anki-toolkit/main.js
-            candidate/install/rudonium-anki-toolkit/manifest.json
-            candidate/install/rudonium-anki-toolkit/styles.css
+            candidate/install/main.js
+            candidate/install/manifest.json
+            candidate/install/styles.css

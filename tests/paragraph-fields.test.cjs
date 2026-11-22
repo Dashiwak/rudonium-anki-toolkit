@@ -16,7 +16,11 @@ test('Explicit block accepts interior paragraphs from Anki, preserves CRLF and r
         const patches=planExplicitBlockPatches(raw, card, { Back: 'First\n\nSecond' })
         assert.equal(applyMarkdownPatches(raw,patches), raw.replace('Old\r\n\r\nParagraph','First\r\n\r\nSecond'))
     }
-    for (const bad of ['First<br><br>Front: wrong','First<br><br>END','<p><b>bold</b></p>','<br>First','First<br>']) {
+    assert.equal(readEditableAnkiBlockField('<p><b>bold</b></p>', card), '**bold**')
+    assert.equal(writeEditableAnkiBlockField('A **bold** answer', card), 'A <strong>bold</strong> answer')
+    for (const bad of ['First<br><br>Front: wrong','First<br><br>END','<b class="x">bold</b>', '<b> X </b>',
+        '<b>a<i>x</i></b>', '<b>x</strong>', '<img src="x">', '<b>A</b>&#42;&#42;foo&#42;&#42;',
+        'literal **stars**', '<b>bold</b><b>adjacent</b>', '<br>First','First<br>']) {
         assert.equal(readEditableAnkiBlockField(bad, card), undefined)
     }
 })

@@ -1,8 +1,8 @@
-# Building and distributing Rudonium Anki Toolkit
+# Build and release guide · Сборка и выпуск
 
-## Build from a checkout
+## Build from public sources
 
-Use Node.js 22.18 or later with npm. Run these commands in the repository containing `manifest.json` and `package-lock.json`.
+Use Node.js 22.18 or later with npm. In the directory containing `manifest.json` and `package-lock.json`, run the commands below. The lockfile pins the dependencies. The first installation needs access to those packages.
 
 ```sh
 npm ci
@@ -11,22 +11,33 @@ npm test
 npm run build
 ```
 
-Rollup writes `main.js` to the repository root. The plugin also needs the matching `manifest.json` and `styles.css`.
+Rollup writes `main.js` next to `manifest.json` and `styles.css`. All three belong to the same plugin version.
 
-On Windows, `Prepare-GitFlic.cmd` prepares a verified distribution from the same checkout. Its cross-platform equivalent is `npm run release:prepare`. It builds in a temporary directory and compares the runtime files with two independent clean builds. The output is placed beside the checkout under `Rudonium-Builds/<version>.<build>/`. The manifest supplies the public version. The positive integer `rudoniumBuild` in `package.json` identifies this working build. Changed builds of the same release use successive build numbers. The command prints the full output paths and preserves earlier builds.
+## Prepare a release from an owner update
 
-| Destination | Files from the verified build |
+1. Keep the permanent SourceGit checkout `rudonium-anki-toolkit`, `Rudonium-Incoming` and `Rudonium-Builds` in the same parent directory.
+2. Keep the original update ZIP in `Rudonium-Incoming` and extract it into its own folder there. Run its `Apply-Update.cmd`. The command validates the input, reconstructs the target sources and builds them in temporary storage. Local revisions such as Update 1 use the same version directory. After success the tested assets are in `Rudonium-Builds/<version>/install/`.
+3. Check the plugin in a test vault and Anki profile. Once you accept the build, run `Prepare-Release.cmd` in the current repository, or run `npm run release:prepare` there. The command checks the selected sources and previously built assets and places the publication files in `Rudonium-Builds/<version>/release/`. Keep the verified copy of the full source ZIP in `Rudonium-Incoming` for recovery.
+4. Review and commit the matching source tree in SourceGit. Point the three-part tag (e.g. `0.10.13`) at that commit on both remotes. Use the release notes and verified files below when publishing.
+
+| Files in `release/` | Use |
 | --- | --- |
-| Test vault | Copy the contents of `install/rudonium-anki-toolkit/` into the matching plugin directory with Obsidian closed. Preserve local `data.json` and sync journals. |
-| GitFlic release | Attach the ZIP and `SHA256SUMS.txt` from `release/`. |
-| GitHub release for Obsidian | Attach `main.js`, `manifest.json` and `styles.css` separately from `install/rudonium-anki-toolkit/`. |
+| `main.js`, `manifest.json`, `styles.css` | Attach each file separately to the GitHub release for Obsidian. |
+| `Rudonium-<version>-Install.zip` | Manual installation with distribution notices. |
+| `Rudonium-<version>-Repository.zip` | Complete corresponding source snapshot. The same archive serves both remotes. |
+| `SHA256SUMS.txt`, `RELEASE-NOTES.md`, `RELEASE-INFO.json` | Verify downloads, describe the release and identify the source used for the build. |
 
-Keep the public tag and the manifest version identical, for example `0.10.5`, and publish that same commit to both remotes. GitHub Actions can verify the branch build. On a matching release tag it can also attest the verified runtime files. The published files must match the attested bytes. [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)
+Attach both ZIPs and their SHA-256 sums on GitFlic and GitHub. The review workflow builds the tagged commit and can attest the runtime files. Local preparation and CI are separate from publishing the release.
 
-## Сборка и публикация
+## Сборка из исходников
 
-Для Windows запустите `Prepare-GitFlic.cmd` из корня репозитория. Нужны Node.js 22.18 или новее, npm и доступ к зафиксированным зависимостям. Сборщик сверяет три установочных файла с результатами двух чистых сборок. Готовые файлы лежат рядом с репозиторием в `Rudonium-Builds/<версия>.<сборка>/`. Например, для первого комплекта версии 0.10.5 это `Rudonium-Builds/0.10.5.1/`. Ранее созданную папку сборщик сохраняет. При ошибке откройте `Build/build-error.txt` в репозитории.
+В каталоге с `manifest.json` выполните четыре команды из начала инструкции. Нужны Node.js 22.18 или новее, npm и доступ к зависимостям из lock-файла. После сборки Rollup запишет `main.js` рядом с `manifest.json` и `styles.css`.
 
-Проверьте синхронизацию в отдельном хранилище и профиле Anki. Для GitFlic возьмите ZIP и контрольную сумму из `release/`. Для GitHub приложите три отдельных файла из `install/rudonium-anki-toolkit/`. В каталоге Obsidian используется номер из манифеста, например `0.10.5`. Тег на обеих площадках должен указывать на один проверенный коммит.
+## Подготовка выбранной версии
 
-В комплект входят лицензия, уведомления и сведения о происхождении исходников и установочных файлов. [Уведомления](NOTICE.md) · [Установка](README.ru.md) · [Проверка плагина в каталоге](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin)
+1. Храните постоянный клон `rudonium-anki-toolkit`, входящие архивы `Rudonium-Incoming` и результаты `Rudonium-Builds` в трёх соседних папках.
+2. Сохраните ZIP обновления в `Rudonium-Incoming` и распакуйте в отдельную папку. Запустите из неё `Apply-Update.cmd`. Локальные исправления, в том числе Update 1, используют ту же папку версии. После успешной проверки исходников и сборки возьмите плагин из `Rudonium-Builds/<версия>/install/`.
+3. Проверьте плагин в тестовом хранилище Obsidian и профиле Anki. Когда выберете сборку для публикации, запустите `Prepare-Release.cmd` или `npm run release:prepare` из постоянного репозитория. Команда сверит исходники и готовые файлы сборки. Материалы для публикации появятся в `Rudonium-Builds/<версия>/release/`, а копия полного исходного архива — в `Rudonium-Incoming`.
+4. Проверьте изменения в SourceGit и зафиксируйте соответствующие исходники. Отправьте один коммит с тегом версии, например `0.10.13`, на обе площадки. Для GitHub прикрепите `main.js`, `manifest.json` и `styles.css` отдельными файлами. Для ручной установки на обеих площадках разместите архив `Install.zip` с номером версии, для восстановления исходников — `Repository.zip`, для сверки — `SHA256SUMS.txt`. Описание для публикации находится в `RELEASE-NOTES.md`, сведения о сборке — в `RELEASE-INFO.json`.
+
+[Установка](README.ru.md) · [Installation](README.md) · [Licenses and notices](NOTICE.md)

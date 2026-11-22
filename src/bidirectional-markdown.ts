@@ -126,13 +126,24 @@ export function reconcileCardTags(inherited: readonly string[], override?: CardT
     return Array.from(tags.values())
 }
 
-/** Принимает часть однострочного синтаксиса проекта, которую можно восстановить из простого текста без потерь. */
-export function isEditableMarkdownField(text: string): boolean {
+function isEditablePlainField(text: string): boolean {
     // Markdown keeps intraword underscores literal (de_DE, tcp_port); isolated markup stays protected.
     const syntax = text.includes('_') ? text.replace(/(?<=[\p{L}\p{N}])_(?=[\p{L}\p{N}])/gu, 'a') : text
+    // The exporter needs both == delimiters for a highlight. A single trailing == or === is literal.
+    const firstDelimiter = text.indexOf('==')
+    if (firstDelimiter !== -1 && (text.indexOf('==', firstDelimiter + 2) !== -1 || /^=+$/u.test(text))) return false
     return text.length > 0 && text.trim() === text && !fieldSeparator.test(text) &&
-        !/[\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff<>[\]{}*_~$\x60\\]|==|(?:^|\s)(?:#|Tags:(?: |$))|&(?:#[\da-fx]+|[a-z][a-z\d]*);/iu.test(syntax) &&
+        !/[\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff<>[\]{}*_~$\x60\\]|(?:^|\s)(?:#|Tags:(?: |$))|&(?:#[\da-fx]+|[a-z][a-z\d]*);/iu.test(syntax) &&
         !/^(?:[-+]\s|\d{1,9}[.)]\s|-{3,}$|::(?: |$))| ::$/u.test(text)
+}
+
+/** Only paired, non-nested bold spans have a reversible Markdown representation. */
+export function isEditableMarkdownField(text: string): boolean {
+    if (!text.includes('*')) return isEditablePlainField(text)
+    const parts = text.split('**')
+    if (parts.length < 3 || parts.length % 2 === 0 || !isEditablePlainField(parts.join(''))) return false
+    return parts.every((part, index) => index % 2 === 1 ? !!part && part.trim() === part :
+        !!part || index === 0 || index === parts.length - 1)
 }
 
 const emptyEditorField = /^(?:[\s\u00a0]|<br\s*\/?>|<\/?(?:div|p)>|&(?:nbsp|#160|#x0*a0);)*$/iu
@@ -162,6 +173,28 @@ export function readEditableAnkiField(html: string, generatedBacklink?: string, 
         body = unwrapEditorContainer(body.slice(0, -generatedBacklink.length))
     }
     if (allowEmpty && emptyEditorField.test(body)) return ''
+    // Literal asterisks in HTML text are not formatting. Only actual, bare HTML
+    // tags may introduce Markdown delimiters, including when entities are decoded.
+    if (!/[<>]/u.test(body)) {
+        const plain = decodeFieldText(body)
+        return plain !== undefined && isEditablePlainField(plain) ? plain : undefined
+    }
+    const parts: string[] = []
+    let position = 0
+    for (const match of body.matchAll(/<(b|strong)>([^<>]+)<\/\1>/giu)) {
+        const before = decodeFieldText(body.slice(position, match.index))
+        const bold = decodeFieldText(match[2])
+        if (before === undefined || bold === undefined || before.includes('*') || bold.includes('*')) return
+        parts.push(before, '**', bold, '**')
+        position = match.index + match[0].length
+    }
+    const tail = decodeFieldText(body.slice(position))
+    if (!parts.length || tail === undefined || tail.includes('*')) return
+    const markdown = parts.join('') + tail
+    return isEditableMarkdownField(markdown) ? markdown : undefined
+}
+
+function decodeFieldText(body: string): string | undefined {
     if (/[<>]/u.test(body)) return
     let needsHtmlDecoder = false
     let invalid = false
@@ -191,13 +224,14 @@ export function readEditableAnkiField(html: string, generatedBacklink?: string, 
             return
         }
     }
-    return (allowEmpty && text === '') || isEditableMarkdownField(text) ? text : undefined
+    return text
 }
 
 /** Кодирует простой текст перед отправкой в поле Anki с HTML-разметкой. */
 export function writeEditableAnkiField(text: string, allowEmpty = false): string {
     if (!(allowEmpty && text === '') && !isEditableMarkdownField(text)) throw new Error('This value requires manual Markdown editing.')
-    return text.replace(/&/gu, '&amp;').replace(/"/gu, '&quot;').replace(/'/gu, '&#39;').replace(/\u00a0/gu, '&nbsp;')
+    const escaped = text.replace(/&/gu, '&amp;').replace(/"/gu, '&quot;').replace(/'/gu, '&#39;').replace(/\u00a0/gu, '&nbsp;')
+    return escaped.replace(/\*\*([^*]+)\*\*/gu, '<strong>$1</strong>')
 }
 
 export type EditableBlockFormat = Pick<BidirectionalBlock, 'format' | 'layout' | 'begin' | 'closing' | 'blockSyntax'>
@@ -249,6 +283,8 @@ type TagSource = Pick<LinkedBullet, 'end' | 'id'> & { tagEnd?: number; format?: 
 
 type EditableTags = { inherited: readonly string[]; effective: readonly string[] }
 
+export class MarkdownFieldBoundaryError extends Error {}
+
 export function planExplicitBlockPatches(content: string, block: BidirectionalBlock,
     fields: Readonly<Record<string, string>>, tags?: EditableTags): MarkdownPatch[] {
     const patches: MarkdownPatch[] = []
@@ -265,7 +301,7 @@ export function planExplicitBlockPatches(content: string, block: BidirectionalBl
             const answer = block.layout.multiline && field === block.layout.answer
             if (!value && !(field === 'Back' && hasLinkedAnswerSlot(block.format)) || !answer && (value.includes('\n') ||
                 !(block.layout.multiline && block.layout.names.length === 2) && block.layout.separators.some(separator => value.includes(separator)))) {
-                throw new Error(`Anki ID ${block.id}: the replacement changes a field boundary in the Markdown rule. / Значение меняет границу поля в правиле Markdown.`)
+                throw new MarkdownFieldBoundaryError(`Anki ID ${block.id}: the replacement changes a field boundary in the Markdown rule. / Значение меняет границу поля в правиле Markdown.`)
             }
         }
         if ((!block.layout || block.format === 'page') && block.format && ((field === 'Front' || block.format !== 'page') && value.includes('\n') ||

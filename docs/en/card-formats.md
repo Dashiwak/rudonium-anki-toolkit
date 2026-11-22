@@ -156,11 +156,13 @@ Yanki stores a page's Anki number in its properties. Deck To Anki also uses YAML
 
 ### Editing linked cards from Anki
 
-A linked card made with the format wizard can receive plain-text edits from Anki, including paragraph breaks in the last field of a multiline card. Run bidirectional sync for its file. Expand the field, then **Preview this field in Markdown** to see the original block and the result of accepting that Anki field. If both sides changed, choose a source before applying.
+A linked card made with the format wizard can receive plain-text edits from Anki, including paragraph breaks in the last field of a multiline card. Run bidirectional sync for its file. Expand the field, then **Preview this field in Markdown** to see the original block and the result of accepting that Anki field. When the same field changed on both sides, sync uses the later version if the timestamps establish an order. The preview shows the available directions. The comparison uses the Markdown file modification time and the Anki note modification time, at one-second resolution. On the first bidirectional sync, Rudonium first checks values confirmed by one-way export. Where those values do not establish a direction, it compares the Markdown file modification time with each linked Anki note’s modification time, including multiple note IDs in one file. If several mapped text fields on a note differ, the same first-sync comparison applies to those conflicts. After this first sync, Rudonium also checks for edits to neighbouring cards or other text in the file. Edits in the same second, missing timestamps or ambiguous later edits stay available for manual review. If the Anki value contains a field delimiter that would break Markdown, the preview can still offer a verified Obsidian → Anki edit or a skip.
+
+Basic bold text is supported. For example, Markdown `**Marian Column**` corresponds to `<b>Marian Column</b>` or `<strong>Marian Column</strong>` in Anki. Tags with attributes, overlapping markup and ambiguous field mapping require manual review.
 
 Simple hand-written single-line expressions are also reversible when they start with `^`, end with `$`, and separate `(.+?)` or `(.+)` captures with unambiguous literal text. For example, `^Q=(.+?) -> A=(.+)$` preserves the labels and separator. Anki text containing a field boundary, complex HTML and other arbitrary expressions require manual review. Capture order must still match the Anki note type. Extra captured fields follow their per-field direction settings. Generated and protected fields stay outside the plain-text mapping.
 
-The plugin checks the proposed text with its export parser before applying it. Simultaneous edits, a different card owner or a changed destination require a fresh review. The ID, unaffected values and original line endings are preserved. Existing built-in formats retain their named field mappings, including `ob-deck-front` and `ob-deck-back` on migrated Deck To Anki pages.
+The plugin checks the proposed text with its export parser before applying it. Further edits after opening the preview, a different card owner or a changed destination require a fresh review. The ID, unaffected values and original line endings are preserved. Existing built-in formats retain their named field mappings, including `ob-deck-front` and `ob-deck-back` on migrated Deck To Anki pages.
 
 
 ### Custom regular expression
@@ -187,6 +189,8 @@ Clear the answer of an already linked note in Anki, then run bidirectional sync.
 ```
 
 If you also edited the Markdown answer, open the preview and choose which edit to keep. One-way export uses Markdown as its source. Additional Anki fields outside the captures are not appended below the ID.
+
+In one-way mode, editing a previously confirmed plain-text field in Markdown updates the same Anki note, even when someone also edited the text in Anki. An edit made only in Anki is kept. For a first-time difference, a concurrent edit and clear, competing edits to formatted content, formulas or cloze text, or a change that affects study cards, choose **Preview file export** in the notice and compare the values.
 
 ## How changes to named fields sync
 

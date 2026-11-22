@@ -14,6 +14,7 @@ class Element {
     constructor(tag, options = {}) {
         this.tag = tag;
         this.text = options.text || "";
+        this.attributes = { ...options.attr };
         this.children = [];
         this.classList = createClassList();
         this.ownerDocument = page;
@@ -30,6 +31,7 @@ class Element {
         }
     }
     createEl(tag, options) { const el = new Element(tag, options); this.append(el); return el; }
+    setAttribute(name, value) { this.attributes[name] = value; }
     createSpan(options) { return this.createEl("span", options); }
     createDiv(options) { return this.createEl("div", options); }
     setText(text) { this.textContent = text; }
@@ -72,7 +74,7 @@ class Notice {
 }
 
 async function loadModules(search) {
-    const names = ["obsidian-navigation", "export-review-ui", "sync-difference-ui", "audit-repair-ui"];
+    const names = ["obsidian-navigation", "export-review-ui", "sync-difference-ui", "audit-repair-ui", "bidirectional-ui"];
     const modules = new Map();
     const sourceTexts = new Map();
     for (const name of names) {
@@ -82,7 +84,7 @@ async function loadModules(search) {
         modules.set("./" + name, new SourceTextModule(code));
     }
     const api = {
-        Modal, ItemView, Notice, MarkdownView, TFile, uiFor: () => english, englishUi: english,
+        Modal, ItemView, Notice, MarkdownView, TFile, uiFor: () => english, englishUi: english, uiDiagnostic: text => String(text),
         installModalLayout() {}, setIcon(el, name) { el.icon = name; },
         exportCardIssueText: issue => "Missing ID " + issue.id, localizeExportError: text => String(text),
         readPendingAuditRepairs: async () => [], searchAuditRepairMatches: async () => search,
@@ -242,4 +244,61 @@ test("repair review docks with live state, keeps page content, and closes with i
     dock.leaf.detach();
     assert.equal(modal.dock, undefined);
     assert.equal(content.children.length, 0);
+});
+
+test("bidirectional preview arrows keep a note atomic, highlight separate edits and pass the chosen sources", async () => {
+    const { "./bidirectional-ui": ui } = await loadModules();
+    const app = {};
+    const front = { key: "42:front", field: "Front", decision: "conflict", recommendedSide: "anki",
+        obsidian: "A🙂X middle Y!", anki: "A🙂1 middle 2!" };
+    const back = { key: "42:back", field: "Back", decision: "conflict", obsidian: "Bahnhof", anki: "" };
+    let result;
+    ui.openBidirectionalPreview(app, {scopeLabel: "Vault", profile: "Default", scanned: 1, canApply: false,
+        rows: [{id: 42, path: "Вокзал.md", changes: [front, back]}]}, async choices => { result = Object.fromEntries(choices); });
+    const tree = app.modal.contentEl;
+    const button = (field, action) => tree.match(el => el.tag === "button" && el.attributes["aria-label"] === field + " · " + action);
+    const fromAnki = "Use the Anki value in Obsidian", fromObsidian = "Use the Obsidian value in Anki";
+    const submit = tree.button("Apply Sync");
+    assert.equal(button("Front", fromAnki).attributes["aria-pressed"], "true");
+    assert.ok(submit.disabled);
+    for (const edit of ["X", "1", "Y", "2", "∅"]) assert.ok(tree.match(el => el.tag === "mark" && el.text === edit), edit);
+    button("Back", fromAnki).onclick();
+    assert.equal(submit.disabled, false);
+    button("Front", "Skip").onclick();
+    assert.ok(submit.disabled);
+    button("Front", fromObsidian).onclick();
+    assert.equal(button("Front", fromObsidian).attributes["aria-pressed"], "true");
+    assert.equal(button("Front", fromAnki).attributes["aria-pressed"], "false");
+    assert.match(tree.textContent, /To Anki: 1 · To Obsidian: 1 · Unresolved conflicts: 0/);
+    submit.onclick();
+    assert.deepEqual(result, {"42:front":"obsidian", "42:back":"anki"});
+});
+
+test("bidirectional preview can reverse a verified field, explain blocked rows and protect restricted directions", async () => {
+    const { "./bidirectional-ui": ui } = await loadModules();
+    const app = {}, common = { scopeLabel: "Vault", profile: "Default", scanned: 1 };
+    let choices;
+    const callback = async selected => { choices = Object.fromEntries(selected); };
+    const row = {id: 21, path: "Card.md", changes: []};
+    ui.openBidirectionalPreview(app, {...common, rows: [{...row, issues: ["Unknown field order"]}], canApply: false}, callback);
+    let tree = app.modal.contentEl;
+    assert.ok(tree.button("Apply Sync").disabled);
+    assert.match(tree.textContent, /No safe changes to apply/);
+    assert.ok(!tree.button("Obsidian ← Anki"));
+    ui.openBidirectionalPreview(app, {...common, rows: [], canApply: false}, callback);
+    assert.match(app.modal.contentEl.textContent, /No changes to apply/);
+    ui.openBidirectionalPreview(app, {...common, canApply: true, rows: [{...row, changes: [
+        {key:"21:front", field:"Front", decision:"obsidian", canChooseDirection:true, obsidian:"new", anki:"old"},
+        {key:"21:source:File", field:"File", decision:"obsidian", obsidian:"file", anki:""},
+        {key:"21:suspension", field:"Status", decision:"conflict", allowedSide:"anki", obsidian:"Active", anki:"Paused"},
+    ]}]}, callback);
+    tree = app.modal.contentEl;
+    const button = (field, action) => tree.match(el => el.tag === "button" && el.attributes["aria-label"] === field + " · " + action);
+    assert.ok(!button("File", "Use the Anki value in Obsidian"));
+    assert.ok(!button("Status", "Use the Obsidian value in Anki"));
+    const reverse = button("Front", "Use the Anki value in Obsidian");
+    assert.equal(reverse.text, "Obsidian ← Anki");
+    reverse.onclick();
+    tree.button("Apply Sync").onclick();
+    assert.deepEqual(choices, {"21:front":"anki"});
 });

@@ -4,7 +4,6 @@ import type { App } from 'obsidian'
 
 export const rudoniumPluginId = 'rudonium-anki-toolkit'
 export const supportUrl = 'https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue'
-export const authorEmail = 'dashiwak@yandex.ru'
 export const previousRudoniumId = 'rupos-anki-toolkit'
 export const upstreamPluginId = 'obsidian-to-anki-plugin'
 

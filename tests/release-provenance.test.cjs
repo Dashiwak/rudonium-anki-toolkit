@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 "use strict";
 
-// Только настоящие временные файлы и каталоги. Компилятор, npm и сеть не подменяются и не запускаются.
+// Все сценарии используют настоящие временные файлы. В проверках облачной папки моделируются только свойства файловой системы.
+// Компилятор, npm и сеть не подменяются и не запускаются.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -73,7 +74,7 @@ try {
         assert.equal(digest(gpl), "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986");
         const notice = fs.readFileSync(path.join(build, "../NOTICE.md"), "utf8");
         assert.ok(notice.includes("**" + release.version + "**"), "NOTICE must identify the manifest version");
-        for (const attribution of ["dashiwak", "dashiwak@yandex.ru", "Pseudonium", "GPL-3.0-only"]) {
+        for (const attribution of ["dashiwak", "https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue", "Pseudonium", "GPL-3.0-only"]) {
             assert.ok(notice.includes(attribution), "Missing release attribution: " + attribution);
         }
         pass("release has the verbatim GPLv3 license and separately attributes its current version and authors");
@@ -194,6 +195,57 @@ try {
         for (const file of sameNotice) assert.ok(readable.includes(file.originalPath));
         assert.equal(readable.split("Attribution\r\n").length, 2);
         pass("scoped, nested and build dependencies retain exact legal files, original package metadata and registry origins");
+    }
+    {
+        const state = fixture();
+        packageAt(state, "node_modules/one");
+        const sourceLicense = path.join(state.source, "LICENSE");
+        const dependencyLicense = path.join(state.source, "node_modules", "one", "LICENSE");
+        const actualLstat = fs.lstatSync;
+        fs.lstatSync = (filename, ...options) => {
+            const stat = actualLstat(filename, ...options);
+            if (filename === sourceLicense || filename === dependencyLicense) {
+                stat.ino = typeof stat.ino === "bigint" ? 0n : 0;
+                stat.mtimeMs += typeof stat.mtimeMs === "bigint" ? 1000n : 1000;
+                if (stat.mtimeNs !== undefined) stat.mtimeNs += 1000000000n;
+            }
+            return stat;
+        };
+        try {
+            snapshot(state);
+            assert.deepEqual(read(state.source, "UPSTREAM-SNAPSHOT/files/LICENSE"), gpl);
+            const inventory = collectDependencyNotices(state.source);
+            assert.equal(inventory.coverageStatus, "installed-package-notices-captured");
+            const license = inventory.packages[0].files.find(item => item.originalPath === "node_modules/one/LICENSE");
+            const catalog = read(state.source, "LICENSES/dependencies/" + license.path);
+            assert.deepEqual(catalog.subarray(license.offset, license.offset + license.bytes), read(state.source, license.originalPath));
+        } finally { fs.lstatSync = actualLstat; }
+        pass("original license files are preserved when a provider reports different path and handle metadata");
+    }
+    {
+        const state = fixture();
+        packageAt(state, "node_modules/one");
+        const licenseFile = path.join(state.source, "node_modules", "one", "LICENSE");
+        const actualLstat = fs.lstatSync, actualOpen = fs.openSync;
+        let readOpens = 0;
+        fs.lstatSync = (filename, ...options) => {
+            const stat = actualLstat(filename, ...options);
+            if (filename === licenseFile) stat.ino = typeof stat.ino === "bigint" ? 0n : 0;
+            return stat;
+        };
+        fs.openSync = (filename, flags, ...options) => {
+            if (filename === licenseFile && typeof flags === "number" && ++readOpens === 2) {
+                fs.truncateSync(filename, 8 * 1024 * 1024 + 1);
+            }
+            return actualOpen(filename, flags, ...options);
+        };
+        try {
+            const inventory = collectDependencyNotices(state.source);
+            assert.ok(readOpens >= 2, "uncertain file identity must trigger an independent read");
+            assert.ok(inventory.issues.some(item => item.path === "node_modules/one/LICENSE"));
+            assert.ok(!inventory.packages[0].files.some(item => item.originalPath === "node_modules/one/LICENSE"));
+        } finally { fs.openSync = actualOpen; fs.lstatSync = actualLstat; }
+        pass("a dependency notice that grows past its size limit on retry is reported and excluded");
     }
     {
         const state = fixture();

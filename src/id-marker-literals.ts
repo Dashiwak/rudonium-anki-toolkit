@@ -61,6 +61,26 @@ export function pageTagOffsets(text: string): number[] {
     return offsets
 }
 
+/** Match delimiters once per link-bearing line, including balanced and escaped brackets in labels and URLs. */
+function linkDelimiterEnds(text: string, start: number, end: number): Map<number, number> {
+    const brackets: number[] = [], parentheses: number[] = []
+    const pairs = new Map<number, number>()
+    for (let pos = start; pos < end; pos++) {
+        switch (text[pos]) {
+            case '\\': pos++; break
+            case '[': brackets.push(pos); break
+            case '(': parentheses.push(pos); break
+            case ']':
+            case ')': {
+                const open = (text[pos] === ']' ? brackets : parentheses).pop()
+                if (open !== undefined) pairs.set(open, pos + 1)
+                break
+            }
+        }
+    }
+    return pairs
+}
+
 const pageSignature = /^(?:<!--[ \t]*)?ID[ \t]*:[^\r\n]*?[ \t]@page(?=[ \t]*(?:-->|$))/u
 
 /** Only Markdown-level signed lines can bind an ID at the end of a page. */
@@ -83,6 +103,7 @@ function scanHtmlLiterals(text: string, hideComments: boolean,
     const signed = text.includes('@page')
     const htmlParents: string[] | undefined = observer || onPageTag || signed ? [] : undefined
     let mathLineEnd = -1, nextMathClose = -1
+    let linkLineEnd = -1, linkPairs: Map<number, number> | undefined
     const advance = (to: number) => {
         const newline = text.slice(position, to).lastIndexOf('\n')
         if (newline >= 0) lineStart = position + newline + 1
@@ -193,8 +214,14 @@ function scanHtmlLiterals(text: string, hideComments: boolean,
                 if (link) { advance(position + link[0].length); continue }
             }
             if (character === '[' && !escaped(text, position)) {
-                const link = /^\[[^[\]\r\n]*\](?:\([^()\r\n]*\)|\[[^[\]\r\n]*\])/u.exec(text.slice(position))
-                if (link) { advance(position + link[0].length); continue }
+                if (!linkPairs || position >= linkLineEnd) {
+                    const newline = text.indexOf('\n', position)
+                    linkLineEnd = newline < 0 ? text.length : newline
+                    linkPairs = linkDelimiterEnds(text, position, linkLineEnd)
+                }
+                const labelEnd = linkPairs.get(position)
+                const destinationEnd = labelEnd === undefined ? undefined : linkPairs.get(labelEnd)
+                if (destinationEnd !== undefined) { advance(destinationEnd); continue }
             }
             if (character === '#' && !htmlParents?.length && !escaped(text, position) &&
                 (!position || /[\s("'«“‘]/u.test(text[position - 1])) &&

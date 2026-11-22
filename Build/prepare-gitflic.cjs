@@ -2,11 +2,11 @@
 "use strict";
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
-const { pathToFileURL } = require("node:url");
-const overlay = require("./overlay-source.cjs");
+const { regularBytes, readDirectoryEntries, cleanupTemporaryDirectory } = require("./workflow-files.cjs");
 const { bundleNotice } = require("./release-rollup.cjs");
 
 const kit = path.resolve(__dirname, "..");
@@ -85,14 +85,13 @@ function checkSourceTree(repository) {
     let count = 0;
     const blocked = new Set([".git", ".obsidian", ".trash", "node_modules", ".npmrc", ".env", ".DS_Store", "Thumbs.db"]);
     function visit(directory) {
-        for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
+        for (const item of readDirectoryEntries(directory)) {
             const filename = path.join(directory, item.name);
-            if (blocked.has(item.name) || /^\.env\./.test(item.name) || /\.(?:zip|apkg|colpkg|anki2|log)$/i.test(item.name) ||
-                (!item.isDirectory() && !item.isFile())) {
+            if (blocked.has(item.name) || /^\.env\./.test(item.name) || /\.(?:zip|apkg|colpkg|anki2|log)$/i.test(item.name)) {
                 throw new Error("Unexpected file in prepared sources: " + path.relative(repository, filename) +
                     ". Use a clean official upstream source directory.");
             }
-            if (item.isDirectory()) visit(filename);
+            if (item.stat.isDirectory()) visit(filename);
             else count++;
         }
     }
@@ -100,47 +99,32 @@ function checkSourceTree(repository) {
     return count;
 }
 
-async function stageRelease(repository, releaseDirectory, scratch, manifest, onSourcesChecked) {
-    // This is the builder's private staging copy. These files are generated again by Rollup and TypeScript.
+async function stageRelease(repository, output, scratch, manifest, onSourcesChecked) {
+    // This is the builder's private staging copy. Rollup and TypeScript regenerate these outputs.
     for (const name of ["main.js.map", ".rpt2_cache", ".rollup.cache", "tsconfig.tsbuildinfo"]) {
         fs.rmSync(path.join(repository, name), { recursive: true, force: true });
     }
     const assets = checkRepository(repository, manifest);
     const fileCount = checkSourceTree(repository);
-    const archiveRoot = path.join(scratch, "zip-input");
-    const runtime = path.join(archiveRoot, manifest.id);
-    fs.mkdirSync(runtime, { recursive: true });
-    for (const name of [...assets, ...notices]) {
-        fs.cpSync(path.join(repository, name), path.join(runtime, name), { recursive: true, force: false, errorOnExist: true });
+    const runtime = fs.mkdtempSync(path.join(scratch, "verified-runtime-"));
+    try {
+        for (const name of assets) {
+            fs.writeFileSync(path.join(runtime, name), regularBytes(path.join(repository, name)), {flag: "wx"});
+        }
+        // Both clean rebuilds must reproduce the original assets without a bundled main.js in the sources.
+        fs.unlinkSync(path.join(repository, "main.js"));
+        onSourcesChecked?.();
+        runNode(path.join(repository, "Build", "verify-rebuild.cjs"), [repository, runtime]);
+        const evidence = path.join(output, "notices");
+        fs.mkdirSync(evidence);
+        for (const name of notices) {
+            fs.cpSync(path.join(repository, name), path.join(evidence, name), {recursive: true, force: false, errorOnExist: true});
+        }
+        fs.renameSync(runtime, path.join(output, "install"));
+        return fileCount - 1;
+    } finally {
+        cleanupTemporaryDirectory(runtime);
     }
-    const installGuide = [
-        manifest.name + " " + manifest.version, "",
-        "With Obsidian closed, copy the rudonium-anki-toolkit folder into <vault>/.obsidian/plugins/.",
-        "For an update, merge the folder and replace main.js, manifest.json and any supplied styles.css together.",
-        "Keep existing data.json, caches and journals. Reopen Obsidian and enable the plugin.", "",
-        "Закройте Obsidian и скопируйте папку rudonium-anki-toolkit в <хранилище>/.obsidian/plugins/.",
-        "При обновлении объедините папки и замените main.js, manifest.json и приложенный styles.css из этого выпуска вместе.",
-        "Сохраните существующие data.json, кеш и журналы. Откройте Obsidian и включите плагин.", "",
-    ].join("\r\n");
-    fs.writeFileSync(path.join(archiveRoot, "INSTALL.txt"), installGuide, { flag: "wx" });
-    // main.js принадлежит вложению релиза. Сборка из опубликованного дерева должна заново дать те же байты.
-    fs.unlinkSync(path.join(repository, "main.js"));
-    onSourcesChecked?.();
-    runNode(path.join(repository, "Build", "verify-rebuild.cjs"), [repository, runtime]);
-    fs.mkdirSync(releaseDirectory);
-    const zipName = "Rudonium-" + manifest.version + ".zip";
-    const archive = path.join(releaseDirectory, zipName);
-    const zip = await import(pathToFileURL(overlay.file("vault-backup-zip.ts")).href);
-    const written = await zip.writeVaultZip(archiveRoot, archive);
-    const checked = await zip.verifyVaultZip(archive);
-    if (written.files !== checked.files || written.bytes !== checked.bytes) throw new Error("Incomplete install ZIP.");
-    fs.writeFileSync(path.join(releaseDirectory, "SHA256SUMS.txt"),
-        sha256(fs.readFileSync(archive)) + "  " + zipName + "\n", { flag: "wx" });
-    // Оставляем пользователю те же проверенные файлы, которые только что вошли в ZIP.
-    const installDirectory = path.join(path.dirname(releaseDirectory), "install");
-    fs.mkdirSync(installDirectory);
-    fs.renameSync(runtime, path.join(installDirectory, manifest.id));
-    return fileCount - 1; // main.js lives in the install ZIP and unpacked install folder.
 }
 
 // A published checkout already contains all patched sources. Rebuild a private copy of it
@@ -148,20 +132,40 @@ async function stageRelease(repository, releaseDirectory, scratch, manifest, onS
 function buildCheckout(checkout, repository, manifest) {
     const { isUpstreamTestState, isFreeFileSyncState, collectDependencyNotices, finalizeProvenance } = require("./release-provenance.cjs");
     const { npm } = require("./build-main.cjs");
-    const generated = new Set([".git", "node_modules", "dist", "main.js", "main.js.map", "PROVENANCE.json",
-        "LICENSES/dependencies", ".rpt2_cache", ".rollup.cache", "tsconfig.tsbuildinfo", "Build/build-error.txt"]);
-    fs.cpSync(checkout, repository, { recursive: true, filter(filename) {
-        const relative = path.relative(checkout, filename).split(path.sep).join("/");
-        return !generated.has(relative) && !isUpstreamTestState(relative) && !isFreeFileSyncState(relative) && !/^Release-\d+\.\d+\.\d+$/.test(relative) && !/^Build\/\.build-/.test(relative);
-    } });
-    checkSourceTree(repository);
-    npm(["ci", "--no-audit", "--no-fund"], repository);
-    npm(["exec", "--offline", "--", "tsc", "--noEmit"], repository, true);
-    npm(["run", "build"], repository, true);
-    runNode("--check", [path.join(repository, "main.js")]);
-    collectDependencyNotices(repository);
-    fs.rmSync(path.join(repository, "node_modules"), { recursive: true, force: true });
-    finalizeProvenance(repository, { release: manifest, license: "GPL-3.0-only" });
+    const tempRoot = fs.realpathSync(os.tmpdir());
+    if (inside(fs.realpathSync(checkout), tempRoot)) {
+        throw new Error("Choose a temporary directory outside the source checkout.");
+    }
+    const scratch = fs.mkdtempSync(path.join(tempRoot, "rudonium-compile-"));
+    try {
+        const transient = new Set(["node_modules", "main.js.map", ".rpt2_cache", ".rollup.cache", "tsconfig.tsbuildinfo"]);
+        const generated = new Set([...transient, ".git", "dist", "main.js", "PROVENANCE.json", "LICENSES/dependencies", "Build/build-error.txt"]);
+        fs.cpSync(checkout, scratch, { recursive: true, filter(filename) {
+            const relative = path.relative(checkout, filename).split(path.sep).join("/");
+            return !generated.has(relative) && !isUpstreamTestState(relative) && !isFreeFileSyncState(relative) &&
+                !/^Release-\d+\.\d+\.\d+$/.test(relative) && !/^Build\/\.build-/.test(relative);
+        } });
+        checkSourceTree(scratch);
+        npm(["ci", "--no-audit", "--no-fund"], scratch);
+        npm(["exec", "--offline", "--", "tsc", "--noEmit"], scratch, true);
+        npm(["run", "build"], scratch, true);
+        runNode("--check", [path.join(scratch, "main.js")]);
+        collectDependencyNotices(scratch);
+
+        // Include the notices derived from installed dependencies, without ever copying node_modules to the release stage.
+        fs.cpSync(scratch, repository, { recursive: true, force: false, errorOnExist: true,
+            filter: filename => !transient.has(path.relative(scratch, filename))
+        });
+        checkSourceTree(repository);
+        finalizeProvenance(repository, { release: manifest, license: "GPL-3.0-only" });
+    } finally {
+        cleanupTemporaryDirectory(scratch);
+    }
+}
+
+function inside(parent, child) {
+    const rel = path.relative(parent, child);
+    return !rel || (!path.isAbsolute(rel) && rel !== ".." && !rel.startsWith(".." + path.sep));
 }
 
 // This interactive FreeFileSync job is kept beside the checkout, outside of Git.
@@ -201,24 +205,13 @@ async function main(args) {
     const source = args[0] && args[0] !== "-" ? fs.realpathSync(args[0]) : "-";
     const expanded = fs.existsSync(path.join(__dirname, "overlay-files.json"));
     if (expanded && source !== "-") throw new Error("An expanded repository already contains its sources. Pass - for the first argument.");
-    let output, buildLabel = manifest.version;
-    if (expanded) {
-        const build = readJson(path.join(kit, "package.json")).rudoniumBuild;
-        if (!Number.isSafeInteger(build) || build < 1) throw new Error("package.json requires a positive integer rudoniumBuild.");
-        buildLabel += "." + build;
-        output = path.resolve(args[1] || path.join(kit, "..", "Rudonium-Builds", buildLabel));
-    } else {
-        output = path.resolve(args[1] || path.join(kit, "..", "GitFlic-" + manifest.version));
-    }
+    const defaultOutput = expanded ? path.join(kit, "..", "Rudonium-Builds", manifest.version)
+        : path.join(kit, "..", "GitFlic-" + manifest.version);
+    const output = path.resolve(args[1] || defaultOutput);
     if (fs.lstatSync(output, { throwIfNoEntry: false })) {
-        const hint = expanded && !args[1] ? " For a changed build increment rudoniumBuild in package.json." : " Choose a new directory.";
-        throw new Error("Destination already exists: " + output + "." + hint);
+        throw new Error("Destination already exists: " + output + ". Choose a new directory.");
     }
     // Protect against recursively copying a parent directory into its own build or output.
-    function inside(parent, child) {
-        const rel = path.relative(parent, child);
-        return !rel || !path.isAbsolute(rel) && rel !== ".." && !rel.startsWith(".." + path.sep);
-    }
     if (inside(kit, output) || source !== "-" && (inside(source, output) || inside(source, kit))) {
         throw new Error("Choose separate locations for the kit, official source and output.");
     }
@@ -230,30 +223,29 @@ async function main(args) {
     let sourcesChecked = false;
     try {
         fs.mkdirSync(publish);
-        console.log("1/3 Preparing the sources for " + buildLabel + "...");
+        console.log("1/3 Preparing the sources for " + manifest.version + "...");
         if (expanded) buildCheckout(kit, repository, manifest);
         else runNode(path.join(__dirname, "build-main.cjs"), ["--prepare-repository", source, repository]);
-        console.log("2/3 Checking the runtime against two clean builds and creating the install ZIP...");
-        const fileCount = await stageRelease(repository, path.join(publish, "release"), stage, manifest,
+        console.log("2/3 Checking the runtime against two clean builds before staging the installation files...");
+        const fileCount = await stageRelease(repository, publish, stage, manifest,
             () => { sourcesChecked = true; });
         if (!expanded) writeCompareProfile(publish, path.join(output, "repository"));
         if (fs.lstatSync(output, { throwIfNoEntry: false })) throw new Error("Destination appeared while building: " + output);
         fs.renameSync(publish, output);
-        console.log("3/3 GitFlic files ready: " + output);
+        console.log("3/3 Verified build ready: " + output);
         if (!expanded) {
             console.log("Repository (" + fileCount + " files): " + path.join(output, "repository"));
             console.log("FreeFileSync: " + path.join(output, "Compare.ffs_gui"));
         }
-        const install = path.join(output, "install", manifest.id);
-        console.log("GitFlic release ZIP: " + path.join(output, "release", "Rudonium-" + manifest.version + ".zip"));
-        console.log("GitHub release attachments (upload these separately):");
+        const install = path.join(output, "install");
+        console.log("Verified plugin files:");
         for (const asset of ["main.js", "manifest.json", "styles.css"]) {
             const filename = path.join(install, asset);
             if (fs.existsSync(filename)) console.log("  " + filename);
         }
         console.log("Release description: " + path.join(expanded ? kit : path.join(output, "repository"), "docs", "releases", manifest.version + ".md"));
     } catch (error) {
-        // The source tree has passed its checks. A later rebuild or ZIP failure
+        // The source tree has passed its checks. A later verification or staging failure
         // must not take the user's usable sources with it.
         if (!expanded && sourcesChecked && fs.existsSync(repository)) {
             const saved = fs.mkdtempSync(path.join(path.dirname(output), "Sources-" + manifest.version + "-"));
@@ -262,7 +254,7 @@ async function main(args) {
         }
         throw error;
     } finally {
-        fs.rmSync(stage, { recursive: true, force: true, maxRetries: 3 });
+        cleanupTemporaryDirectory(stage);
     }
 }
 

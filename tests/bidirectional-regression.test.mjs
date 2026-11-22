@@ -81,7 +81,7 @@ test('the preview closes once after a completed apply; partial writes and failur
     }
 })
 
-test('two-way settings show the same controls in both languages and roll back a failed toggle', async () => {
+test('two-way settings place the mode before the closed options in both languages and roll back a failed toggle', async () => {
     const { load } = await import('./benchmark/migration-modules.cjs').then(module => module.default)
     const notices = []
     class Row {
@@ -89,7 +89,7 @@ test('two-way settings show the same controls in both languages and roll back a 
         setName(name) { this.name=name;return this }
         setDesc(hint) { this.hint=hint;return this }
         addButton(fn) {
-            const button = {setButtonText(v){this.text=v;return this},onClick(callback){this.run=callback;return this}}
+            const button = {buttonEl:{},setButtonText(v){this.text=v;return this},onClick(callback){this.run=callback;return this}}
             this.controls.push(button); fn(button); return this
         }
         addToggle(fn) {
@@ -98,22 +98,54 @@ test('two-way settings show the same controls in both languages and roll back a 
             this.controls.push(toggle); fn(toggle); return this
         }
     }
+    class Group {
+        constructor(tag = 'div', text = '') { this.tag=tag; this.text=text; this.rows=[]; this.attributes={} }
+        createEl(tag, options = {}) {
+            const child = new Group(tag, options.text)
+            this.rows.push(child)
+            return child
+        }
+        createDiv() { return this.createEl('div') }
+        getAttribute(key) { return this.attributes[key] }
+        setAttribute(key, value) { this.attributes[key]=value }
+    }
     const api = { Modal: class {}, Notice:class {constructor(message){notices.push(message)}}, Setting:Row,
         withFastScanReadLock: async (_plugin,task) => task()}
     const { 'bidirectional-field-settings': ui, 'bidirectional-preview-preference': preference } = await load(
-        ['bidirectional-field-settings','bidirectional-preview-preference','interface-language'],api)
+        ['bidirectional-field-settings','bidirectional-preview-preference','interface-language','settings-layout'],api)
     for (const [lang,label,preview] of [['en','Bidirectional sync','Preview every sync'],['ru','Двусторонняя синхронизация','Предпросмотр при каждом запуске']]) {
-        const options = {rows:[]}, container={rows:[],createDiv:()=>options}
-        const plugin={settings:{INTERFACE_LANGUAGE:lang},saveAllData:async()=>{}}
-        const top = { rows: [] }
-        ui.installBidirectionalSettings(container,plugin,top)
-        assert.equal(container.rows.some(row=>row.name===label), false)
-        assert.equal(top.rows.length, 1)
-        const mode = top.rows.find(row=>row.name===label)
-        assert.match(mode.hint,/10/)
-        assert.ok(options.hidden)
-        await mode.controls[0].change(true)
-        assert.equal(options.hidden,false)
+        let scans = 0
+        const plugin={settings:{INTERFACE_LANGUAGE:lang},saveAllData:async()=>{},scanVault:async()=>{scans++}}
+        const top = new Group()
+        ui.installBidirectionalSettings(top,plugin)
+        assert.equal(top.rows.length, 2)
+        const [mode, disclosure] = top.rows
+        assert.equal(disclosure.tag, 'details')
+        assert.equal(disclosure.open, false)
+        const [summary, options] = disclosure.rows
+        assert.equal(summary.text, lang === 'ru' ? 'Настройки синхронизации' : 'Sync settings')
+        assert.equal(mode.name, label)
+        const sync = mode.controls.find(control => control.text === (lang === 'ru' ? 'Синхронизировать' : 'Sync now'))
+        const modeToggle = mode.controls.find(control => control.change)
+        const previewButton = options.rows.flatMap(row => row.controls).find(control => control.text === (lang === 'ru' ? 'Открыть предпросмотр' : 'Preview now'))
+        assert.equal(sync.buttonEl.disabled, true)
+        assert.equal(previewButton.buttonEl.disabled, true)
+        assert.equal(modeToggle.value, false)
+        const policy = options.rows.find(row => row.name === (lang === 'ru' ? 'Применять более позднюю правку' : 'Apply the newer edit')).controls[0]
+        assert.equal(policy.value, true)
+        await policy.change(false)
+        assert.equal(plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY, 'skip')
+        const restored = new Group()
+        ui.installBidirectionalSettings(restored, {...plugin,settings:{...plugin.settings}})
+        assert.equal(restored.rows[1].rows[1].rows.find(row => row.name === (lang === 'ru' ? 'Применять более позднюю правку' : 'Apply the newer edit')).controls[0].value, false)
+        await policy.change(true)
+        assert.equal(plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY, 'latest')
+        await modeToggle.change(true)
+        assert.equal(scans, 0)
+        assert.equal(sync.buttonEl.disabled, false)
+        assert.equal(previewButton.buttonEl.disabled, false)
+        await sync.run()
+        assert.equal(scans, 1)
         const toggle=options.rows.find(row=>row.name===preview).controls[0]
         assert.equal(toggle.value,false)
         const dialog = {rows:[]}
@@ -130,9 +162,15 @@ test('two-way settings show the same controls in both languages and roll back a 
         assert.equal(plugin.settings.BIDIRECTIONAL_PREVIEW,true)
         assert.equal(toggle.value,true)
         assert.equal(onDialog.value,true)
+        await policy.change(false)
+        assert.equal(plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY,'latest')
+        assert.equal(policy.value,true)
+        await modeToggle.change(false)
+        assert.equal(plugin.settings.BIDIRECTIONAL_SYNC,true)
+        assert.equal(sync.buttonEl.disabled,false)
         unmount()
     }
-    assert.equal(notices.length,2)
+    assert.equal(notices.length,6)
 })
 
 test('direction picker includes named blocks and pages with localized main fields, excluding primary and service fields', async () => {

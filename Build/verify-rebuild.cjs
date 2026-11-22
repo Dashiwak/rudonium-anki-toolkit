@@ -7,6 +7,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { createHash } = require("node:crypto");
 const { spawnSync } = require("node:child_process");
+const { cleanupTemporaryDirectory } = require("./workflow-files.cjs");
 
 const assets = ["main.js", "manifest.json", "styles.css"];
 
@@ -110,7 +111,7 @@ function verifyRebuild(repository, releaseDirectory, upstreamDirectory) {
         console.log("Both clean builds match the reference assets byte for byte.");
         for (const [index, name] of assets.entries()) console.log(name + "  " + sha256(expected[index]));
     } finally {
-        fs.rmSync(temp, { recursive: true, force: true, maxRetries: 3 });
+        cleanupTemporaryDirectory(temp);
     }
 }
 

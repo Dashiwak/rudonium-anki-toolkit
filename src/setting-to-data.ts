@@ -1,3 +1,4 @@
+import { explicitNotePattern } from './card-format-presets'
 import { pageIdLocation } from './page-id-location'
 import { activeExportRules } from './sync-profiles'
 import { PluginSettings, ParsedSettings } from './interfaces/settings-interface'
@@ -34,7 +35,7 @@ export async function settingToData(app: App, settings: PluginSettings, fields_d
     result.FROZEN_REGEXP = new RegExp(escapeRegex(settings.Syntax["Frozen Fields Line"]) + String.raw` - (.*?):\n((?:[^\n][\n]?)+)`, "g")
     result.DECK_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["Target Deck Line"]) + String.raw`(?:\n|: )(.*)`, "m")
     result.TAG_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["File Tags Line"]) + String.raw`(?:\n|: )(.*)`, "m")
-    result.NOTE_REGEXP = new RegExp(String.raw`^` + escapeRegex(settings.Syntax["Begin Note"]) + String.raw`\n([\s\S]*?\n)` + escapeRegex(settings.Syntax["End Note"]), "gm")
+    result.NOTE_REGEXP = explicitNotePattern(escapeRegex(settings.Syntax["Begin Note"]), escapeRegex(settings.Syntax["End Note"]))
     result.INLINE_REGEXP = new RegExp(escapeRegex(settings.Syntax["Begin Inline Note"]) + String.raw`(.*?)` + escapeRegex(settings.Syntax["End Inline Note"]), "g")
     result.EMPTY_REGEXP = new RegExp(escapeRegex(settings.Syntax["Delete Note Line"]) + ID_REGEXP_STR, "g")
 

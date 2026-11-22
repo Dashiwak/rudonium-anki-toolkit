@@ -1,6 +1,73 @@
 # Changelog
 
-## 0.10.5 · In preparation / В подготовке
+## 0.10.13 · First bidirectional sync / Первый двусторонний перенос
+
+- Перенос правок после одностороннего экспорта, сохранение буквальных знаков равенства в конце вопроса и выравнивание настроек.
+- Improved first bidirectional sync after an export, preserved trailing equals signs in linked text and aligned the settings page.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.13.md)
+
+## 0.10.12 · Bidirectional conflict handling / Двусторонняя синхронизация
+
+- Выбор более поздней правки связанного поля, ручной выбор направления в предпросмотре и свёрнутые настройки синхронизации.
+- Choose the later field edit when possible, review sync directions per field and reach both settings and support from the plugin.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.12.md)
+
+## 0.10.11 · Sync reliability / Надёжность синхронизации
+
+- Mode switches and missed vault events now use the correct field history and Markdown contents for manual sync. An unavailable ID can be isolated on strict AnkiConnect versions.
+- Исправлены сверка после смены режима, проверка внешних правок Markdown и обработка исчезнувшего ID при пакетном чтении Anki.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.11.md)
+
+## 0.10.10 Update 1 · Sync feedback and installation files / Синхронизация и установочные файлы
+
+- Manual bidirectional sync reports its result even when the preview is off. A one-way export can send concurrent text edits from Markdown to the existing Anki note.
+- При ручной двусторонней синхронизации виден результат. В одностороннем режиме при одновременных изменениях обычного текста учитывается предыдущая синхронизация.
+- The language control appears above About. Questions and bug reports can be opened from About.
+- Три файла для Obsidian находятся непосредственно в `install/`. Установочный ZIP для распространения создаётся при подготовке релиза.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.10.md)
+
+### 0.10.10 · Installation file checks / Проверка установочных файлов
+
+- Исправлена остановка при переносе проверенной сборки в постоянную папку. Обновление определяет тип каждого пути перед чтением установочных файлов.
+- Fixed a failure while moving a verified build into its final folder. The updater checks each path directly to distinguish directories from files.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.10.md)
+
+## 0.10.9 · Build cleanup / Очистка после сборки
+
+- Зависимости npm устанавливаются во временную папку системы. Занятый файл в каталоге зависимостей больше не мешает подготовить и проверить установочный комплект.
+- The builder installs npm dependencies in the system temporary directory. A locked dependency file can no longer block verification of the installation package during cleanup.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.9.md)
+
+## 0.10.8 · Source recovery / Восстановление исходников
+
+- Исправлена остановка обновления при проверке `PROVENANCE.json`. Исходники для сборки восстанавливаются побайтно из проверенной базы и накопительного пакета.
+- Fixed an update failure during verification of `PROVENANCE.json`. The updater now reconstructs the exact source bytes from a verified base and the cumulative package.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.8.md)
+
+## 0.10.7 · Source file checks / Проверка исходников
+
+- Fixed a source update that could stop at an unchanged file in a synced Windows folder with the message `File changed while opening`.
+- Исправлена ложная остановка обновления при чтении исходников в синхронизируемой папке Windows. Переход с комплекта 0.10.5.1 возможен сразу на 0.10.7.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.7.md)
+
+## 0.10.6 · Cumulative updates / Накопительные обновления
+
+- Apply the private update and build the plugin in one step. The installer and source snapshot use the same three-part version as the Obsidian manifest.
+- Prepare the release files from the selected verified build. The source archive includes the working files accepted for that version.
+- Установочные файлы появляются в `Rudonium-Builds/0.10.6/install/rudonium-anki-toolkit/` после успешного обновления и сборки.
+- Для публикации проверенного комплекта предусмотрена команда `Prepare-Release.cmd`.
+
+[Release notes / Примечания к выпуску](docs/releases/0.10.6.md)
+
+## 0.10.5 · Settings and sync preview / Настройки и предпросмотр
 
 - With preview off, bidirectional sync applies eligible changes in the background. Conflicting fields and changes requiring a decision remain available in **Preview now**.
 - The help link and sync mode are at the top of settings. Interface language is at the bottom.

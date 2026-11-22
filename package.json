@@ -1,6 +1,6 @@
 {
   "name": "rudonium-anki-toolkit",
-  "version": "0.10.5",
+  "version": "0.10.13",
   "description": "This is an Anki integration plugin! Designed for efficient bulk exporting.",
   "main": "main.js",
   "scripts": {
@@ -12,10 +12,10 @@
     "test-py": "pip install pytest anki && pytest -vvvs tests/anki/ --junitxml logs/test-reports/pytest.xml",
     "test": "node --experimental-vm-modules --test \"tests/*.test.cjs\" \"tests/*.test.mjs\"",
     "test:upstream": "npm run test-wdio && npm run test-py",
-    "release:prepare": "node Build/prepare-gitflic.cjs"
+    "release:prepare": "node Build/prepare-release.cjs"
   },
   "keywords": [],
-  "author": "dashiwak <dashiwak@yandex.ru>",
+  "author": "dashiwak",
   "license": "GPL-3.0-only",
   "devDependencies": {
     "@rollup/plugin-commonjs": "15.1.0",
@@ -54,7 +54,6 @@
     "url": "https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit.git"
   },
   "homepage": "https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit",
-  "rudoniumBuild": 1,
   "peerDependencies": {
     "@codemirror/state": "^6.0.0",
     "@codemirror/view": "^6.0.0"

@@ -287,7 +287,7 @@ export function pageYamlClaims(text: string): PropertyId[] {
     const state = inspect(text, bounds)
     // A retired property can only reserve a number on a marked page. Its presence never
     // authorizes syncing, deleting or relinking that note.
-    const includeRetired = header.includes('rudonium-id') &&
+    const includeRetired = /rudonium-id/iu.test(header) &&
         (state.marked || pageTagOffsets(text).length > 0)
     const claims = !state.retired || includeRetired ? state.properties : state.properties.filter(property => !property.legacy)
     if (!state.bad && !state.unsafe && !state.ambiguous) return claims
@@ -295,9 +295,9 @@ export function pageYamlClaims(text: string): PropertyId[] {
     // positive numeric candidates during collision checks; the page parser refuses to update it.
     const known = new Set(claims.map(property => property.digitsStart))
     let line = 2, start = bounds.first, newline = text.indexOf('\n', bounds.first)
-    for (const candidate of header.matchAll(/(?:^|[,{\s])((?:(?:rudonium-id|anki-page-ID)|'(?:rudonium-id|anki-page-ID)'|"(?:rudonium-id|anki-page-ID)")[ \t]*:[ \t]*)(['"]?)([1-9]\d*)\2(?=[ \t,}\r\n]|$)/gmu)) {
+    for (const candidate of header.matchAll(/(?:^|[,{\s])((?:(?:rudonium-id|anki-page-ID)|'(?:rudonium-id|anki-page-ID)'|"(?:rudonium-id|anki-page-ID)")[ \t]*:[ \t]*)(['"]?)([1-9]\d*)\2(?=[ \t,}\r\n]|$)/gimu)) {
         const digitsStart = bounds.first + candidate.index + candidate[0].length - candidate[2].length - candidate[3].length
-        const legacy = candidate[1].includes('rudonium-id')
+        const legacy = /rudonium-id/iu.test(candidate[1])
         if (legacy && !includeRetired) continue
         const id = Number(candidate[3])
         if (known.has(digitsStart) || !Number.isSafeInteger(id)) continue

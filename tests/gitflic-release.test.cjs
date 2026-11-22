@@ -5,8 +5,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const crypto = require("node:crypto");
-const { pathToFileURL } = require("node:url");
-const overlay = require("../Build/overlay-source.cjs");
 const { stageRelease, checkRepository } = require("../Build/prepare-gitflic.cjs");
 const { bundleNotice } = require("../Build/release-rollup.cjs");
 
@@ -23,7 +21,9 @@ function fixture(dir) {
     put("main.js.map", "stale");
     put(".rollup.cache/cache", "obsolete");
     put("src/content.ts", "export {};");
-    put("Build/verify-rebuild.cjs", fs.readFileSync(path.resolve(__dirname, "../Build/verify-rebuild.cjs"), "utf8"));
+    for (const name of ["verify-rebuild.cjs", "workflow-files.cjs"]) {
+        put("Build/" + name, fs.readFileSync(path.join(__dirname, "../Build", name), "utf8"));
+    }
     for (const name of ["LICENSE", "NOTICE.md", "AUTHORS.md", "TRADEMARKS.md", "LICENSING-ru.md"]) put(name, "test " + name);
     for (const name of ["UPSTREAM-SNAPSHOT/origin.json", "UPSTREAM-SNAPSHOT/source-hashes.json"]) put(name, {});
     for (const name of ["docs/en/quick-start.md", "docs/ru/quick-start.md", "docs/releases/" + manifest.version + ".md"]) put(name, "test guide");
@@ -52,7 +52,7 @@ function fixture(dir) {
     return { repository, manifest };
 }
 
-test("GitFlic ZIP and rebuilt source agree; stale outputs, mixed versions and a missing stylesheet are caught", async t => {
+test("Flat install and rebuilt source agree; stale outputs, mixed versions and a missing stylesheet are caught", async t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rudonium-publisher-test-"));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const { repository, manifest } = fixture(dir);
@@ -69,32 +69,21 @@ test("GitFlic ZIP and rebuilt source agree; stale outputs, mixed versions and a 
     fs.appendFileSync(notices, " tampered");
     assert.throws(() => checkRepository(repository, manifest), /hash mismatch/);
     fs.writeFileSync(notices, "fixture NOTICES.txt");
-    const fileCount = await stageRelease(repository, release, dir, manifest);
+    const fileCount = await stageRelease(repository, dir, dir, manifest);
     assert.equal(fileCount, fs.readdirSync(repository, { withFileTypes: true, recursive: true }).filter(file => file.isFile()).length);
     assert.equal(fs.existsSync(path.join(repository, "main.js")), false);
     assert.equal(fs.existsSync(path.join(repository, "main.js.map")), false);
     assert.equal(fs.existsSync(path.join(repository, ".rollup.cache")), false);
-    const name = "Rudonium-" + manifest.version + ".zip";
-    const archiveFile = path.join(release, name);
-    assert.equal(fs.readFileSync(path.join(release, "SHA256SUMS.txt"), "utf8"),
-        crypto.createHash("sha256").update(fs.readFileSync(archiveFile)).digest("hex") + "  " + name + "\n");
-    const zip = await import(pathToFileURL(overlay.file("vault-backup-zip.ts")).href);
-    const unpack = path.join(dir, "fresh vault");
-    await zip.restoreVaultZip(archiveFile, unpack);
-    assert.ok(fs.readFileSync(path.join(unpack, "INSTALL.txt"), "utf8").includes(manifest.version));
-    const install = path.join(unpack, manifest.id);
-    const ready = path.join(dir, "install", manifest.id);
-    const files = folder => fs.readdirSync(folder, { recursive: true, withFileTypes: true })
-        .filter(entry => entry.isFile()).map(entry => path.relative(folder, path.join(entry.parentPath, entry.name))).sort();
-    assert.deepEqual(files(ready), files(install));
-    for (const file of files(install)) {
-        assert.deepEqual(fs.readFileSync(path.join(ready, file)), fs.readFileSync(path.join(install, file)), file);
+    assert.equal(fs.existsSync(release), false);
+    const runtime = path.join(dir, "install"), evidence = path.join(dir, "notices");
+    assert.deepEqual(fs.readdirSync(runtime).sort(), ["main.js", "manifest.json", "styles.css"]);
+    for (const file of ["manifest.json", "styles.css"]) {
+        assert.deepEqual(fs.readFileSync(path.join(runtime, file)), fs.readFileSync(path.join(repository, file)));
     }
-    for (const file of ["manifest.json", "styles.css", "LICENSE", "UPSTREAM-SNAPSHOT/origin.json",
-        "LICENSES/dependencies/inventory.json", "PROVENANCE.json"]) {
-        assert.deepEqual(fs.readFileSync(path.join(install, file)), fs.readFileSync(path.join(repository, file)));
+    for (const file of ["LICENSE", "UPSTREAM-SNAPSHOT/origin.json", "LICENSES/dependencies/inventory.json", "PROVENANCE.json"]) {
+        assert.deepEqual(fs.readFileSync(path.join(evidence, file)), fs.readFileSync(path.join(repository, file)));
     }
-    assert.equal(fs.readFileSync(path.join(install, "main.js"), "utf8"), fs.readFileSync(path.join(repository, "main.ts"), "utf8"));
+    assert.equal(fs.readFileSync(path.join(runtime, "main.js"), "utf8"), fs.readFileSync(path.join(repository, "main.ts"), "utf8"));
 });
 
 test("failed rebuild does not expose an unpacked plugin or a release ZIP", async t => {
@@ -102,7 +91,7 @@ test("failed rebuild does not expose an unpacked plugin or a release ZIP", async
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const { repository, manifest } = fixture(dir);
     fs.writeFileSync(path.join(repository, "Build", "verify-rebuild.cjs"), "process.exitCode = 1");
-    await assert.rejects(stageRelease(repository, path.join(dir, "release"), dir, manifest), /verify-rebuild/);
+    await assert.rejects(stageRelease(repository, dir, dir, manifest), /verify-rebuild/);
     assert.equal(fs.existsSync(path.join(dir, "install")), false);
     assert.equal(fs.existsSync(path.join(dir, "release")), false);
 });
@@ -158,21 +147,22 @@ test("upstream Anki backups and Obsidian test profiles do not block the GitFlic 
         assert.equal(fs.existsSync(path.join(repository, name)), false);
     }
     for (const name of retained) assert.equal(fs.readFileSync(path.join(repository, name), "utf8"), "fixture: " + name);
-    assert.ok(fs.existsSync(path.join(repository, "tests/gitflic-release.test.cjs")));
+    for (const name of ["tests/gitflic-release.test.cjs", "Prepare-Release.cmd", "Build/prepare-release.cjs",
+        ".github/workflows/review-candidate.yml", "eslint.config.mjs"]) {
+        assert.deepEqual(fs.readFileSync(path.join(repository, name)), fs.readFileSync(path.join(kit, name)));
+    }
     const stray = path.join(repository, "tests/specs/private.colpkg");
     fs.writeFileSync(stray, "private file");
     const release = path.join(dir, "release");
-    await assert.rejects(stageRelease(repository, release, dir, manifest), /Unexpected file in prepared sources.*private\.colpkg/);
+    await assert.rejects(stageRelease(repository, dir, dir, manifest), /Unexpected file in prepared sources.*private\.colpkg/);
     fs.unlinkSync(stray);
-    await stageRelease(repository, release, dir, manifest);
-    assert.ok(fs.existsSync(path.join(release, "Rudonium-" + manifest.version + ".zip")));
+    await stageRelease(repository, dir, dir, manifest);
+    assert.equal(fs.existsSync(release), false);
+    assert.ok(fs.existsSync(path.join(dir,"install","main.js")));
 });
 
-test("a maintained checkout builds edited sources and refreshes provenance without patching upstream again", t => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rudonium-edited-checkout-"));
-    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+function maintainedCheckout(dir) {
     const { repository: checkout, manifest } = fixture(dir);
-    const { buildCheckout } = require("../Build/prepare-gitflic.cjs");
     const { captureUpstream } = require("../Build/release-provenance.cjs");
     const kit = path.resolve(__dirname, "..");
     const write = (name, bytes) => fs.writeFileSync(path.join(checkout, name), bytes);
@@ -186,8 +176,6 @@ test("a maintained checkout builds edited sources and refreshes provenance witho
     fs.chmodSync(path.join(checkout, fixturePath, "cli.cjs"), 0o755);
     const pkg = json("package.json");
     pkg.devDependencies = { typescript: "file:" + fixturePath };
-    fs.mkdirSync(path.join(checkout, "tests/defaults/test_vault_suites/basic_para/.obsidian"), { recursive: true });
-    write("tests/defaults/test_vault_suites/basic_para/.obsidian/workspace.json", "{}");
     write("package.json", JSON.stringify(pkg));
     const lock = json("package-lock.json");
     lock.packages[""].devDependencies = pkg.devDependencies;
@@ -200,6 +188,16 @@ test("a maintained checkout builds edited sources and refreshes provenance witho
         expectedCommit: "2dd39fefd26f3141a4e02105b1172a5a3eb2611f",
         repository: "https://github.com/ObsidianToAnki/Obsidian_to_Anki", acquisition: "local-directory",
     });
+    return { checkout, manifest, write, kit };
+}
+
+test("a maintained checkout builds edited sources and refreshes provenance without patching upstream again", t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rudonium-edited-checkout-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const { checkout, manifest, write, kit } = maintainedCheckout(dir);
+    const { buildCheckout } = require("../Build/prepare-gitflic.cjs");
+    fs.mkdirSync(path.join(checkout, "tests/defaults/test_vault_suites/basic_para/.obsidian"), { recursive: true });
+    write("tests/defaults/test_vault_suites/basic_para/.obsidian/workspace.json", "{}");
     const oldProvenance = fs.readFileSync(path.join(checkout, "PROVENANCE.json"));
     fs.appendFileSync(path.join(checkout, "main.ts"), "// local edit\n");
     const built = path.join(dir, "built");
@@ -211,40 +209,82 @@ test("a maintained checkout builds edited sources and refreshes provenance witho
     assert.match(fs.readFileSync(path.join(built, "main.js"), "utf8"), /local edit/);
     assert.equal(fs.existsSync(path.join(built, "node_modules")), false);
     assert.deepEqual(fs.readFileSync(path.join(checkout, "PROVENANCE.json")), oldProvenance);
-    // Exercise the same entry point that the permanent Windows launcher invokes.
+    // Exercise the verified builder used by the combined update and by CI.
     fs.cpSync(path.join(kit, "Build"), path.join(checkout, "Build"), { recursive: true });
-    fs.copyFileSync(overlay.file("vault-backup-zip.ts"), path.join(checkout, "src/vault-backup-zip.ts"));
-    const run = () => require("node:child_process").spawnSync(process.execPath,
-        [path.join(checkout, "Build", "prepare-gitflic.cjs")], { encoding: "utf8", cwd: dir });
+    const run = (...args) => require("node:child_process").spawnSync(process.execPath,
+        [path.join(checkout, "Build", "prepare-gitflic.cjs"), ...args], { encoding: "utf8", cwd: dir });
     const builds = path.join(dir, "Rudonium-Builds");
-    const output = path.join(builds, manifest.version + ".1");
-    pkg.rudoniumBuild = 0;
-    write("package.json", JSON.stringify(pkg));
+    const output = path.join(builds, manifest.version);
+    write("manifest.json", JSON.stringify({ ...manifest, version: manifest.version + ".1" }));
     const invalid = run();
     assert.notEqual(invalid.status, 0);
-    assert.match(invalid.stderr, /positive integer rudoniumBuild/);
+    assert.match(invalid.stderr, /Invalid release version/);
     assert.equal(fs.existsSync(builds), false);
-    pkg.rudoniumBuild = 1;
-    write("package.json", JSON.stringify(pkg));
+    write("manifest.json", JSON.stringify(manifest));
     const prepared = run();
     assert.equal(prepared.status, 0, prepared.stderr);
-    assert.deepEqual(fs.readdirSync(output).sort(), ["install", "release"]);
-    const main = path.join(output, "install", manifest.id, "main.js");
+    assert.deepEqual(fs.readdirSync(output).sort(), ["install", "notices"]);
+    const main = path.join(output, "install", "main.js");
     const verified = fs.readFileSync(main);
     assert.ok(prepared.stdout.includes(main));
     assert.ok(verified.toString().includes("// local edit"));
-    assert.ok(fs.existsSync(path.join(output, "release", "Rudonium-" + manifest.version + ".zip")));
+    assert.equal(fs.existsSync(path.join(output, "release")), false);
     const repeated = run();
     assert.notEqual(repeated.status, 0);
     assert.ok(repeated.stderr.includes(output));
     assert.deepEqual(fs.readFileSync(main), verified);
-    pkg.rudoniumBuild = 2;
-    write("package.json", JSON.stringify(pkg));
     write("pack.cjs", "process.exit(1)");
-    const failed = run();
+    const failed = run("-", path.join(builds, "failed-build"));
     assert.notEqual(failed.status, 0);
-    assert.deepEqual(fs.readdirSync(builds), [manifest.version + ".1"]);
+    assert.deepEqual(fs.readdirSync(builds), [manifest.version]);
     assert.deepEqual(fs.readFileSync(main), verified);
+});
+
+test("locked npm dependencies allow verified publication and retain the actual rebuild error", t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rudonium-locked-npm-"));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+    const { checkout, manifest, write, kit } = maintainedCheckout(dir);
+    fs.cpSync(path.join(kit, "Build"), path.join(checkout, "Build"), { recursive: true });
+    const temp = path.join(dir, "local temp"), builds = path.join(dir, "Облако !", "Rudonium-Builds");
+    fs.mkdirSync(temp);
+    const log = path.join(dir, "compiled.jsonl");
+    const preload = path.join(__dirname, "fixtures", "locked-npm-folder.cjs");
+    const env = {...process.env, TMPDIR:temp, TMP:temp, TEMP:temp, RUDONIUM_TEST_COMPILED:log,
+        npm_config_offline:"true", npm_config_cache:path.join(dir, "npm-cache")};
+    const run = output => require("node:child_process").spawnSync(process.execPath,
+        [path.join(checkout, "Build/prepare-gitflic.cjs"), "-", output],
+        {cwd:dir, encoding:"utf8", env:{...env, NODE_OPTIONS:"--require=" + JSON.stringify(preload.split(path.sep).join("/"))}});
+    const compile = [
+        'const fs = require("node:fs");',
+        'fs.copyFileSync("main.ts", "main.js");',
+        'fs.appendFileSync(process.env.RUDONIUM_TEST_COMPILED, JSON.stringify(process.cwd()) + "\\n");',
+        'console.log("created fixture main.js");',
+    ].join("\n");
+    write("pack.cjs", compile);
+    const destination = path.join(builds, manifest.version);
+    const prepared = run(destination);
+    assert.equal(prepared.status, 0, prepared.stdout + prepared.stderr);
+    assert.match(prepared.stdout, /Both clean builds match the reference assets byte for byte/);
+    assert.match(prepared.stderr, /Temporary cleanup deferred:/);
+    const compiledIn = fs.readFileSync(log, "utf8").trimEnd().split("\n").map(line => JSON.parse(line));
+    assert.equal(compiledIn.length, 3);
+    for (const folder of compiledIn) {
+        assert.ok(folder.startsWith(temp + path.sep), "npm must build outside the synced output: " + folder);
+        assert.ok(fs.existsSync(path.join(folder, "node_modules")), "simulated live dependency lock: " + folder);
+    }
+    const expected = fs.readFileSync(path.join(checkout, "main.ts"));
+    assert.deepEqual(fs.readdirSync(path.join(destination, "install")).sort(), ["main.js", "manifest.json", "styles.css"]);
+    assert.equal(fs.existsSync(path.join(destination, "release")), false);
+    assert.deepEqual(fs.readFileSync(path.join(destination, "install", "main.js")), expected);
+
+    write("pack.cjs", compile + '\nif (require("node:path").basename(process.cwd()) === "build-2") fs.appendFileSync("main.js", "// changed");');
+    const rejectedOutput = path.join(builds, "mismatched");
+    const rejected = run(rejectedOutput);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /Build 2 differs[\s\S]*main\.js/);
+    assert.match(rejected.stderr, /Temporary cleanup deferred:/);
+    assert.equal(fs.existsSync(rejectedOutput), false);
+    assert.deepEqual(fs.readFileSync(path.join(destination, "install", "main.js")), expected);
 });
 
 test("Prepare prints the final GitFlic folder and keeps checked sources separately if the release rebuild fails", t => {
@@ -255,11 +295,9 @@ test("Prepare prints the final GitFlic folder and keeps checked sources separate
     const kit = path.join(dir, "test kit");
     const build = path.join(kit, "Build");
     fs.mkdirSync(build, { recursive: true });
-    fs.mkdirSync(path.join(kit, "src"));
-    for (const file of ["prepare-gitflic.cjs", "release-rollup.cjs", "overlay-source.cjs"]) {
+    for (const file of ["prepare-gitflic.cjs", "release-rollup.cjs", "workflow-files.cjs"]) {
         fs.copyFileSync(path.join(__dirname, "../Build", file), path.join(build, file));
     }
-    fs.copyFileSync(overlay.file("vault-backup-zip.ts"), path.join(kit, "src/vault-backup-zip.ts"));
     fs.copyFileSync(path.join(input, "manifest.json"), path.join(kit, "manifest.json"));
     fs.writeFileSync(path.join(build, "build-main.cjs"), [
         'const fs = require("node:fs");',
@@ -274,15 +312,14 @@ test("Prepare prints the final GitFlic folder and keeps checked sources separate
     assert.equal(ok.status, 0, ok.stderr);
     assert.ok(ok.stdout.includes(path.join(publish, "repository")));
     for (const asset of ["main.js", "manifest.json", "styles.css"]) {
-        assert.ok(ok.stdout.includes(path.join(publish, "install", manifest.id, asset)));
+        assert.ok(ok.stdout.includes(path.join(publish, "install", asset)));
     }
-    assert.ok(ok.stdout.includes(path.join(publish, "release", "Rudonium-" + manifest.version + ".zip")));
     const profile = fs.readFileSync(path.join(publish, "Compare.ffs_gui"), "utf8");
     assert.ok(profile.includes(path.join(publish,"repository").replaceAll("&", "&amp;")));
     assert.match(profile, /<Right\/>/);
     assert.match(profile, /RightOnly="none"/);
     assert.match(profile, /<Item>\/\.git<\/Item>/);
-    assert.ok(fs.existsSync(path.join(publish, "release", "Rudonium-" + manifest.version + ".zip")));
+    assert.equal(fs.existsSync(path.join(publish, "release")), false);
     fs.renameSync(publish, path.join(dir, "previous output"));
     fs.writeFileSync(path.join(input, "pack.cjs"), "process.exit(1)");
     const failed = prepare();

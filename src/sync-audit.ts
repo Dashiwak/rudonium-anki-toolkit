@@ -202,7 +202,7 @@ function checkAbort(signal?: AbortSignal): void {
 
 /** Освобождает аудит при закрытии окна или зависшем AnkiConnect. Запрос содержит только чтение. */
 export function auditRead(
-    action: 'findNotes' | 'notesInfo' | 'getDecks' | 'deckNames' | 'deckNamesAndIds' | 'findCards' | 'cardsInfo' | 'cardsToNotes' |
+    action: 'findNotes' | 'notesInfo' | 'notesModTime' | 'getDecks' | 'deckNames' | 'deckNamesAndIds' | 'findCards' | 'cardsInfo' | 'cardsToNotes' |
         'modelNames' | 'modelFieldNames' | 'modelTemplates' | 'getActiveProfile' | 'getDeckConfig' | 'guiSelectedNotes' | 'multi' |
         'canAddNotesWithErrorDetail',
     params: Record<string, unknown>, signal?: AbortSignal, timeoutMs = readTimeoutMs,

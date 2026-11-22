@@ -11,6 +11,7 @@ export interface PluginSettings {
     AUDIT_READ_ONLY?: boolean
     BIDIRECTIONAL_SYNC?: boolean
     BIDIRECTIONAL_PREVIEW?: boolean
+    BIDIRECTIONAL_CONFLICT_POLICY?: "latest" | "skip"
     SKIP_SYNC_ERRORS?: boolean
     SYNC_FOLDER_PROFILES?: import("../sync-profiles").SyncFolderProfile[]
     ACTIVE_SYNC_FOLDER_PROFILE?: string

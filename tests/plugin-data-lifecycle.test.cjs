@@ -34,6 +34,9 @@ test("default settings wait for storage, and shutdown reports a failed queued wr
     const write = new Promise(resolve => { accept = resolve; });
     plugin.saveData = async data => {
         assert.deepEqual(Object.keys(data).sort(), ["Added Media", "File Hashes", "fields_dict", "settings"]);
+        assert.equal(data.settings.BIDIRECTIONAL_SYNC, false);
+        assert.equal(data.settings.BIDIRECTIONAL_PREVIEW, false);
+        assert.equal(data.settings.BIDIRECTIONAL_CONFLICT_POLICY, "latest");
         await write;
     };
     const result = plugin.saveDefault().then(() => { completed = true; });
@@ -75,11 +78,14 @@ test("startup reads one consistent legacy snapshot and preserves newer settings 
     assert.equal(settings.Syntax["End Note"], "END");
     assert.equal(settings.BIDIRECTIONAL_SYNC, true);
     assert.equal(settings.BIDIRECTIONAL_PREVIEW, false);
+    assert.equal(settings.BIDIRECTIONAL_CONFLICT_POLICY, "latest");
     assert.deepEqual(settings.CUSTOM_NEW_KEY, {version: 8});
     assert.equal(plugin.fields_dict, snapshot.fields_dict);
     assert.equal(plugin.added_media, snapshot["Added Media"]);
     assert.equal(plugin.file_hashes, snapshot["File Hashes"]);
     assert.equal(plugin.rudoniumDataExtras["third-party"], snapshot["third-party"]);
+    plugin.loadData = async () => ({...snapshot, settings: {...snapshot.settings, BIDIRECTIONAL_CONFLICT_POLICY: "skip"}});
+    assert.equal((await plugin.loadSettings()).BIDIRECTIONAL_CONFLICT_POLICY, "skip");
     for (const bad of [
         {...snapshot, "Added Media": [7]}, {...snapshot, "File Hashes": {bad: null}},
         {...snapshot, fields_dict: {Basic: [null]}}, {...snapshot, settings: {...snapshot.settings, BIDIRECTIONAL_SYNC: "false"}},

@@ -19,6 +19,8 @@ export interface SyncValue {
     extra?: Record<string, string>
 }
 
+export type PairBases = Partial<Record<'front' | 'back', string | null>>
+
 export type SyncField = 'front' | 'back' | 'tags'
 export type SyncChangeField = SyncField | `extra:${string}`
 export type SyncChoices = Partial<Record<SyncChangeField, 'obsidian' | 'anki'>>
@@ -35,6 +37,10 @@ export interface PendingSync {
 }
 
 export interface SyncRecord {
+    /** Whole-file and unmanaged note contents last confirmed together. */
+    clockContext?: { file: string; other: string; mtime: number; mod?: number }
+    /** The verified HTML hashes written to one-way history with this two-way checkpoint. */
+    pairReceipt?: { model: string; front: string; back: string }
     /** Only receipts made with named-line tracking may authorize clearing a removed line. */
     namedFieldModel?: string
     sourceSuffixes?: Record<string, string>
@@ -122,7 +128,7 @@ export function sameSyncExtras(left?: Readonly<Record<string, string>>, right?: 
 /** Совпадающие значения считаем согласованными. Для первого расхождения общей версии ещё нет. */
 export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue, anki: SyncValue,
     choices: SyncChoices = {}, extraDirections?: ReadonlyMap<string, BidirectionalFieldDirection>,
-    fieldBases?: ReadonlyMap<string, string | null>):
+    fieldBases?: ReadonlyMap<string, string | null>, pairBases?: PairBases, initialTagBase?: readonly string[]):
     { value: SyncValue; conflicts: SyncChangeField[] } {
     const conflicts: SyncChangeField[] = []
     const resolveText = (field: SyncChangeField, localValue: string, remoteValue: string,
@@ -138,8 +144,8 @@ export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue
         conflicts.push(field)
         return localValue
     }
-    const front = resolveText('front', obsidian.front, anki.front, base?.front)
-    const back = resolveText('back', obsidian.back, anki.back, base?.back)
+    const front = resolveText('front', obsidian.front, anki.front, pairBases?.front === null ? undefined : pairBases?.front ?? base?.front)
+    const back = resolveText('back', obsidian.back, anki.back, pairBases?.back === null ? undefined : pairBases?.back ?? base?.back)
     const common: Pick<SyncValue, 'front' | 'back' | 'extra'> = { front, back }
     if (extraDirections?.size) {
         common.extra = Object.fromEntries(Array.from(extraDirections, ([name, direction]) => [
@@ -150,11 +156,12 @@ export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue
     const localTags = indexTags(obsidian.tags)
     const remoteTags = indexTags(anki.tags)
     if (sameTags(localTags, remoteTags)) return { value: { ...common, tags: normalizeSyncTags(obsidian.tags) }, conflicts }
-    if (!base) {
+    const tagBase = base?.tags ?? initialTagBase
+    if (!tagBase) {
         if (!choices.tags) conflicts.push('tags')
         return { value: { ...common, tags: normalizeSyncTags(choices.tags === 'anki' ? anki.tags : obsidian.tags) }, conflicts }
     }
-    const previousTags = indexTags(base.tags)
+    const previousTags = indexTags(tagBase)
     const keys = new Set([...previousTags.keys(), ...localTags.keys(), ...remoteTags.keys()])
     const tags: string[] = []
     for (const key of Array.from(keys).sort()) {
@@ -207,8 +214,20 @@ function validSourceSuffixes(value: unknown): boolean {
     return value === undefined || isObject(value) && Object.entries(value).every(([name, text]) => name.length > 0 && typeof text === 'string')
 }
 
+function validPairReceipt(value: unknown): boolean {
+    return value === undefined || isObject(value) && typeof value.model === 'string' && !!value.model &&
+        typeof value.front === 'string' && /^[0-9a-f]{32}$/u.test(value.front) &&
+        typeof value.back === 'string' && /^[0-9a-f]{32}$/u.test(value.back)
+}
+
 function isRecord(value: unknown): value is SyncRecord {
-    return isObject(value) && (value.namedFieldModel === undefined || typeof value.namedFieldModel === 'string' && !!value.namedFieldModel) && validSourceSuffixes(value.sourceSuffixes) && (value.deletionSource === undefined || typeof value.deletionSource === 'string' && /^[0-9a-f]{32}$/u.test(value.deletionSource)) &&
+    if (!isObject(value)) return false
+    const clock = value.clockContext
+    if (clock !== undefined && (!isObject(clock) || typeof clock.file !== 'string' || typeof clock.other !== 'string' ||
+        !/^[0-9a-f]{32}$/u.test(clock.file) || !/^[0-9a-f]{32}$/u.test(clock.other) ||
+        typeof clock.mtime !== 'number' || !Number.isFinite(clock.mtime) || clock.mtime <= 0 ||
+        clock.mod !== undefined && !isId(clock.mod))) return false
+    return validPairReceipt(value.pairReceipt) && (value.namedFieldModel === undefined || typeof value.namedFieldModel === 'string' && !!value.namedFieldModel) && validSourceSuffixes(value.sourceSuffixes) && (value.deletionSource === undefined || typeof value.deletionSource === 'string' && /^[0-9a-f]{32}$/u.test(value.deletionSource)) &&
         (value.suspension === undefined || validSuspendBase(value.suspension)) &&
         (value.base === undefined || isValue(value.base)) &&
         (value.pending === undefined || (isObject(value.pending) && validSourceSuffixes(value.pending.sourceSuffixes) &&

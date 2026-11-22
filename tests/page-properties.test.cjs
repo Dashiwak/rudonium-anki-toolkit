@@ -86,3 +86,19 @@ test('unmarked notes, examples and private tails cannot acquire a second Anki id
     assert.deepEqual(Array.from(markers.findIdMarkers(privateText),m=>m.id),[123])
     assert.equal(parser.readPageCard(privateText,model).back,answer)
 })
+
+test('a miscapitalized page ID blocks its page and reserves its number against a second owner', async () => {
+    const { 'vault-id-index': { indexVaultIds } } = await load(['vault-id-index','duplicate-markers'], {})
+    const id = 1795150951806
+    for (const key of ['anki-page-id', '"ANKI-PAGE-ID"', "'Anki-Page-ID'"]) {
+        const copy = document([key + ": '" + id + "' # original ID"]).replaceAll('\n', '\r\n')
+        assert.throws(() => parser.readPageCard(copy, model), /anki-page-ID/)
+        const source = {path:'Original.md', text:'- Q :: A\n<!--ID: ' + id + '-->', stat:{ctime:1,mtime:1,size:1}}
+        const other = {path:'Copy.md', text:copy, stat:{ctime:1,mtime:1,size:1}}
+        const plugin = {app:{vault:{read:async file=>file.text}}}
+        const inventory = await indexVaultIds(plugin, [source,other], {}, () => 0)
+        assert.ok(inventory.complete)
+        assert.deepEqual(Array.from(inventory.duplicates.get(id) ?? [], row=>[row.path,row.line]),
+            [['Copy.md',2],['Original.md',2]], key)
+    }
+})

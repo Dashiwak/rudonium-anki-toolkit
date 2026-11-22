@@ -51,6 +51,7 @@ export function renderSettingsGroup(container: HTMLElement, plugin: LayoutSettin
 
 /** Запоминаем раскрытие разделов, созданных штатными настройками. */
 export function finalizeSettingsLayout(container: HTMLElement, plugin: LayoutSettings): void {
+    container.classList.add('rudonium-settings-pane')
     let other = 0
     for (const details of Array.from(container.querySelectorAll<HTMLDetailsElement>('details.anki-settings-disclosure'))) {
         rememberGroup(details, plugin, `syntax-and-defaults-${other++}`, false)

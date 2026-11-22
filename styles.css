@@ -31,6 +31,94 @@
 .rudonium-settings-group-body .anki-note-type-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-block: .6rem; }
 .rudonium-settings-group-body .anki-note-type-refresh:empty { display: none; }
 
+/* Use a common inset for the help link, headings, labels, controls and About.
+   Check for the About section because Obsidian can reuse the tab container. */
+.rudonium-settings-pane:has(> .rudonium-settings-about) {
+  --rudonium-setting-inset: var(--size-4-4, 16px);
+  text-align: start;
+
+  & > a:first-child {
+    display: inline-block;
+    margin-inline-start: var(--rudonium-setting-inset);
+  }
+
+  & .setting-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--size-4-2, 8px);
+    padding-inline: var(--rudonium-setting-inset);
+    text-align: start;
+  }
+
+  & .setting-item-info,
+  & .setting-item-control {
+    flex: none;
+    margin-inline: 0;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+
+  & .setting-item-control {
+    align-self: stretch;
+  }
+
+  & .setting-item-control,
+  & .modal-button-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  & .setting-item-control:empty,
+  & .setting-item-info:has(> .setting-item-name:empty):has(> .setting-item-description:empty) {
+    display: none;
+  }
+
+  & .setting-item-control > * {
+    box-sizing: border-box;
+    max-inline-size: 100%;
+  }
+
+  & .rudonium-default-deck-setting-list {
+    max-width: min(22rem, 100%);
+  }
+
+  & .anki-settings-disclosure[data-rudonium-settings-group] {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 8px);
+  }
+
+  & .anki-settings-disclosure[data-rudonium-settings-group] > summary {
+    display: list-item;
+    list-style-position: outside;
+    margin-inline: calc(var(--rudonium-setting-inset) - 1px);
+    padding: .65rem 0;
+  }
+
+  & .anki-settings-disclosure[data-rudonium-settings-group] > div {
+    padding-inline: calc(var(--rudonium-setting-inset) - 1px);
+  }
+
+  & .rudonium-settings-about {
+    padding-inline: var(--rudonium-setting-inset);
+  }
+
+  & .anki-settings-disclosure .setting-item,
+  & .rudonium-settings-about .setting-item {
+    padding-inline: 0;
+  }
+
+  & .anki-center {
+    margin-inline: 0;
+  }
+
+  & .anki-settings-table :is(th, td) {
+    text-align: start;
+  }
+}
+
 .rudonium-wrap-anywhere {
   overflow-wrap: anywhere;
 }
@@ -202,24 +290,17 @@
   overflow-wrap: anywhere;
 }
 
-.rudonium-bidirectional-layout {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
-  gap: 0.65em;
-  margin-block: 0.5em;
+.rudonium-bidirectional-directions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 0.5rem 1rem;
 }
 
-.rudonium-bidirectional-pane {
-  min-width: 0;
-  padding: 0.65em;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-}
-
-.rudonium-bidirectional-value {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  margin-block-start: 0.35em;
+.rudonium-bidirectional-directions button[aria-pressed="true"] {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  box-shadow: inset 0 0 0 1px var(--interactive-accent-hover);
 }
 
 .rudonium-bidirectional-item {

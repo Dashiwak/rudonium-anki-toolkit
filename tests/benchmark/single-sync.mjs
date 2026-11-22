@@ -264,7 +264,7 @@ try {
             await steady(currentOnly)
             await measure(scope + '.unchanged', async () => {
                 await steady(currentOnly)
-                assert.equal(host.metrics.reads, uncachedDense ? 1 : 0)
+                assert.equal(host.metrics.reads, 1, 'manual checks read the active note even when its timestamps did not change')
                 assert.equal(host.metrics.parses, uncachedDense ? 1 : 0)
                 assert.equal(host.metrics.queried, currentOnly && !packed ? 1 : size)
             })
@@ -314,21 +314,17 @@ try {
         reset()
         await applyOne(dialog)
         assertWrites(0, 1)
-        const markdown = focus.text
         notes.get(focusId).fields.Back.value = 'Edit from Anki Browse'
         host.browsing = [focusId]
-        dialog = await preview(true)
-        reset()
-        assert.match(await dialog.apply(new Map()), /Select another note or close Browse/)
-        assert.equal(focus.text, markdown)
-        assertWrites(0, 0)
-        host.browsing = []
         dialog = await preview(true)
         reset()
         await applyOne(dialog)
         answers[focusIndex] = notes.get(focusId).fields.Back.value
         assertWrites(1, 0)
         checkAll()
+        host.browsing = []
+        reset()
+        await steady(true)
     }
     if (flags.has('--packet-faults')) {
         assert.equal(size,130)

@@ -213,11 +213,13 @@ export function findBidirectionalBlocks(content: string, syntax: DuplicateMarker
             opening = -1
             continue
         }
-        if (trimmed === begin && /^ {0,3}\S/u.test(text)) {
-            opening = opening === -1 ? index : -1
+        // Keep START/END ownership identical to explicitNotePattern in the export pass.
+        const delimiter = text.replace(/^ {0,3}/u, '').replace(/[ \t]+$/u, '')
+        if (delimiter === begin) {
+            opening = index
             continue
         }
-        if (opening < 0 || trimmed !== closing) continue
+        if (opening < 0 || delimiter !== closing) continue
         const start = opening
         opening = -1
         if (index - start < 3 || index - start > 200 || lines[index].end - lines[start].start > 65_536) continue

@@ -8,4 +8,4 @@
 | [Migrate existing card files](en/migrate-card-files.md) | [Перенос существующих файлов-карточек](ru/migrate-card-files.md) |
 | [Release notes](../CHANGELOG.md) | [Примечания к выпускам](../CHANGELOG.md) |
 
-[GitFlic support / Поддержка на GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
+[GitFlic Issues / Поддержка на GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)

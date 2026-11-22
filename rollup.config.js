@@ -20,7 +20,7 @@ function bundleNotice(release, license) {
         "/*!",
         " * " + release.name + " " + release.version + " — modified 2026-11-22.",
         " * SPDX-License-Identifier: " + license,
-        " * Rudonium additions: Copyright (C) 2026 dashiwak <dashiwak@yandex.ru>. GNU GPLv3. Original component permissions and notices are retained.",
+        " * Rudonium additions: Copyright (C) 2026 dashiwak. GNU GPLv3. Original component permissions and notices are retained.",
         " * Derived from Obsidian_to_Anki 3.6.0 by Pseudonium and contributors.",
         " * See LICENSE, NOTICE.md, UPSTREAM-SNAPSHOT and LICENSES in the matching distribution.",
         " * Complete corresponding source must accompany distribution or be provided as the GPL permits.",

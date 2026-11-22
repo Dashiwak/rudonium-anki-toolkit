@@ -106,14 +106,14 @@ test('one-way: 768 mixed local/remote updates, conflicts and untouched fields us
         const modelName=i%2 ? 'Vocab' : 'Basic'
         const path=(i%2?'Moved/':'Old/')+(i%31)+'.md'
         const old='base-'+id, local='local-'+id, remote='remote-'+id
-        const wanted=[local,old,local,'',local,old][i%6]
-        const actual=[old,remote,remote,old,local,old][i%6]
+        const wanted=[local,old,local,'',local,old,''][i%7]
+        const actual=[old,remote,remote,old,local,old,remote][i%7]
         const fields={Front:'question-'+id,Back:wanted,Extra:''}
         notes.push({id,modelName,path,deck:'Geo',fields,authoredFields:['Front','Back'],tags:[]})
         snapshots.set(id,{modelName,tags:['marked','Private'],cards:[id+90000],fields:fieldsInAnki({...fields,Back:actual,Extra:'Anki only '+id})})
         records.set(id,{fields:{Front:digest(fields.Front),Back:digest(old)}})
-        if ([0,3].includes(i%6)) expected.set(id,{path,fields:{Back:wanted}})
-        if(i%6===2) expectedConflicts.add(id)
+        if ([0,2,3].includes(i%7)) expected.set(id,{path,fields:{Back:wanted}})
+        if(i%7===6) expectedConflicts.add(id)
     }
     const conflicts=new Set()
     const changes=await api['anki-delta'].prepareExistingNoteChanges(notes,()=>{},
@@ -127,6 +127,46 @@ test('one-way: 768 mixed local/remote updates, conflicts and untouched fields us
         expected.delete(id)
     }
     assert.equal(expected.size,0)
+})
+
+test('one-way: the edited Markdown question wins on a tracked ID; destructive, rich and untracked differences await review', async () => {
+    const api = await all
+    const digest = api['oneway-history'].oneWayFieldDigest
+    const cases = [
+        ['Казематы', 'Казематы+', 'Казематы0000', true],
+        ['Old', 'New', 'Old', true],
+        ['Old', '', 'Old', true],
+        ['Old', 'Old', 'Anki edit', false],
+        ['Old', 'New', 'New', false],
+        ['Old', 'New', 'Remote<img src="ink.png">', false],
+        ['Old', '', 'Remote', false],
+        ['Old', 'New', '', false],
+        ['Old', 'New', '[sound:record.mp3]', false],
+        ['Old', 'New', '{{c1::Cloze}}', false],
+        ['{{c1::Old}}', '{{c1::Local}}', '{{c1::Anki}}', false],
+        ['{{c1::Old}}', '{{c1::Local}}', '{{c1::Old}}', true],
+        ['Old', 'New', String.raw`\(E=mc^2\)`, false],
+        ['Old', String.raw`\[a+b\]`, 'Remote', false],
+        ['Old', 'New', '[latex]x^2[/latex]', false],
+        ['Old', 'New', '[$$]x^2[/$$]', false],
+        ['Old', 'New', '[$]x^2[/$]', false],
+        ['Old', 'The fee is $2.50', 'The fee is $3.00', true],
+        [undefined, 'New', 'Remote', false],
+    ]
+    for (const [old,local,anki,changed] of cases) {
+        const src = source({ Front:local })
+        src.authoredFields = ['Front']
+        const available = old !== undefined ? {fields:{Front:digest(old)}} : undefined
+        const note = {modelName:model,tags:[],fields:fieldsInAnki({Front:anki,Extra:'From Anki'}),cards:[2201]}
+        const errors = []
+        const changes = await api['anki-delta'].prepareExistingNoteChanges([src], (_,reason) => errors.push(reason),
+            new Map([[src.id,note]]),undefined,{history:{get:()=>available},allowDeckMoves:false})
+        const actions = changes.get(src.path) ?? []
+        assert.deepEqual(plain(actions), changed ? [request('updateNoteFields',{note:{id:src.id,fields:{Front:local}}})] : [])
+        const review = !changed && local !== old && local !== anki
+        assert.equal(errors.length, review ? 1 : 0, String(local)+' vs '+anki)
+        if (review) assert.match(errors[0], /Preview Export/)
+    }
 })
 
 test('one-way: moving an ordinary note into a folder named constructor does not block export', async () => {

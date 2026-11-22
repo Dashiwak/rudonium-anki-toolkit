@@ -146,6 +146,13 @@ export function exportCardIssueText(issue: ExportCardIssue, t: UiText): string {
     }
 }
 
+/** Messages emitted by the one-way planner for values that require an explicit choice. */
+export function fieldReviewIssue(message: string): { id: string; field: string; reason: 'first' | 'both' | 'cards' } | undefined {
+    const match = /^Anki note (\d+), field “(.+)” (?:needs review: (no confirmed previous value is available|Obsidian and Anki both changed)\.|(may change its study cards)\.)/u.exec(message)
+    if (!match) return
+    return { id: match[1], field: match[2], reason: match[4] ? 'cards' : match[3].startsWith('no confirmed') ? 'first' : 'both' }
+}
+
 /** Переводит известные ошибки. Исходные ответы дополнений остаются в журнале экспорта. */
 export function localizeExportError(error: string, t: UiText): string {
     if (t('en', 'ru') === 'en') return error
@@ -153,6 +160,12 @@ export function localizeExportError(error: string, t: UiText): string {
     const withPath = /^(.+?\.md):\s+([\s\S]*)$/i.exec(clean)
     if (withPath) return `${withPath[1]}: ${localizeExportError(withPath[2], t)}`
     if (clean.startsWith('Anki Browse: ID ') || clean.startsWith('Deck type unverified: ')) return uiDiagnostic(clean, t)
+    const review = fieldReviewIssue(clean)
+    if (review) {
+        const why = review.reason === 'cards' ? 'Изменение может повлиять на учебные карточки.' :
+            review.reason === 'first' ? 'Ещё нет подтверждённого общего значения.' : 'Значение изменилось с обеих сторон.'
+        return `Anki ID ${review.id}, поле «${review.field}». ${why} Проверьте поле в предпросмотре экспорта.`
+    }
     const missing = /^Anki note (\d+) was not found\b/.exec(clean)
     if (missing) return `Карточка с ID: ${missing[1]} в Anki не найдена!`
     const duplicate = /^Duplicate Anki note ID (\d+) in (.+)\. Keep the ID in one source\.?$/.exec(clean)

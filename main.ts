@@ -85,6 +85,7 @@ export default class RudoniumAnkiPlugin extends Plugin {
 			REQUIRE_ANKI_PROFILE: false,
 			BIDIRECTIONAL_SYNC: false,
 			BIDIRECTIONAL_PREVIEW: false,
+			BIDIRECTIONAL_CONFLICT_POLICY: "latest",
 			SKIP_SYNC_ERRORS: false,
 			INTERFACE_LANGUAGE: "en",
 			PAGE_ID_LOCATION: "yaml",
@@ -242,9 +243,9 @@ export default class RudoniumAnkiPlugin extends Plugin {
 
 
 
-	async scanVault() {
+	async scanVault(origin?: 'scheduled') {
         // Существующая команда передаёт управление ускоренному сканированию.
-        await scanVaultFast(this)
+        await scanVaultFast(this, origin)
     }
 
 	async onload() {

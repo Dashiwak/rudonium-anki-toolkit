@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { isUtf8 } = require("node:buffer");
+const { regularBytes } = require("./workflow-files.cjs");
 
 const snapshotDirectory = "UPSTREAM-SNAPSHOT";
 const dependenciesDirectory = "LICENSES/dependencies";
@@ -60,21 +61,7 @@ function checked(root, relative, optional = false) {
 }
 
 function readRegular(root, relative, maximum = limits.noticeBytes) {
-    const absolute = checked(root, relative);
-    const before = fs.lstatSync(absolute);
-    if (!before.isFile() || before.size > maximum) fail("a regular file within the size limit is required: " + relative);
-    const descriptor = fs.openSync(absolute, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
-    try {
-        const opened = fs.fstatSync(descriptor);
-        if (!opened.isFile() || before.dev !== opened.dev || before.ino !== opened.ino || before.size !== opened.size || before.mtimeMs !== opened.mtimeMs) {
-            fail("file changed before reading: " + relative);
-        }
-        const bytes = fs.readFileSync(descriptor);
-        const after = fs.fstatSync(descriptor);
-        if (bytes.length > maximum || opened.dev !== after.dev || opened.ino !== after.ino || opened.size !== after.size ||
-            opened.mtimeMs !== after.mtimeMs || opened.ctimeMs !== after.ctimeMs || bytes.length !== after.size) fail("file changed while reading: " + relative);
-        return bytes;
-    } finally { fs.closeSync(descriptor); }
+    return regularBytes(checked(root, relative), maximum);
 }
 
 function readJson(root, relative) {
@@ -240,7 +227,7 @@ function applyReleaseMetadata(source, release, license) {
     if (packageJson.scripts.test && packageJson.scripts.test !== releaseTests)
         packageJson.scripts["test:upstream"] ??= packageJson.scripts.test;
     packageJson.scripts.test = releaseTests;
-    packageJson.scripts["release:prepare"] = "node Build/prepare-gitflic.cjs";
+    packageJson.scripts["release:prepare"] = scripts["release:prepare"];
     Object.assign(lock, metadata);
     if (lock.packages && lock.packages[""]) Object.assign(lock.packages[""], metadata);
     const outputs = [["package.json", jsonBytes(packageJson)], ["package-lock.json", jsonBytes(lock)]];

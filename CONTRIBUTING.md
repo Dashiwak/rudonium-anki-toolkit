@@ -1,6 +1,6 @@
 # Contributing
 
-We accept questions, bug reports, suggestions and contributions in **English and Russian**. Open an issue in the GitFlic project so discussion and decisions stay together. [GitFlic issues](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
+We accept questions, bug reports, suggestions and contributions in **English and Russian**. Open an issue on GitFlic so discussion and decisions stay together. [GitFlic Issues](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
 ## Report a problem
 
@@ -15,6 +15,6 @@ Describe what you expected, what happened and the shortest steps to repeat it. I
 
 ## По-русски
 
-Сообщения и предложения можно писать по-русски. В задаче укажите версии программ, режим синхронизации, ожидаемый результат и шаги для воспроизведения. Для ошибки разбора приложите небольшой пример Markdown и названия полей Anki. Запустите проверки изменённых сценариев из `tests/`. Нужен Node.js 22.18 или новее. В чистой копии развёрнутого репозитория сначала выполните `npm ci`. В запросе на слияние дайте ссылку на задачу и опишите, как проверяли изменение. [Задачи GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
+Сообщения и предложения можно писать по-русски. В задаче укажите версии программ, режим синхронизации, ожидаемый результат и шаги для воспроизведения. Для ошибки разбора приложите небольшой пример Markdown и названия полей Anki. Запустите проверки изменённых сценариев из `tests/`. Нужен Node.js 22.18 или новее. В чистой копии развёрнутого репозитория сначала выполните `npm ci`. В запросе на слияние дайте ссылку на задачу и опишите, как проверяли изменение. [GitFlic Issues](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
-Rudonium author and maintainer · [dashiwak](mailto:dashiwak@yandex.ru).
+Rudonium author and maintainer · dashiwak.

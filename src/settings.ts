@@ -62,7 +62,7 @@ export class SettingsTab extends PluginSettingTab {
         this.scanInterval = undefined
         if (!this.unloaded && Number.isFinite(minutes) && minutes > 0) {
             this.scanInterval = window.setInterval(() => {
-                void this.rudonium.scanVault().catch(error => {
+                void this.rudonium.scanVault('scheduled').catch(error => {
                     new Notice(uiDiagnostic(error, uiFor(this.rudonium.settings)))
                 })
             }, minutes * 60_000)
@@ -142,7 +142,7 @@ export class SettingsTab extends PluginSettingTab {
                 "Сверьте одну колоду и проверьте дубликаты ID. Можно запустить экспорт выбранных папок перед сверкой."))
             .addButton(button => button.setButtonText(t("Check Default Deck", "Проверить колоду по умолчанию")).onClick(() => startSyncAudit(plugin)))
             .addButton(button => button.setButtonText(t("Choose Deck", "Выбрать колоду")).onClick(() => openSyncAuditDeckPicker(plugin)))
-        installBidirectionalSettings(syncBody, plugin, modeContainer)
+        installBidirectionalSettings(modeContainer, plugin)
         renderSettingsGroup(containerEl, plugin, 'archives-transfer', t('Archives, Backup and Transfer', 'Архивы, резервные копии и перенос'), body => installZipImportSettings(body, plugin))
         renderSettingsGroup(containerEl, plugin, 'image-optimization', t('Image Optimization', 'Оптимизация изображений'), body => installImageOptimizationSettings(body, plugin))
         installIdMarkerSettings(containerEl, plugin, {
@@ -190,8 +190,8 @@ export class SettingsTab extends PluginSettingTab {
         this.setup_buttons()
         this.setup_workflows(modeContainer)
         installCardLifecycleSettings(containerEl, rudonium)
-        installProjectInfo(containerEl, rudonium, RUDONIUM_BUILD_VERSION)
         installInterfaceLanguage(containerEl, rudonium, () => this.setup_display())
+        installProjectInfo(containerEl, rudonium, RUDONIUM_BUILD_VERSION)
         finalizeSettingsLayout(containerEl, rudonium)
     }
 

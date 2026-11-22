@@ -93,3 +93,25 @@ test('the only tag may be in the private appendix, no private content becomes a 
         assert.deepEqual(Array.from(scanner.findIdMarkers(saved),m=>m.id),[12345])
     }
 })
+
+test('a tag mentioned in a Markdown link never exports the file; a real tag after that link still selects it', async () => {
+    for (const eol of ['\n', '\r\n']) {
+        for (const link of [
+            '[See #anki-page](https://example.org/Anki_(software))',
+            '[See [page] #anki-page](guide.md)',
+            '[A \\] and #anki-page](guide.md)',
+            '[See [page] #anki-page][guide]',
+            '![See #anki-page](Images/Anki_(guide).png)',
+        ]) {
+            const text = ['# Notes', link, 'Personal notes'].join(eol)
+            assert.equal(pages.readPageCard(text, rules), undefined, link)
+            const file = new AllFile(text)
+            await file.scanFile()
+            assert.equal(file.all_notes_to_add.length, 0, link)
+            const tagged = text + ' #anki-page'
+            assert.equal(pages.readPageCard(tagged, rules).back, link + '\nPersonal notes')
+        }
+    }
+    const incomplete = '# Notes\nSee [this] and #anki-page for details.'
+    assert.equal(pages.readPageCard(incomplete, rules).back, 'See [this] and for details.')
+})

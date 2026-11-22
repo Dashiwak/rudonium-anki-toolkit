@@ -68,7 +68,7 @@ function patchMain(source, ts) {
     editBody("getDefaultSettings", body => body.replace(/^([ \t]*)(["']Frozen Fields Line["']\s*:)/m,
         '$1"Suspend Line": "SUSPEND",\n$1$2'));
     editBody("getDefaultSettings", body => replaceOnce(body, /([ \t]*)Defaults:\s*\{/,
-        '$1EXPECTED_ANKI_PROFILE: "",\n$1REQUIRE_ANKI_PROFILE: false,\n$1BIDIRECTIONAL_SYNC: false,\n$1BIDIRECTIONAL_PREVIEW: false,\n$1SKIP_SYNC_ERRORS: false,\n$1INTERFACE_LANGUAGE: "en",\n$1PAGE_ID_LOCATION: "yaml",\n$1COLLAPSE_ANKI_IDS: false,\n$1CLEAN_DELETED_BLOCKS: false,\n$1MARK_DELETED_BLOCKS: false,\n$1TRASH_DELETED_PAGES: false,\n$&'));
+        '$1EXPECTED_ANKI_PROFILE: "",\n$1REQUIRE_ANKI_PROFILE: false,\n$1BIDIRECTIONAL_SYNC: false,\n$1BIDIRECTIONAL_PREVIEW: false,\n$1BIDIRECTIONAL_CONFLICT_POLICY: "latest",\n$1SKIP_SYNC_ERRORS: false,\n$1INTERFACE_LANGUAGE: "en",\n$1PAGE_ID_LOCATION: "yaml",\n$1COLLAPSE_ANKI_IDS: false,\n$1CLEAN_DELETED_BLOCKS: false,\n$1MARK_DELETED_BLOCKS: false,\n$1TRASH_DELETED_PAGES: false,\n$&'));
     editBody("getDefaultSettings", offlineDefaults);
     editBody("loadSettings", body => {
         const load = replaceOnce(body.replace(/new Notice\(["'](?:Need to connect to Anki generate default settings\.\.\.|Default settings successfully generated!)["']\)\s*;?/g, ""), /current_data\s*==\s*null\s*\|\|\s*Object\.keys\(current_data\)\.length\s*!=\s*4/,
@@ -235,7 +235,13 @@ function patchSettings(source) {
             throw new Error("Unexpected legacy folder filters in src/setting-to-data.ts.");
         }
     }
-    return "import { pageIdLocation } from './page-id-location'\n" +
+    let blockImport = "";
+    if (/\bresult\.NOTE_REGEXP\s*=/u.test(source)) {
+        source = replaceOnce(source, /result\.NOTE_REGEXP\s*=\s*new RegExp[^\r\n]+/,
+            'result.NOTE_REGEXP = explicitNotePattern(escapeRegex(settings.Syntax["Begin Note"]), escapeRegex(settings.Syntax["End Note"]))');
+        blockImport = "import { explicitNotePattern } from './card-format-presets'\n";
+    }
+    return blockImport + "import { pageIdLocation } from './page-id-location'\n" +
         "import { activeExportRules } from './sync-profiles'\n" + source;
 }
 
@@ -247,7 +253,7 @@ function patchIdDateInterfaces(source) {
     source = replaceOnce(source, /("ID Comments"\s*:\s*boolean,)(\r?\n)([ \t]*)/,
         '$1$2$3"Add Date to Anki IDs"?: boolean,$2$3');
     source = replaceOnce(source, /(export interface PluginSettings\s*\{)(\r?\n)/,
-        '$1$2    NOTE_TYPE_RULE_MODELS?: string[]$2    NOTE_TYPE_RULE_NAMES?: Record<string, string>$2    INACTIVE_CUSTOM_REGEXPS?: Record<string, string>$2    REGEXP_WIZARD_FIELDS?: Record<string, string[]>$2    PAGE_MODEL?: string$2    PAGE_ID_LOCATION?: "heading" | "yaml" | "after-answer"$2    AUDIT_READ_ONLY?: boolean$2    BIDIRECTIONAL_SYNC?: boolean$2    BIDIRECTIONAL_PREVIEW?: boolean$2    SKIP_SYNC_ERRORS?: boolean$2' +
+        '$1$2    NOTE_TYPE_RULE_MODELS?: string[]$2    NOTE_TYPE_RULE_NAMES?: Record<string, string>$2    INACTIVE_CUSTOM_REGEXPS?: Record<string, string>$2    REGEXP_WIZARD_FIELDS?: Record<string, string[]>$2    PAGE_MODEL?: string$2    PAGE_ID_LOCATION?: "heading" | "yaml" | "after-answer"$2    AUDIT_READ_ONLY?: boolean$2    BIDIRECTIONAL_SYNC?: boolean$2    BIDIRECTIONAL_PREVIEW?: boolean$2    BIDIRECTIONAL_CONFLICT_POLICY?: "latest" | "skip"$2    SKIP_SYNC_ERRORS?: boolean$2' +
         '    SYNC_FOLDER_PROFILES?: import("../sync-profiles").SyncFolderProfile[]$2    ACTIVE_SYNC_FOLDER_PROFILE?: string$2' +
         '    EFFECTIVE_EXPORT_RULES?: import("../export-rules").ExportRule[]$2' +
         '    BIDIRECTIONAL_FIELDS?: import("../bidirectional-fields").BidirectionalFieldRule[]$2' +
@@ -444,7 +450,7 @@ function patchAuditSettings(source) {
                 "Сверьте одну колоду и проверьте дубликаты ID. Можно запустить экспорт выбранных папок перед сверкой."))
             .addButton(button => button.setButtonText(t("Check Default Deck", "Проверить колоду по умолчанию")).onClick(() => startSyncAudit(plugin)))
             .addButton(button => button.setButtonText(t("Choose Deck", "Выбрать колоду")).onClick(() => openSyncAuditDeckPicker(plugin)))
-        installBidirectionalSettings(syncBody, plugin, containerEl.querySelector<HTMLElement>('.rudonium-mode-slot') ?? syncBody)
+        installBidirectionalSettings(containerEl.querySelector<HTMLElement>('.rudonium-mode-slot') ?? syncBody, plugin)
         renderSettingsGroup(containerEl, plugin, 'archives-transfer', t('Archives, Backup and Transfer', 'Архивы, резервные копии и перенос'), body => installZipImportSettings(body, plugin))
         renderSettingsGroup(containerEl, plugin, 'image-optimization', t('Image Optimization', 'Оптимизация изображений'), body => installImageOptimizationSettings(body, plugin))
         installIdMarkerSettings(containerEl, plugin, {
@@ -548,8 +554,8 @@ function patchInterfaceSettings(source) {
     source = replaceOnce(source, /this\.setup_workflows\(\)/,
         "$&\n" +
         "        installCardLifecycleSettings(this.containerEl, (this as any).plugin)\n" +
-        "        installProjectInfo(this.containerEl, (this as any).plugin, RUDONIUM_BUILD_VERSION)\n" +
         "        installInterfaceLanguage(this.containerEl, (this as any).plugin, () => this.setup_display())\n" +
+        "        installProjectInfo(this.containerEl, (this as any).plugin, RUDONIUM_BUILD_VERSION)\n" +
         "        finalizeSettingsLayout(this.containerEl, (this as any).plugin)");
 
     source = source
@@ -626,6 +632,15 @@ const OBS_TAG_REGEXP: RegExp = /(?<![^\s>(\[])#((?=[\p{L}\p{M}\p{N}\p{Extended_P
 }
 
 function patchSourceFieldWriters(source) {
+    source = source.replace(String.raw`ID_REGEXP: RegExp = /(?:<!--)?ID: (\d+)/`, String.raw`ID_REGEXP: RegExp = /^[ \t]*(?:<!--[ \t]*)?ID:[ \t]*(\d+)(?!\d|[.,]\d|[eE][+-]?\d)/u`);
+    source = source.replace(String.raw`static ID_REGEXP: RegExp = /(?:<!--)?ID: (\d+)/`, String.raw`static ID_REGEXP: RegExp = /(?:<!--[ \t]*(?=ID:[^\r\n]*?-->)|(?<!\S))ID:[ \t]*(\d+)(?!\d|[.,]\d|[eE][+-]?\d)/gu`);
+    source = source.replace("        const result = this.text.match(InlineNote.ID_REGEXP)", String.raw`        const candidates = Array.from(this.text.matchAll(InlineNote.ID_REGEXP))
+        const explicit = candidates.filter(marker => marker[0].startsWith('<!--'))
+        const dated = candidates.filter(marker => /^[ \t]*\|[ \t]*\d{4}-\d{2}-\d{2}(?!\d)/u.test(this.text.slice(marker.index + marker[0].length)))
+        const markers = explicit.length ? explicit : dated.length ? dated : candidates
+        if (markers.length > 1) throw new Error('Ambiguous inline Anki ID. Keep one explicit <!--ID: 123--> marker. / Неоднозначный ID строчной карточки. Оставьте один явный маркер <!--ID: 123-->.')
+        const result = markers[0]`);
+    source = source.replace('this.text.split("\\n")', 'this.text.split(/\\r?\\n/u)');
     // Оба парсера (обычный/строчный и RegExp) получают URL и контекст для всего файла.
     // «Без поля» действует отдельно для каждого назначения и каждого типа записи.
     for (const [argument, map] of [["url", "file_link_fields"], ["context", "context_fields"]]) {

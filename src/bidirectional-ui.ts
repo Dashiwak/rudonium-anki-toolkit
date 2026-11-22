@@ -6,7 +6,7 @@
  */
 import { Modal, Notice } from 'obsidian'
 import type { App } from 'obsidian'
-import { openAuditAnkiNote, openAuditSource } from './sync-difference-ui'
+import { openAuditAnkiNote, openAuditSource, renderFieldComparison } from './sync-difference-ui'
 import type { VaultIdLocation } from './vault-id-index'
 import { englishUi, uiDiagnostic } from './interface-language'
 import type { UiText } from './interface-language'
@@ -22,6 +22,8 @@ export interface BidirectionalPreviewChange {
     /** Источник сохраняемого значения или поле, которое пользователь должен выбрать вручную. */
     decision: BidirectionalSide | 'merge' | 'conflict'
     merged?: string
+    recommendedSide?: BidirectionalSide
+    canChooseDirection?: boolean
     allowedSide?: BidirectionalSide
     markdown?: () => { before: string; after: string }
 }
@@ -64,43 +66,12 @@ function showIssues(parent: HTMLElement, issues: readonly string[], t: UiText): 
     }
 }
 
-/** Выделяет изменившийся фрагмент по кодовым точкам, чтобы граница выделения не разделяла суррогатную пару. */
-function showValues(parent: HTMLElement, change: BidirectionalPreviewChange, t: UiText): void {
-    const sides = [Array.from(change.obsidian), Array.from(change.anki)]
-    const [left, right] = sides
-    const sharedLength = Math.min(left.length, right.length)
-    let prefix = 0
-    while (prefix < sharedLength && left[prefix] === right[prefix]) prefix++
-    let suffix = 0
-    while (suffix < sharedLength - prefix && left[left.length - 1 - suffix] === right[right.length - 1 - suffix]) suffix++
-
-    const layout = parent.createDiv()
-    layout.classList.add('rudonium-bidirectional-layout')
-    for (let index = 0; index < sides.length; index++) {
-        const chars = sides[index]
-        const pane = layout.createDiv()
-        pane.classList.add('rudonium-bidirectional-pane')
-        pane.createEl('strong', { text: index === 0 ? 'Obsidian' : 'Anki' })
-        const value = pane.createDiv()
-        value.classList.add('rudonium-bidirectional-value')
-        if (change.obsidian === change.anki) {
-            value.setText(chars.join('') || t('Empty field', 'Пустое поле'))
-        } else {
-            if (prefix) value.createSpan({ text: chars.slice(0, prefix).join('') })
-            const difference = chars.slice(prefix, chars.length - suffix).join('')
-            value.createEl('mark', difference ? { text: difference } : {
-                text: '∅', title: t('No text at this position', 'В этом месте нет текста'), attr: { 'aria-label': t('No text at this position', 'В этом месте нет текста') },
-            })
-            if (suffix) value.createSpan({ text: chars.slice(chars.length - suffix).join('') })
-        }
-    }
-}
-
 class BidirectionalPreviewModal extends Modal {
     private readonly preview: BidirectionalPreview
     private readonly apply?: ApplyPreview
     private readonly choices = new Map<string, BidirectionalSide>()
-    private readonly controls: Array<HTMLButtonElement | HTMLSelectElement> = []
+    private readonly controls: HTMLButtonElement[] = []
+    private readonly directionButtons = new Set<HTMLButtonElement>()
     private removePreference?: () => void
     private closed = false
     private applied = false
@@ -121,27 +92,64 @@ class BidirectionalPreviewModal extends Modal {
         installModalLayout(this, t)
         this.removePreference = preview.mountPreference?.(this.contentEl)
         const counts = { obsidian: 0, anki: 0, merge: 0, conflict: 0 }
+        const conflictGroups: string[][] = []
+        const editable = new Map<string, BidirectionalPreviewChange>()
+        let blocked = 0
         for (const row of preview.rows) {
-            for (const change of row.changes) counts[change.decision]++
+            if (!row.changes.length && (row.issues?.length || row.duplicates?.length)) blocked++
+            const fieldConflicts: string[] = []
+            for (const change of row.changes) {
+                counts[change.decision]++
+                if (change.decision === 'conflict' || change.canChooseDirection) editable.set(change.key, change)
+                if (change.decision !== 'conflict') continue
+                if (change.recommendedSide && (!change.allowedSide || change.allowedSide === change.recommendedSide)) {
+                    this.choices.set(change.key, change.recommendedSide)
+                }
+                // Pauses are independently applicable. All conflicting text fields of a note are committed together.
+                if (change.key === row.id + ':suspension') conflictGroups.push([change.key])
+                else fieldConflicts.push(change.key)
+            }
+            if (fieldConflicts.length) conflictGroups.push(fieldConflicts)
         }
         this.contentEl.createEl('p', { text: t(`Sync profile: ${preview.scopeLabel}`, `Профиль синхронизации: ${preview.scopeLabel}`) })
         this.contentEl.createEl('p', { text: t(`Anki profile: ${preview.profile} · ${preview.scanned} linked notes checked`, `Профиль Anki: ${preview.profile} · Связанных записей проверено: ${preview.scanned}`) })
-        const merged = counts.merge ? t(` · ${counts.merge} to merge`, ` · Объединение: ${counts.merge}`) : ''
-        this.contentEl.createEl('p', {
-            text: t(`${counts.obsidian} changes to Anki · ${counts.anki} changes to Obsidian${merged} · ${counts.conflict} conflicts`, `В Anki: ${counts.obsidian} · В Obsidian: ${counts.anki}${merged} · Конфликтов: ${counts.conflict}`),
-        })
+        const merged = counts.merge ? t(` · To merge: ${counts.merge}`, ` · Объединение: ${counts.merge}`) : ''
+        const summary = this.contentEl.createEl('p')
+        if (blocked) {
+            this.contentEl.createEl('p', { text: t(`Notes requiring attention: ${blocked}. Open a note below to see the reason.`,
+                `Записей для проверки: ${blocked}. Раскройте запись, чтобы увидеть причину.`) })
+        }
         if (apply && preview.canApply && !counts.obsidian && !counts.anki && !counts.merge && !counts.conflict) {
             this.contentEl.createEl('p', { text: t('Apply Sync remembers the checked values for the next sync.', 'Кнопка «Применить синхронизацию» сохранит проверенные значения для следующей сверки.') })
-        }
-        if (apply && counts.conflict) {
-            this.contentEl.createEl('p', { text: t('Choose which version to keep for each conflict. Skipped conflicts stay pending.', 'Для каждого конфликта выберите версию, которую нужно сохранить. К пропущенным конфликтам можно вернуться позже.') })
         }
         showIssues(this.contentEl, preview.issues ?? [], t)
         const status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
         let submit: HTMLButtonElement | undefined
         const update = () => {
-            if (submit) submit.disabled = this.applied || this.busy || (!preview.canApply && this.choices.size === 0)
-            if (counts.conflict && apply) status.setText(t(`${this.choices.size} of ${counts.conflict} conflicts selected`, `Выбрано конфликтов: ${this.choices.size} из ${counts.conflict}`))
+            const totals = { ...counts }
+            for (const [key, side] of this.choices) {
+                const change = editable.get(key)
+                if (!change) continue
+                totals[change.decision]--
+                totals[side]++
+            }
+            summary.setText(t(`To Anki: ${totals.obsidian} · To Obsidian: ${totals.anki}${merged} · Unresolved conflicts: ${totals.conflict}`,
+                `В Anki: ${totals.obsidian} · В Obsidian: ${totals.anki}${merged} · Нерешённых конфликтов: ${totals.conflict}`))
+            const ready = preview.canApply || conflictGroups.some(group => group.every(key => this.choices.has(key)))
+            if (submit) submit.disabled = this.applied || this.busy || !ready
+            if (!apply) {
+                status.setText(t('Read-only preview. Resolve the issue above and open the preview again.',
+                    'Предпросмотр в режиме чтения. Устраните указанную причину и откройте предпросмотр снова.'))
+            } else if (counts.conflict) {
+                const selected = counts.conflict - totals.conflict
+                status.setText(t(`Selected conflicts: ${selected} of ${counts.conflict}.`, `Выбрано конфликтов: ${selected} из ${counts.conflict}.`) + (ready ? '' : t(
+                    ' Choose a direction for each conflicting field in at least one note to enable Apply Sync.',
+                    ' Чтобы применить изменения, укажите направление для каждого конфликтующего поля хотя бы одной записи.')))
+            } else if (!ready) {
+                status.setText(blocked || preview.issues?.length ? t('No safe changes to apply. Resolve the reported issue and open the preview again.',
+                    'Нет изменений, которые можно перенести. Устраните указанную причину и откройте предпросмотр снова.') :
+                    t('No changes to apply.', 'Нет изменений для переноса.'))
+            }
         }
         const skipped = preview.foldRecoverable ? preview.rows.filter(row => row.recoverable) : []
         this.showRows(this.contentEl, skipped.length ? preview.rows.filter(row => !row.recoverable) : preview.rows, update)
@@ -240,8 +248,8 @@ class BidirectionalPreviewModal extends Modal {
         const { t } = this
         const section = parent.createEl('section')
         const decisions = { anki: 'Anki → Obsidian', obsidian: 'Obsidian → Anki', conflict: t('Conflict', 'Конфликт'), merge: t('Merge both sides', 'Объединить обе версии') }
-        section.createEl('strong', { text: `${change.field} · ${decisions[change.decision]}` })
-        showValues(section, change, t)
+        const heading = section.createEl('strong', { text: `${change.field} · ${decisions[change.decision]}` })
+        renderFieldComparison(section, change.obsidian, change.anki, t)
         if (change.markdown) {
             const detail = section.createEl('details')
             detail.createEl('summary', { text: t('Preview this field in Markdown', 'Как изменится это поле в Markdown') })
@@ -258,27 +266,45 @@ class BidirectionalPreviewModal extends Modal {
         if (change.decision === 'merge' && change.merged !== undefined) {
             section.createEl('p', { text: t(`Merged result — ${change.merged || 'Empty field'}`, `Результат объединения — ${change.merged || 'Пустое поле'}`) }).classList.add('rudonium-wrap-anywhere')
         }
-        if (change.decision !== 'conflict' || !this.apply) return
+        if (!this.apply || (change.decision !== 'conflict' && !change.canChooseDirection)) return
 
-        const label = section.createEl('label', { text: t('Keep ', 'Сохранить версию ') })
-        const choice = label.createEl('select', { attr: { 'aria-label': t(`Resolve ${change.field} conflict`, `Разрешить конфликт поля «${change.field}»`) } })
-        choice.createEl('option', { text: t('Skip for now', 'Пропустить'), value: '' })
-        if (!change.allowedSide || change.allowedSide === 'obsidian') {
-            choice.createEl('option', { text: t('Use Obsidian', 'Из Obsidian'), value: 'obsidian' })
+        const recommended = change.recommendedSide
+        if (recommended) {
+            section.createEl('p', { text: t(`Later edit: ${recommended === 'anki' ? 'Anki' : 'Obsidian'}.`,
+                `Более поздняя правка: ${recommended === 'anki' ? 'Anki' : 'Obsidian'}.`) })
         }
-        if (!change.allowedSide || change.allowedSide === 'anki') {
-            choice.createEl('option', { text: t('Use Anki', 'Из Anki'), value: 'anki' })
+        const group = section.createDiv({ cls: 'rudonium-bidirectional-directions', attr: {
+            role: 'group', 'aria-label': t(`Sync direction for ${change.field}`, `Направление синхронизации поля «${change.field}»`),
+        } })
+        const defaultSide = change.decision === 'obsidian' || change.decision === 'anki' ? change.decision : undefined
+        const buttons = new Map<BidirectionalSide | 'skip', HTMLButtonElement>()
+        const refresh = () => {
+            const selected = this.choices.get(change.key) ?? defaultSide ?? 'skip'
+            for (const [side, button] of buttons) {
+                button.setAttribute('aria-pressed', String(selected === side))
+            }
+            heading.setText(`${change.field} · ${selected === 'skip' ? decisions.conflict : decisions[selected]}`)
         }
-        choice.value = this.choices.get(change.key) ?? ''
-        choice.disabled = this.applied || this.busy
-        this.controls.push(choice)
-        choice.onchange = () => {
-            if (this.busy || this.applied) return
-            if ((choice.value === 'obsidian' || choice.value === 'anki') &&
-                (!change.allowedSide || choice.value === change.allowedSide)) this.choices.set(change.key, choice.value)
-            else this.choices.delete(change.key)
-            update()
+        const add = (side: BidirectionalSide | 'skip', label: string) => {
+            const action = side === 'obsidian' ? t('Use the Obsidian value in Anki', 'Перенести значение из Obsidian в Anki') :
+                side === 'anki' ? t('Use the Anki value in Obsidian', 'Перенести значение из Anki в Obsidian') : label
+            const button = group.createEl('button', { text: label, title: action, attr: { type: 'button', 'aria-label': `${change.field} · ${action}` } })
+            buttons.set(side, button)
+            this.directionButtons.add(button)
+            this.controls.push(button)
+            button.disabled = this.applied || this.busy
+            button.onclick = () => {
+                if (this.applied || this.busy) return
+                if (side === 'skip' || side === defaultSide) this.choices.delete(change.key)
+                else this.choices.set(change.key, side)
+                refresh()
+                update()
+            }
         }
+        if (change.allowedSide !== 'anki') add('obsidian', 'Obsidian → Anki')
+        if (change.allowedSide !== 'obsidian') add('anki', 'Obsidian ← Anki')
+        if (change.decision === 'conflict') add('skip', t('Skip', 'Пропустить'))
+        refresh()
     }
 
     private async navigate(button: HTMLButtonElement, open: () => Promise<void>): Promise<void> {
@@ -318,7 +344,7 @@ class BidirectionalPreviewModal extends Modal {
         else {
             status.classList.add('rudonium-text-error')
             status.setText(message)
-            for (const control of this.controls) if (control.tagName === 'BUTTON') control.disabled = false
+            for (const control of this.controls) if (!this.directionButtons.has(control)) control.disabled = false
         }
     }
 }

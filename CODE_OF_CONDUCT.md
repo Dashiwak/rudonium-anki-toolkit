@@ -55,7 +55,7 @@ further defined and clarified by project maintainers.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported by contacting the project team at rubaiyat.khondaker@gmail.com. All
+reported to the Rudonium maintainers through [GitFlic Issues](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue). For sensitive reports, request a private follow-up and keep identifying details out of the public issue. All
 complaints will be reviewed and investigated and will result in a response that
 is deemed necessary and appropriate to the circumstances. The project team is
 obligated to maintain confidentiality with regard to the reporter of an incident.

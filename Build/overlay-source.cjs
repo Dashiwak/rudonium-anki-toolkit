@@ -16,8 +16,8 @@ function names() {
             typeof name === "string" && /^[a-zA-Z0-9_-]+\.ts$/u.test(name))) throw new Error("Invalid overlay file index.");
         return entries;
     }
-    return fs.readdirSync(directory, { withFileTypes: true })
-        .filter(entry => entry.isFile() && entry.name.endsWith(".ts"))
-        .map(entry => entry.name).sort();
+    return fs.readdirSync(directory)
+        .filter(name => name.endsWith(".ts") && fs.lstatSync(file(name)).isFile())
+        .sort();
 }
 module.exports = { directory, file, names };

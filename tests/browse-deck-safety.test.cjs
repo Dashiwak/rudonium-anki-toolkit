@@ -137,3 +137,58 @@ test('a failed deck holds only its cards in a mixed file; after restart the jour
     assert.equal(ambiguous.all_notes_to_add.length,3)
     assert.equal(manager.matchesRecoverySource(source(),{...entry,sourceHash:'other'}),false)
 })
+
+test('one missing note on strict AnkiConnect leaves the other linked notes available at planning, preflight and readback', async () => {
+    const modelName = 'Basic', gone = 702, reads = [], receipts = [], problems = []
+    const live = new Map([[701,'old'], [703,'old']])
+    const wanted = 'edited in Markdown'
+    const transport = async (action, params) => {
+        reads.push([action, JSON.parse(JSON.stringify(params))])
+        if (action === 'findNotes') {
+            assert.equal(params.query,'nid:701,702,703')
+            return [703,701]
+        }
+        assert.equal(action,'notesInfo')
+        if (params.notes.includes(gone)) throw Error('note was not found: 702')
+        return [...params.notes].reverse().map(id => ({noteId:id, modelName, tags:[], cards:[id+1000],
+            fields:{Back:{value:live.get(id)}}}))
+    }
+    const mod = await load(['anki','anki-delta','anki-field-value','anki-card-impact','anki-transport','anki-study-state','oneway-history'],
+        {transport, Md5:{hashStr:value=>require('node:crypto').createHash('md5').update(value).digest('hex')},
+        update:(id,fields)=>({action:'updateNoteFields',params:{note:{id,fields}}})},
+        {anki:"import {transport,update} from './host'; export const invoke=transport,updateNoteFields=update"})
+    const api = mod['anki-delta']
+    const ids = [701,gone,703], hash = mod['oneway-history'].oneWayFieldDigest('old')
+    const source = ids.map(id=>({id,modelName,path:id+'.md',deck:'Default',fields:{Back:wanted},tags:[]}))
+    const plan = await api.prepareExistingNoteChanges(source,(path,msg)=>problems.push([path,msg]),new Map(),undefined,
+        {history:{get:()=>({fields:{Back:hash}})},allowDeckMoves:false})
+    assert.deepEqual([...plan.keys()],['701.md','703.md'])
+    assert.deepEqual(problems.map(row=>row[0]),['702.md'])
+    assert.equal(plan.get('701.md')[0].params.note.id,701)
+    assert.deepEqual([...(await api.readReviewedNoteSnapshots(ids)).keys()].sort(),[701,703])
+    const plannedBeforeRemotelyDeletingNote = new Map(source.map(note=>[note.path,[{action:'updateNoteFields',params:{note}}]]))
+    for (const id of live.keys()) live.set(id,wanted)
+    const issues = await api.verifyExistingNoteFieldWrites(plannedBeforeRemotelyDeletingNote,undefined,
+        {models:new Map(ids.map(id=>[id,modelName])),capture:r=>receipts.push(r)})
+    assert.deepEqual([...issues],['702.md: could not verify saved fields for Anki note 702'])
+    assert.deepEqual(receipts.map(r=>[r.id,r.fields.Back]),[[701,wanted],[703,wanted]])
+    assert.deepEqual(reads.map(r=>r[0]),Array(3).fill(['notesInfo','findNotes','notesInfo']).flat())
+})
+
+test('strict note lookup refuses an unverified fallback and does not retry transport failures', async () => {
+    let reply, error, reads
+    const transport = async action => {
+        reads.push(action)
+        if (action === 'findNotes') return reply
+        throw Error(error)
+    }
+    const mod = await load(['anki','anki-delta','anki-transport'],{transport},{anki:"import {transport} from './host';export const invoke=transport"})
+    for (const response of [[811,811],[914],[811,812],[{id:811}],Array(1),'811']) {
+        reply = response; error = 'note does not exist'; reads = []
+        await assert.rejects(mod['anki-delta'].readReviewedNoteSnapshots([811,812]),/note does not exist/)
+        assert.deepEqual(reads,['notesInfo','findNotes'])
+    }
+    error = 'Connection refused'; reads = []
+    await assert.rejects(mod['anki-delta'].readReviewedNoteSnapshots([811,812]),/Connection refused/)
+    assert.deepEqual(reads,['notesInfo'])
+})

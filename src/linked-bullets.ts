@@ -20,6 +20,8 @@ export interface LinkedBullet {
     markerLine?: number
     /** The current Anki note type uses the reversible RemNote rule for this line. */
     remNoteAnswerSlot?: boolean
+    /** This unscoped legacy ID requires an independent match by the configured one-way export rule. */
+    requiresExportMatch?: boolean
     front: string
     back: string
     metadata: Partial<Record<MetadataField, string>>
@@ -71,7 +73,7 @@ function lineContentEnd(text: string, lineBreak: number): number {
 }
 
 /** Ищет карточки проекта, ID которых стоит на следующей строке Markdown. */
-export function findLinkedBullets(content: string, trackLines = false, syntax?: DuplicateMarkerSyntax): LinkedBullet[] {
+export function findLinkedBullets(content: string, trackLines = false, syntax?: DuplicateMarkerSyntax, inspectLegacy = false): LinkedBullet[] {
     if (content.includes('RUDONIUM-ARCHIVE')) content = activeCardMarkdown(content)
     const result: LinkedBullet[] = []
     if (!content.includes('ID:') || !content.includes('::')) return result
@@ -155,8 +157,10 @@ export function findLinkedBullets(content: string, trackLines = false, syntax?: 
         const parsed = parseMetadata(parts)
         if (!parsed) continue
         // За пределами раздела карточек нужны явный признак формата и датированный ID.
-        if (!level && (!parts.length || !marker.metadata && !marker.warning)) continue
+        const requiresExportMatch = !level && (!parts.length || !marker.metadata && !marker.warning)
+        if (requiresExportMatch && !inspectLegacy) continue
         const bullet: LinkedBullet = { id, front, back, ...parsed, start, end }
+        if (requiresExportMatch) bullet.requiresExportMatch = true
         if (trackLines) bullet.markerLine = row + markerDistance
         result.push(bullet)
     }
