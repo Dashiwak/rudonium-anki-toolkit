@@ -6,7 +6,7 @@ import type { MigrationAdapter, MigrationCandidate, MigrationContext } from './p
 const externalMarker = /<!--[ \t]*anki-id[ \t]*:/iu
 const exporterMarker = /<!--[ \t]*anki-note-id[ \t]*:/iu
 const uuidAtEnd = /<!--[ \t]*anki-id:[ \t]*([\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})[ \t]*-->\s*$/iu
-const unsafeQuestion = /[\x00-\x1f\x7f]|#anki-page|(?:^|\s)\^[\w-]+$|^(?:\s|#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||`{3}|~{3}|<|\$\$)/u
+const unsafeQuestion = /[\p{Cc}]|#anki-page|(?:^|\s)\^[\w-]+$|^(?:\s|#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||`{3}|~{3}|<|\$\$)/u
 const otherMarkers = /<!--[ \t]*(?:ID\s*:|anki-note-id\s*:|anki-bidirectional-tags\s*:|rudonium-page-|Obsidian-to-Anki pending)|^(?:STARTI?|ENDI?|FROZEN|SUSPEND|DELETE)(?:[ \t]|\r?$)|^ID:\s|(?:^|\s)\^(?:\d{13}|q-[\w-]+)\s*$/imu
 
 function sourceSelected(context: MigrationContext, name: 'anki-ast-sync' | 'anki-exporter'): boolean {
@@ -141,7 +141,7 @@ export const detectAnkiAstSync: MigrationAdapter = (_path, text, context) => {
     const deck = props.target_anki_deck
     if (!Number.isInteger(depth) || typeof depth !== 'number' || depth < 1 || depth > 6 ||
         typeof delimiter !== 'string' || !/^[^\w\s`~$<#]{1,12}$/u.test(delimiter) || delimiter.startsWith('>') ||
-        (deck !== undefined && (typeof deck !== 'string' || !deck.trim() || deck.trim() !== deck || /[\x00-\x1f]/u.test(deck))) ||
+        (deck !== undefined && (typeof deck !== 'string' || !deck.trim() || deck.trim() !== deck || /\p{Cc}/u.test(deck))) ||
         (props.anki_cardDefault !== undefined && props.anki_cardDefault !== 'basic') ||
         props.anki_customCardDefault != null || props.anki_customLayoutMap != null ||
         /^(?:[ \t]*<<:|[^#\r\n]+:[ \t]*[&*][\w-]+)/mu.test(rawYaml)) return settingsIssue()

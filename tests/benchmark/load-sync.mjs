@@ -87,7 +87,8 @@ export async function loadSync(directory, pageParser) {
         const { cursorConfiguration } = await import(pathToFileURL(join(output, 'cursor-card.mjs')))
         const { previewCurrentCard } = await import(pathToFileURL(join(output, 'card-preview.mjs')))
         const archive = await import(pathToFileURL(join(output, 'archived-card.mjs')))
-        return { ...archive, openOneWayHistory, portableParser, delta, cardRegexpWithSuffix, forgetConfirmedAnkiDeletions, registerFastScan, scanVaultFast, previewBidirectionalSync, previewCurrentCard, cursorConfiguration, parsePortableMarkdown, linkedBulletSourceFields, BidirectionalState, customRegexpKey, matchCustomRegexps, ankiIdRegexpSource,
+        const history = existsSync(join(output, 'sync-change-history.mjs')) ? await import(pathToFileURL(join(output, 'sync-change-history.mjs'))) : {}
+        return { ...archive, ...history, openOneWayHistory, portableParser, delta, cardRegexpWithSuffix, forgetConfirmedAnkiDeletions, registerFastScan, scanVaultFast, previewBidirectionalSync, previewCurrentCard, cursorConfiguration, parsePortableMarkdown, linkedBulletSourceFields, BidirectionalState, customRegexpKey, matchCustomRegexps, ankiIdRegexpSource,
             dispose: () => rmSync(output, { recursive: true, force: true }) }
     } catch (error) {
         rmSync(output, { recursive: true, force: true })

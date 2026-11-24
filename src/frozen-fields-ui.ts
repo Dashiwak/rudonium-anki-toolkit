@@ -92,7 +92,6 @@ export function openFrozenFields(plugin: MyPlugin): void {
         preview.setText('')
         add.disabled = !shared || !unused().length
         if (!shared) return
-        // Один незаполненный ряд при открытии нового блока позволяет сразу начать ввод.
         const empty = !shared.preview && rows.every(row => !row.value)
         model.disabled = !empty && (rows.length !== shared.values.size ||
             rows.some(row => shared!.values.get(row.field) !== row.value))

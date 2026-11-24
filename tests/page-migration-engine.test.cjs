@@ -73,6 +73,7 @@ async function host(files, notes = []) {
         renderMigrationPage: (before, candidate) => JSON.stringify({ ...candidate, converted: true }),
         parsePortableMarkdown: async (app, data, f, str) => {
             const n = JSON.parse(str);
+            if (!n.converted && !n.native) return {previewCandidates: []};
             return { previewCandidates: [{ identifier: n.id, note: { modelName: n.linkedRoute?.model ?? data.PAGE_MODEL,
                 deckName: n.linkedRoute?.deck ?? "Default", fields: { Front: n.front, Back: n.back }, tags: n.preservedTags ?? [] } }] };
         },
@@ -116,11 +117,29 @@ async function host(files, notes = []) {
     const engine = (await load(["page-migration"], api))["page-migration"];
     return { state, plugin,
         preview: (folder = "", model = "Basic") => engine.previewPageMigration(plugin, { model, folder, checkMissingIds: true }),
-        previewFiles: (folder = "", model = "Basic") => engine.previewPageMigration(plugin, { model, folder }),
+        previewFiles: (folder = "", model = "Basic", source) => engine.previewPageMigration(plugin, { model, folder, source }),
         apply: (plan, paths, allowUnlinked = false, links) => engine.applyPageMigration(plugin, plan, new Set(paths), undefined, undefined, undefined, allowUnlinked, links),
         editor: (f, text) => Object.assign(new MarkdownView(), { file: f, getViewData: () => text, data: f.doc, getMode: () => "source" }),
     };
 }
+
+test("a file recognized by an active export rule stays native in automatic and explicit migration", async () => {
+    const f = fixture("Cards/Overlap.md", "Question", 11);
+    f.doc = JSON.stringify({ ...JSON.parse(f.doc), native: true });
+    const original = f.doc;
+    const h = await host([f]);
+    for (const source of ["auto", "flashcards"]) {
+        const plan = await h.previewFiles("", "Basic", source);
+        assert.equal(row(plan, f.path).status, "already");
+        assert.match(row(plan, f.path).reason, /active export rule/);
+        await assert.rejects(h.apply(plan, [f.path]), /stale/);
+        assert.equal(f.doc, original);
+    }
+    assert.deepEqual(h.state.events, []);
+    for (const source of ["rudonium", "obsidian-to-anki", "spaced-repetition"]) {
+        await assert.rejects(h.previewFiles("", "Basic", source), /Unknown source/);
+    }
+});
 
 test("migration defers all files without IDs until a manual lookup and reads only explicit IDs on normal preview", async () => {
     const files = [fixture("Cards/Lost.md", "Recover me"), fixture("Cards/New.md", "New"),

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal } from 'obsidian'
 import type { App, Editor } from 'obsidian'
@@ -49,7 +47,6 @@ const fields = [
 const reviews = new WeakMap<App, DuplicateReviewModal>()
 const selectedIds = new WeakMap<App, Map<string, number>>()
 
-// Один видимый символ может состоять из комбинируемых знаков и связанных эмодзи. В старой среде показываем всё изменившееся поле.
 const Segmenter = (Intl as typeof Intl & {
     Segmenter?: new () => { segment: (value: string) => Iterable<{ segment: string }> }
 }).Segmenter
@@ -79,7 +76,6 @@ function statusLine(container: HTMLElement, text = ''): HTMLElement {
     return container.createEl('p', { text, attr: { role: 'status', 'aria-live': 'polite' } })
 }
 
-/** Проверяем маркер на указанной позиции перед переходом к нему. */
 function selectMarker(editor: Editor, occurrence: DuplicateOccurrence, t: UiText): void {
     const line = occurrence.line - 1
     const marker = line >= 0 && line < editor.lineCount()

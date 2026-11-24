@@ -8,7 +8,7 @@ import { loadSync } from './load-sync.mjs'
 import { MarkdownView, useHost } from './host.mjs'
 
 /** A real sync plan with mock desktop I/O. Record each Anki ID actually read and written. */
-export async function checkCursorSync(count, repeats = 1) {
+export async function checkCursorSync(count, repeats = 1, withHistory = false) {
     assert.ok(Number.isSafeInteger(count) && count >= 3)
     const runtime = await loadSync(overlay.directory)
     const profile = 'Current'
@@ -76,6 +76,7 @@ export async function checkCursorSync(count, repeats = 1) {
         settings: { BIDIRECTIONAL_SYNC: true, BIDIRECTIONAL_PREVIEW: true, SKIP_SYNC_ERRORS: true, EXPECTED_ANKI_PROFILE: profile, REQUIRE_ANKI_PROFILE: true,
             Defaults: { Deck: 'Knowledge' }, CUSTOM_REGEXPS: {}, Syntax: {} }, fields_dict: { Basic: ['Front', 'Back'] } }
     useHost(host)
+    if (withHistory) plugin.settings.SYNC_CHANGE_HISTORY = true
     const target = () => {
         // Obsidian's editor exposes LF, while the disk fixture uses CRLF.
         const text = file.text.replace(/\r\n/g, '\n')
@@ -104,7 +105,7 @@ export async function checkCursorSync(count, repeats = 1) {
             fetchedNotes: queries.length - at, uniqueIds: new Set(queries.slice(at)).size })
     }
     const apply = async (dialog, choices = new Map()) => {
-        assert.equal(await dialog.apply(choices), 'Confirmed 1 of 1 linked records.')
+        assert.equal(await dialog.apply(choices), 'Updated 1 note.')
     }
     try {
         const state = () => runtime.BidirectionalState.open(vault.adapter,
@@ -135,12 +136,13 @@ export async function checkCursorSync(count, repeats = 1) {
             await card.sync()
             assert.ok(host.dialog, host.notices.join('\n'))
             assert.equal(host.dialog.preview.scanned, 1)
-            await apply(host.dialog)
+            assert.equal(await host.dialog.apply(new Map()), 'No changes.')
         })
         let baseline = await state()
         assert.equal(baseline.get(id).base.back, 'Answer ' + center)
         assert.equal(baseline.get(neighbor), undefined)
         assert.equal(baseline.get(otherNeighbor), undefined)
+        if (withHistory) assert.deepEqual(await runtime.readSyncChanges(plugin), [], 'preview and baseline must not invent a change')
         for (let i = 0; i < repeats; i++) {
             await measure('unchanged', async () => { assert.equal((await valid()).preview.canApply, false) })
             records[center].back = 'Local correction ' + i
@@ -151,6 +153,20 @@ export async function checkCursorSync(count, repeats = 1) {
             await measure('inbound', async () => apply(await valid()))
             records[center].back = remote[center].fields.Back.value
             assert.equal(file.text, markdown())
+            if (withHistory) {
+                const [inbound, outbound] = await runtime.readSyncChanges(plugin)
+                for (const row of [inbound, outbound]) {
+                    assert.equal(row.noteId, id)
+                    assert.equal(row.path, file.path)
+                    assert.equal(row.profile, profile)
+                    assert.equal(row.action, 'edit')
+                    assert.equal(row.mode, 'two-way')
+                }
+                assert.equal(outbound.direction, 'to-anki')
+                assert.equal(inbound.direction, 'to-obsidian')
+                assert.deepEqual(outbound.fields, [{ name: 'Back', before: i ? 'Imported correction ' + (i - 1) : 'Answer ' + center, after: 'Local correction ' + i }])
+                assert.deepEqual(inbound.fields, [{ name: 'Back', before: 'Local correction ' + i, after: records[center].back }])
+            } else assert.ok(![...store.keys()].some(path => path.includes('sync-change-history')))
         }
         records[center].back = 'Local conflict'
         write(file, markdown())
@@ -158,6 +174,7 @@ export async function checkCursorSync(count, repeats = 1) {
         const dialog = await valid()
         assert.equal(dialog.preview.rows[0].changes[0].decision, 'conflict')
         assert.equal(await dialog.apply(new Map()), 'There are no changes with a confirmed choice.')
+        if (withHistory) assert.equal((await runtime.readSyncChanges(plugin))[0].action, 'skip')
         await apply(dialog, new Map([[id + ':back', 'anki']]))
         records[center].back = 'Remote conflict'
         assert.equal(file.text, markdown())

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { parseAnkiIdMarker } from './anki-id-marker'
 export interface EditorWarningLine {
@@ -32,7 +30,6 @@ const linkedBullet = /^ {0,3}[-+*][ \t]+\S.*[ \t]+::[ \t]+\S/u
 const idLine = /^[ \t]*(?:<!--[ \t]*)?ID:[ \t]*(.*?)(?:[ \t]*-->)?[ \t]*$/u
 const external = /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i
 
-/** Проверяет только строки с явной разметкой карточки и соседнюю строку ID. */
 export function inspectEditorCardLines(lines: readonly EditorWarningLine[], options: EditorWarningOptions): EditorCardWarning[] {
     const warnings: EditorCardWarning[] = []
     const seen = new Map<number, EditorCardWarning>()

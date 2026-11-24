@@ -1,25 +1,25 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import { currentCardExpression, hasLinkedAnswerSlot, isKnowledgeBullet, isRemNoteBullet, knowledgeBulletExpression, remNoteExpression } from './card-format-presets'
+import { currentCardExpression, hasLinkedAnswerSlot, isKnowledgeBullet, isRemNoteBullet, isKnowledgeRule, separatorRepair, type SeparatorRepair, knowledgeBulletExpression, remNoteExpression } from './card-format-presets'
 import { sameEditorText, makeSpanOverlap } from './markdown-pipeline'
 import { MarkdownView, Notice } from 'obsidian'
 import type { App, TFile } from 'obsidian'
 import type MyPlugin from '../main'
+import { BidirectionalChanges } from './bidirectional-change-history'
+import { recordSyncChanges, syncHistoryEnabled } from './sync-change-history'
 import * as AnkiConnect from './anki'
 import { observeSourceFields, sourceSuffixes, sourceSuffixMap } from './bidirectional-source-fields'
 import type { SourceFieldUpdates, SourceSuffixes } from './bidirectional-source-fields'
-import { isMissingAnkiNoteError, isRecord, parseExistingNoteSnapshot, snapshotKey } from './anki-delta'
+import { isMissingAnkiNoteError, isRecord, parseExistingNoteSnapshot, snapshotFields, snapshotKey } from './anki-delta'
 import type { NoteSnapshot } from './anki-delta'
-import { AnkiProfileError, checkPinnedAnkiProfile, requireExpectedAnkiProfile } from './anki-profile'
+import { AnkiProfileError, checkPinnedAnkiProfile, profileProblemText, requireExpectedAnkiProfile } from './anki-profile'
 import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from './anki-transport'
 import { showAnkiProfileProblem } from './anki-profile-ui'
 import { readRecoveryMarker } from './export-recovery'
 import { FileManager, frontmatterTags, mergeTags } from './files-manager'
-import { openOneWayHistory, settingsWithoutAuditMode, withFastScanReadLock } from './fast-scan'
+import { openOneWayHistory, prepareInitialSchema, saveBidirectionalEditors, settingsWithoutAuditMode, withFastScanReadLock } from './fast-scan'
 import { oneWayFieldDigest } from './oneway-history'
 import type { OneWayHistory, OneWayReceipt, OneWayRecord } from './oneway-history'
 import { createFullMigrationBackup, ensureScheduledBackup } from './vault-backup'
@@ -44,7 +44,7 @@ import { auditRead, checkAnkiNoteExistence } from './sync-audit'
 import { afterDeleteMode } from './deletion-policy'
 import { explicitDeletes, cleanConfirmedDeletes, deletionSignature, sourceRemoval, localDeleteEffect } from './deletion-source'
 import type { ExplicitDeletes, SourceRemoval } from './deletion-source'
-import { resolveSyncScope, scanProfileFreeSettings, syncScopeSignature } from './sync-profiles'
+import { describeSyncPath, resolveSyncScope, scanProfileFreeSettings, syncScopeSignature } from './sync-profiles'
 import { indexVaultIds } from './vault-id-index'
 import { applyMarkdownPatches, isEditableBlockField, isEditableMarkdownField, MarkdownFieldBoundaryError, planExplicitBlockPatches,
     planLinkedBulletPatches, readCardTagOverride, readEditableAnkiBlockField, readEditableAnkiField,
@@ -56,6 +56,7 @@ import { isBidirectionalFieldName, isGeneratedBidirectionalField, readBidirectio
 import type { BidirectionalFieldDirection } from './bidirectional-fields'
 import { cardFieldHazards, sameCardIds } from './anki-card-impact'
 import { openBidirectionalPreview } from './bidirectional-ui'
+import { checkedCount, deferredNotes, unconfirmedNotes, SyncOutcome } from './sync-outcome'
 import { addPreviewPreference } from './bidirectional-preview-preference'
 import { ankiBrowseMessage, uiDiagnostic, uiFor } from './interface-language'
 import { requireSettledZipImport } from './zip-import-guard'
@@ -134,6 +135,7 @@ interface Link extends LocalCard {
     namedFieldModel?: string
     pageContextField?: string
     datePatch?: MarkdownPatch
+    spacing?: SeparatorRepair
     generated?: SourceFieldUpdates
     source: SourceFile
     bullet: SourceCard
@@ -195,7 +197,6 @@ function protectedStatePath(plugin: MyPlugin): string {
     return `${manifest.dir ?? `${app.vault.configDir}/plugins/${manifest.id}`}/bidirectional-sync.json`
 }
 
-// После подтверждённого DELETE старую сверку нельзя использовать для повторного удаления Markdown.
 export async function forgetConfirmedAnkiDeletions(plugin: MyPlugin, profile: string, ids: Set<number>): Promise<void> {
     if (!ids.size) return
     const state = await BidirectionalState.open(plugin.app.vault.adapter, protectedStatePath(plugin), profile)
@@ -223,7 +224,6 @@ async function readNoteBatch(notes: number[], requested: Set<number>, profile: s
     } catch (error) {
         if (!isMissingAnkiNoteError(error)) throw error
 
-        // Строгие коннекторы отклоняют весь пакет, когда запись пропала. Повторяем запрос только для проверенной части пакета.
         await checkPinnedAnkiProfile(profile)
         const matches = await auditRead('findNotes', { query: `nid:${notes.join(',')}` }, undefined, 30_000)
         if (!isResponseList(matches) || !matches.every((id): id is number => typeof id === 'number' && requested.has(id)) ||
@@ -248,7 +248,6 @@ async function readNotes(ids: readonly number[], profile: string, missing?: Set<
         if (!isResponseList(raw)) throw new Error('AnkiConnect returned an invalid note list.')
         let empty = 0
         for (const row of raw) {
-            // Некоторые версии AnkiConnect возвращают пустой объект для отсутствующей записи.
             if (isRecord(row) && Object.keys(row).length === 0) {
                 empty++
                 continue
@@ -260,7 +259,6 @@ async function readNotes(ids: readonly number[], profile: string, missing?: Set<
             const snapshot = parseExistingNoteSnapshot(row)
             if (snapshot) result.set(row.noteId, snapshot)
         }
-        // Простой пропуск строк не подтверждает удаление. Учитываем только явные пустые ответы.
         if (missing && empty === requested.size) for (const id of requested) missing.add(id)
     }
     return result
@@ -642,7 +640,6 @@ async function additionalObservation(plugin: MyPlugin, snapshot: NoteSnapshot, b
 }> {
     const pending = record?.pending
     const wanted = pending?.extraDirections
-    // Незавершённую операцию старого формата проверяем с исходным набором полей.
     if (pending && !wanted && !Object.keys(pending.target.extra ?? {}).length) return {}
     if (!bullet.extra && !pending) return {}
     const t = uiFor(plugin.settings)
@@ -680,8 +677,6 @@ async function additionalObservation(plugin: MyPlugin, snapshot: NoteSnapshot, b
         if (block && !direction && !wanted) continue
         let previous: string | null | undefined = record?.namedFieldModel === snapshot.modelName ? record.base?.extra?.[name] : undefined
         const raw = rawField(snapshot, name)
-        // Source у перенесённой страницы хранит связь с прежним плагином. Начинаем
-        // обмен им только после явной строки или настройки направления для этого поля.
         if (block?.linkedRoute && name === 'Source' && !present && !wanted && !configured?.has(name) && previous === undefined) {
             if (!(await namedHistory())?.namedFields?.includes(name)) continue
         }
@@ -764,8 +759,11 @@ function readSourceCards(text: string, syntax: DuplicateMarkerSyntax, expression
     text = maskLegacyFieldSections(text)
     const blocks = findBidirectionalBlocks(text, syntax, modelFields)
     const inspected = findLinkedBullets(text, readers.length > 0, syntax, Object.values(expressions).some(Boolean))
-    const legacy = inspected.filter(bullet => bullet.requiresExportMatch)
-    let bullets = legacy.length ? inspected.filter(bullet => !bullet.requiresExportMatch) : inspected
+    const manual = inspected.some(bullet => bullet.separatorRepair) && Object.values(expressions).some(rule =>
+        rule && !isKnowledgeRule(rule) && currentCardExpression(rule) !== remNoteExpression)
+    const fallback = (bullet: LinkedBullet) => bullet.requiresExportMatch || manual && bullet.separatorRepair
+    const legacy = inspected.filter(fallback)
+    let bullets = legacy.length ? inspected.filter(bullet => !fallback(bullet)) : inspected
     if (bullets.length && readers.some(reader => reader.format === 'knowledge')) {
         bullets = bullets.filter(bullet => {
             if (!isKnowledgeBullet(text, bullet.start)) return true
@@ -795,6 +793,11 @@ function readSourceCards(text: string, syntax: DuplicateMarkerSyntax, expression
 // Knowledge regexp assigned to another model must not displace that already linked owner.
 function resolveLinkedOwners(text: string, entries: SourceCard[], syntax: DuplicateMarkerSyntax,
     expressions: Readonly<Record<string, string>>, models: ReadonlyMap<number, LinkedBulletModel>): SourceCard[] {
+    if (entries.some(card => 'metadata' in card && card.separatorRepair)) entries = entries.filter(card => {
+        if (!('metadata' in card) || !card.separatorRepair) return true
+        const model = models.get(card.id), rule = model && expressions[model.name]
+        return !rule || isKnowledgeRule(rule) || currentCardExpression(rule) === remNoteExpression
+    })
     const displaced = new Set(entries.filter(card => {
         const block = explicitBlock(card)
         const model = models.get(card.id)
@@ -807,7 +810,6 @@ function resolveLinkedOwners(text: string, entries: SourceCard[], syntax: Duplic
     return entries.map(card => originals.get(card.id) ?? card)
 }
 
-/** Контрольная точка должна описывать уже записанный Markdown, включая только что изменённые поля и метки. */
 function savedSignatures(source: SourceFile, text: string, wanted: ReadonlySet<number>, plan: Plan, syntax: DuplicateMarkerSyntax) {
     const hashes = new Map<number, string>()
     let cards = source.cards
@@ -830,7 +832,7 @@ function savedSignatures(source: SourceFile, text: string, wanted: ReadonlySet<n
 }
 
 async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => number,
-    pathRevision: (path: string) => number,
+    pathRevision: (path: string) => number, expected?: ReadonlyMap<string, string>,
 ): Promise<Plan> {
     const startRevision = currentRevision()
     const config = configuration(plugin)
@@ -888,7 +890,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     const data = await settingToData(app, plugin.settings, plugin.fields_dict, [])
     const directivePatterns = [data.DECK_REGEXP, data.TAG_REGEXP, data.FROZEN_REGEXP]
     const readers = presetReaders(data.custom_regexps, data.fields_dict)
-    // Контекст карточки может зависеть от отдельного обновления метаданных Obsidian.
     const cacheKey = !data.add_context && !scope.force ? JSON.stringify([config, profile, vault.getName()]) : undefined
     const previousSources = warmSources.get(plugin)
     const cachedFiles = cacheKey !== undefined && previousSources?.key === cacheKey ? previousSources.files : undefined
@@ -906,9 +907,14 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     const index = await indexVaultIds(plugin, folderScope.allFiles, plugin.settings.Syntax, pathRevision, {
         force: scope.force,
         needsContent: (path, file) => selected.has(path) && !dirty.has(path) &&
-            (path === manualPath || scope.paths?.has(path) || !cachedSource(file, path, sourceStamp(file, pathRevision(path)))),
+            (expected?.has(path) || path === manualPath || scope.paths?.has(path) || !cachedSource(file, path, sourceStamp(file, pathRevision(path)))),
         onFile: (file, path, markers, content) => {
             if (!selected.has(path)) return
+            const saved = expected?.get(path)
+            if (saved !== undefined && (content === undefined || !sameEditorText(content, saved))) {
+                throw new Error(t('The saved file differs from the editor. Wait for saving to finish and retry.',
+                    'Сохранённый файл отличается от текста в редакторе. Дождитесь сохранения и повторите синхронизацию.'))
+            }
             if (dirty.has(path)) {
                 issues.push(`${path}: save the open note before syncing it.`)
                 return
@@ -973,7 +979,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     if (noteIds.length) await requireExpectedAnkiProfile(plugin, profile)
     const deletionMode = afterDeleteMode(plugin.settings)
     const trashPages = plugin.settings.TRASH_DELETED_PAGES === true
-    // Пропущенная строка в неполном ответе сама по себе не считается отсутствующей записью.
     const missing = new Set<number>()
     const snapshots = await readNotes(noteIds, profile, missing)
     const descriptions = {
@@ -1114,8 +1119,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                         'Служебное поле в Anki изменилось. Проверьте ссылку на файл или контекст заголовка.')] })
                     continue
                 }
-                // У страницы общее поле определено только в заголовке FROZEN. Сравниваем именно
-                // результат штатного Markdown-рендера; запись из Anki не меняет этот источник.
                 const sharedNames = parsed?.pageCard?.sharedFields?.values
                 const pageShared = candidate ? sharedNames && Object.fromEntries(Array.from(sharedNames.keys(),
                     name => [name, candidate.note.fields[name]])) : localCards.get(id)?.pageShared
@@ -1148,7 +1151,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 const checkedLinks = expectedLinks && generated && !record?.pending?.sourceSuffixes && snapshot
                     ? decodeAnkiNote(snapshot, bullet)?.backlinks : remote?.backlinks
                 if (expectedLinks && checkedLinks && !sameBacklinks(checkedLinks, expectedLinks)) {
-                    // Совпадение простого текста не подтверждает завершение записи, в которой потерялась сформированная ссылка.
                     const fix = expectedLinks.some(link => link !== null)
                         ? 'Restore the original generated Obsidian link in Anki, then preview again.'
                         : 'Review the new generated Obsidian link in Anki and restore its previous state before retrying.'
@@ -1223,7 +1225,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                         'Не удалось подтвердить учебные карточки для этой метки паузы.'))
                 }
                 if (pauseChange) row.changes = [pauseChange]
-                // Запоминаем только подтверждённые пары, независимо от выбранного способа обработки удаления.
                 const linkedHere = markerLine !== undefined && index.complete && index.first.get(id)?.path === path
                 const removal = linkedHere && (local && snapshot || !snapshot && record?.deletionSource && missing.has(id)) ?
                     sourceRemoval(content, bullet) : undefined
@@ -1281,7 +1282,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 const obsidian = extra?.local ? { ...local.obsidian, extra: extra.local } : local.obsidian
                 const anki = extra?.remote ? { ...remote.value, extra: extra.remote } : remote.value
                 let extraIssues = extra?.issues?.length || pauseIssues.length ? [...(extra?.issues ?? []), ...pauseIssues] : undefined
-                // Записи с подтверждённой общей версией и совпавшими сторонами не создают операций.
                 const namedFieldModel = (block?.format === 'page' || block?.namedFieldInsertAt !== undefined) &&
                     (extra?.directions?.size || record?.namedFieldModel === snapshot.modelName) ? snapshot.modelName : undefined
                 const baseline = record?.base && activeBaseline(record.base, obsidian)
@@ -1295,12 +1295,15 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                     datePatch = block?.idLocation === 'yaml' ? pageIdDatePatch(content, id, idDate) :
                         idDatePatch(line, id, idDate, start)
                 }
+                const spacing = 'metadata' in bullet ? bullet.separatorRepair :
+                    (block?.format === 'knowledge' || block?.format === 'remnote') && separatorRepair(
+                        content.slice(bullet.start, content.indexOf('\n', bullet.start)).replace(/\r$/u, ''), true) || undefined
                 const needsClockContext = !record?.clockContext && validFileTime(source.stamp[0])
-                if (!needsClockContext && !datePatch && !metadataChanged && !extra?.releaseOneWayField && namedFieldModel === record?.namedFieldModel && (!signature || signature === record?.deletionSource) && baseline && !record?.pending && sameStoredValue(baseline, obsidian) && sameStoredValue(baseline, anki)) {
+                if (!needsClockContext && !spacing && !datePatch && !metadataChanged && !extra?.releaseOneWayField && namedFieldModel === record?.namedFieldModel && (!signature || signature === record?.deletionSource) && baseline && !record?.pending && sameStoredValue(baseline, obsidian) && sameStoredValue(baseline, anki)) {
                     if (extraIssues || pauseChange) rows.push({ ...row, issues: extraIssues })
                     continue
                 }
-                const link: Link = { source, bullet, ...local, needsClockContext, datePatch, generated, obsidian, anki, deletionSource: signature,
+                const link: Link = { source, bullet, ...local, needsClockContext, datePatch, spacing, generated, obsidian, anki, deletionSource: signature,
                     pageContextField: block?.format === 'page' && data.add_context ? data.context_fields?.[snapshot.modelName] : undefined,
                     record, namedFieldModel, fieldBases: extra?.fieldBases, releaseOneWayField: extra?.releaseOneWayField, model: snapshot.modelName, ankiBacklinks: remote.backlinks, extraDirections: extra?.directions,
                     outboundBlocked: extra?.outboundBlocked, cardIds: block || needsRule || generated || extra?.directions?.size ? snapshot.cards : undefined }
@@ -1312,6 +1315,8 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                     link.initialTagBase = (await priorOneWay()).get(id, snapshot.modelName)?.matchedTags ?? []
                 }
                 const fieldChanges = previewChanges(link)
+                if (spacing) fieldChanges.push({ key: id + ':spacing', field: t('Markdown separator spacing', 'Пробелы вокруг разделителя'),
+                    decision: 'merge', obsidian: spacing.before, anki: '', merged: spacing.after })
                 if (datePatch) fieldChanges.push({ key: id + ':id-date', field: t('ID date in Markdown', 'Дата ID в Markdown'),
                     decision: 'merge', obsidian: content.slice(datePatch.start, datePatch.end), anki: '', merged: datePatch.text })
                 if (block && needsReparse(block)) {
@@ -1358,7 +1363,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                 if (changes.length || extraIssues) rows.push({ ...row, changes, issues: link.record?.pending
                     ? ['A previous sync of this card is pending verification.', ...(extraIssues ?? [])] : extraIssues })
             }
-            // В пределах заданного объёма памяти оставляем только полностью проверенные файлы из последнего предпросмотра.
             if (!target && !source.parserText && sourceModels?.every((model): model is SourceModel => model !== undefined) && localCards.size === cards.length &&
                 nextFiles.size < maxCachedSources && cachedChars + content.length <= maxCachedSourceChars) {
                 nextFiles.set(path, { file, content, entries: cards, markers: source.markers, stamp, models: sourceModels, cards: localCards })
@@ -1501,7 +1505,6 @@ async function checkBrowse(ids: ReadonlySet<number>, front?: string): Promise<vo
     if (!first.done) throw new Error(ankiBrowseMessage(first.value, front))
 }
 
-/** Истечение времени ожидания освобождает интерфейс. Незавершённый запрос продолжает блокировать новые записи. */
 async function writeToAnki(app: App, request: AnkiConnect.AnkiConnectRequest): Promise<void> {
     if (hasPendingBidirectionalWrite(app)) throw new Error(pendingBidirectionalWriteMessage)
     if (hasPendingAnkiWrite(app)) throw new Error(pendingAnkiWriteMessage)
@@ -1527,14 +1530,21 @@ async function writeToAnki(app: App, request: AnkiConnect.AnkiConnectRequest): P
     }
 }
 
-// Пакет содержит независимые обновления полей. Теги, интервалы, удаление и изменения шаблонов идут своим обычным путём.
 function canBatchFields(group: readonly Operation[]): boolean {
     return group.length >= 8 && group.every(item => !item.patches.length && !item.link.pageShared && !item.link.extraDirections?.size &&
         item.requests.length === 1 && item.requests[0].action === 'updateNoteFields')
 }
 
+async function readHistoryNotes(plugin: MyPlugin, profile: string, ids: number[]) {
+    await requireExpectedAnkiProfile(plugin, profile)
+    const saved = await readNotes(ids, profile)
+    await requireExpectedAnkiProfile(plugin, profile)
+    return saved
+}
+
 async function writeFieldPackets(plugin: MyPlugin, plan: Plan, group: readonly Operation[], beforeWrite: () => void,
-    afterVerify: (packet: readonly Operation[], saved: ReadonlyMap<number, NoteSnapshot>) => void, defer: (item: Operation) => void): Promise<void> {
+    afterVerify: (packet: readonly Operation[], saved: ReadonlyMap<number, NoteSnapshot>) => void, defer: (item: Operation) => void,
+    history?: BidirectionalChanges): Promise<void> {
     let offset = 0
     while (offset < group.length) {
         const packet: Operation[] = []
@@ -1564,8 +1574,14 @@ async function writeFieldPackets(plugin: MyPlugin, plan: Plan, group: readonly O
         for (const source of sources) if (source.file.path !== source.path || dirty.has(source.path)) throw stalePlan()
         if (configuration(plugin) !== plan.configuration) throw stalePlan()
         beforeWrite()
-        await writeToAnki(plugin.app, {action: 'multi', version: 6,
+        const write = () => writeToAnki(plugin.app, {action: 'multi', version: 6,
             params: {actions: ready.map(item => item.requests[0])}})
+        if (history) {
+            const changes = ready.map(({ link, requests }) => ({ path: link.source.path, id: link.bullet.id,
+                title: link.obsidian.front, before: live.get(link.bullet.id)!, request: requests[0] }))
+            await history.remoteWrite(changes, write, () => readHistoryNotes(plugin, plan.profile, changes.map(row => row.id)),
+                () => hasPendingBidirectionalWrite(plugin.app))
+        } else await write()
         const saved = await verifyAnkiTargets(plugin, ready, plan.profile)
         afterVerify(ready, saved)
     }
@@ -1591,7 +1607,6 @@ async function verifyAnkiTargets(plugin: MyPlugin, group: readonly Operation[], 
             if (requests.some(request => request.action === 'updateNoteFields')) await checkBrowse(new Set([id]), link.obsidian.front)
             throw new Error(`Could not verify saved values for Anki ID ${id}.`)
         }
-        // Сравнение полей не учитывает сформированные обратные ссылки. Проверяем их до снятия признака незавершённой записи.
         if (!sameBacklinks(remote.backlinks, link.ankiBacklinks)) {
             throw new Error(`Could not verify the generated Obsidian link for Anki ID ${id}.`)
         }
@@ -1599,7 +1614,6 @@ async function verifyAnkiTargets(plugin: MyPlugin, group: readonly Operation[], 
     return saved
 }
 
-/** При смене режима принадлежность поля остаётся у того же ID и профиля. */
 function confirmedFieldReceipt(item: Operation, note: NoteSnapshot | undefined): OneWayReceipt | undefined {
     const { link, target } = item
     if (!note) return
@@ -1628,7 +1642,7 @@ function confirmedFieldReceipt(item: Operation, note: NoteSnapshot | undefined):
 }
 
 function needsUpdate(link: Link, target: SyncValue): boolean {
-    return !!link.needsClockContext || !!link.releaseOneWayField || link.namedFieldModel !== link.record?.namedFieldModel || !!link.datePatch || !!link.generated && Object.entries(link.generated).some(([name, field]) =>
+    return !!link.spacing || !!link.needsClockContext || !!link.releaseOneWayField || link.namedFieldModel !== link.record?.namedFieldModel || !!link.datePatch || !!link.generated && Object.entries(link.generated).some(([name, field]) =>
         field.before !== field.after || !Object.prototype.hasOwnProperty.call(link.pageShared ?? {}, name) && link.record?.sourceSuffixes?.[name] !== field.after) || !!link.deletionSource && link.deletionSource !== link.record?.deletionSource || !!link.record?.pending || !link.record?.base || !syncValuesEqual(activeBaseline(link.record.base, target), target) ||
         !syncValuesEqual(link.obsidian, target) || !syncValuesEqual(link.anki, target)
 }
@@ -1684,6 +1698,12 @@ function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSid
         const patches = 'explicitFields' in link.bullet
             ? planExplicitBlockPatches(link.source.content, link.bullet, { ...localFields, ...localExtras }, tags)
             : planLinkedBulletPatches(link.source.content, link.bullet, localFields, tags, localExtras)
+        for (const offset of link.spacing?.offsets ?? []) {
+            const at = link.bullet.start + offset
+            const adjacent = patches.find(patch => patch.start === at)
+            if (adjacent) adjacent.text = ' ' + adjacent.text
+            else patches.push({ start: at, end: at, text: ' ' })
+        }
         if (link.datePatch) patches.push(link.datePatch)
         const requests: AnkiConnect.AnkiConnectRequest[] = []
         if (Object.keys(remoteFields).length) requests.push(AnkiConnect.updateNoteFields(id, remoteFields))
@@ -1699,11 +1719,45 @@ function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSid
 
 function stalePlan(): Error { return new Error('A file, Anki record, or the sync state changed. Preview the sync again.') }
 
+function recordLocalChanges(history: BidirectionalChanges, { link, patches, target }: Operation): void {
+    if (!patches.length) return
+    const common = { path: link.source.path, noteId: link.bullet.id, title: target.front, direction: 'to-obsidian' } as const
+    const names = explicitBlock(link.bullet)?.fieldPair ?? ['Front', 'Back']
+    const fields = []
+    for (const key of ['front', 'back'] as const) {
+        if (!fieldEqual(link.obsidian, target, key)) fields.push({ name: names[key === 'front' ? 0 : 1],
+            before: link.obsidian[key], after: target[key] })
+    }
+    for (const name of link.extraDirections?.keys() ?? []) {
+        const before = link.obsidian.extra?.[name], after = target.extra?.[name]
+        if (before?.normalize('NFC') !== after?.normalize('NFC')) fields.push({ name, before, after })
+    }
+    if (fields.length) history.add({ ...common, action: 'edit', fields })
+    if (!fieldEqual(link.obsidian, target, 'tags')) history.add({ ...common, action: 'tags',
+        fields: [{ name: 'Tags', before: link.obsidian.tags.join(' '), after: target.tags.join(' ') }] })
+    const date = link.datePatch
+    if (date) history.add({ ...common, direction: 'local', action: 'id-date',
+        fields: [{ name: 'ID', before: link.source.content.slice(date.start, date.end), after: date.text }] })
+    if (link.spacing) {
+        const start = link.bullet.start, end = start + link.spacing.before.length
+        const linePatches = patches.filter(patch => patch.start >= start && patch.end <= end)
+            .map(patch => ({ start: patch.start - start, end: patch.end - start, text: patch.text }))
+        const after = applyMarkdownPatches(link.spacing.before, linePatches).split(/[\r\n]/u, 1)[0]
+        history.add({ ...common, direction: 'local', action: 'normalize',
+            fields: [{ name: 'Markdown', before: link.spacing.before, after }] })
+    }
+}
+
 interface PauseApplyContext {
+    history?: BidirectionalChanges
     outputs: Map<SourceFile, string>
     backupChecked: boolean
     guard: () => void
     onWrite(path?: string): void
+}
+
+function suspensionHistoryText(selection: SuspendSelection | null | undefined): string {
+    return selection === 'all' ? selection : selection?.join(', ') ?? ''
 }
 
 async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: BidirectionalState,
@@ -1740,9 +1794,25 @@ async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: Bidirectio
         await ensureScheduledBackup(plugin, plan.profile)
     }
     const owners = new Map(pauses.map(update => [update.id, update.source]))
+    const cardOwners = context.history && new Map(pauses.flatMap(p => p.slots.map(slot => [slot.cardId, p] as const)))
     await applySuspendCards(plugin, plan.profile, expected, targets,
         noteIds => assertSources(new Set(noteIds.map(id => owners.get(id)!))),
-        answered => { if (!answered) context.onWrite() })
+        answered => { if (!answered) context.onWrite() }, cardOwners && ((action, cards) => {
+            const groups = new Map<PauseUpdate, number[]>()
+            for (const card of cards) {
+                const owner = cardOwners.get(card)!
+                const group = groups.get(owner) ?? []
+                if (!group.length) groups.set(owner, group)
+                group.push(card)
+            }
+            for (const [owner, ids] of groups) context.history!.add({ path: owner.source.path, noteId: owner.id,
+                direction: 'to-anki', action, fields: ids.map(id => ({ name: String(id),
+                    before: action === 'suspend' ? 'active' : 'suspended', after: action === 'suspend' ? 'suspended' : 'active' })) })
+        }), cardOwners && ((action, cards) => {
+            for (const owner of new Set(cards.map(card => cardOwners.get(card)!))) {
+                context.history!.add({ path: owner.source.path, noteId: owner.id, direction: 'to-anki', action: 'unknown', detail: action })
+            }
+        }))
     const changedHashes = new Map<number, string | undefined>()
     let nextProfileCheck = 0
     let filesSinceCheck = 0
@@ -1753,7 +1823,6 @@ async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: Bidirectio
         clean(source, dirtyFiles(plugin))
         const before = context.outputs.get(source) ?? source.content
         const output = rewriteSuspendMarkers(before, localChanges, plugin.settings.Syntax)
-        // Все локальные правки относятся к одному проверенному снимку. Проверяем профиль между пакетами.
         if (Date.now() >= nextProfileCheck || filesSinceCheck >= readBatchSize) {
             await requireExpectedAnkiProfile(plugin, plan.profile)
             nextProfileCheck = Date.now() + 1_000
@@ -1770,12 +1839,18 @@ async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: Bidirectio
         guard()
         if (await vault.read(source.file) !== output) throw stalePlan()
         context.outputs.set(source, output)
+        if (context.history) for (const p of group) {
+            if (!p.merge.localChange) continue
+            const before = source.markers.get(p.id)?.selection
+            const after = p.merge.nextMarker
+            context.history.add({ path: source.path, noteId: p.id, direction: 'to-obsidian', action: after ? 'suspend' : 'unsuspend',
+                fields: [{ name: 'SUSPEND', before: suspensionHistoryText(before), after: suspensionHistoryText(after) }] })
+        }
         const ids = new Set(localChanges.keys())
         const oldHashes = savedSignatures(source, before, ids, plan, plugin.settings.Syntax)
         const nextHashes = savedSignatures(source, output, ids, plan, plugin.settings.Syntax)
         for (const id of ids) {
             const record = state.get(id)
-            // Обновление только расписания не подтверждает попутную несверенную правку текста.
             changedHashes.set(id, record?.base && !record.pending && record.deletionSource &&
                 record.deletionSource === oldHashes.get(id) ? nextHashes.get(id) : undefined)
         }
@@ -1792,8 +1867,9 @@ async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: Bidirectio
 }
 
 async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<string, BidirectionalSide>,
-    onPartial?: () => void, mode: 'preview' | 'background' = 'preview'): Promise<string> {
+    onPartial?: () => void, mode: 'preview' | 'manual' | 'background' = 'preview'): Promise<string> {
     const t = uiFor(plugin.settings)
+    const changes = syncHistoryEnabled(plugin) ? new BidirectionalChanges(plugin, plan.profile) : undefined
     return withFastScanReadLock(plugin, async (currentRevision, pathRevision) => {
         await requireSettledZipImport(plugin)
         if (hasPendingBidirectionalWrite(plugin.app)) throw new Error(pendingBidirectionalWriteMessage)
@@ -1807,10 +1883,23 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         await requireExpectedAnkiProfile(plugin, plan.profile)
         if (configuration(plugin) !== plan.configuration || currentRevision() !== plan.revision) throw stalePlan()
         const { vault } = plugin.app
+        const outcomeCounts = new SyncOutcome()
         const planned = operationsFor(plan, choices)
         const errors: string[] = []
+        if (changes && mode === 'preview') for (const row of plan.rows) {
+            const conflict = row.changes.some(change => change.decision === 'conflict' && !choices.has(change.key))
+            if (!conflict && !row.issues?.length && !row.duplicates?.length) continue
+            changes.add({ path: row.path, noteId: row.id, direction: 'none', action: 'skip',
+                detail: row.issues?.join(' ') || (row.duplicates?.length ? t('Duplicate ID.', 'Повторяющийся ID.')
+                    : t('Conflict left unresolved.', 'Конфликт остался нерешённым.')) })
+        }
+        let browseNotice = ''
         const defer = (item: Operation) => {
-            if (mode === 'preview') errors.push(uiDiagnostic(ankiBrowseMessage(item.link.bullet.id, item.link.obsidian.front), t))
+            const message = uiDiagnostic(ankiBrowseMessage(item.link.bullet.id, item.link.obsidian.front), t)
+            changes?.add({ path: item.link.source.path, noteId: item.link.bullet.id, title: item.link.obsidian.front,
+                action: 'skip', direction: 'to-anki', detail: message })
+            if (mode === 'preview') errors.push(message)
+            if (mode === 'manual' && !browseNotice) browseNotice = message
         }
         const selected = await selectedBrowseIds(new Set(planned.filter(item =>
             item.requests.some(request => request.action === 'updateNoteFields')).map(item => item.link.bullet.id)))
@@ -1822,6 +1911,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         const chosenPauses = plan.pauses.filter(p => !p.requiresAnkiChoice || choices.get(p.id + ':suspension') === 'anki')
         if (!operations.length && !chosenPauses.length && !plan.deletions.size) {
             if (errors.length) onPartial?.()
+            if (browseNotice) return browseNotice
             return errors[0] ?? (mode === 'background'
                 ? t('No changes applied.', 'Изменения не применялись.')
                 : t('There are no changes with a confirmed choice.', 'Нет изменений с подтверждённым вариантом.'))
@@ -1872,18 +1962,22 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
             if (plan.cursor) checkCursorEditors(plugin, plan.cursor)
             const current = currentRevision()
             if (current === revision) return
-            // Хранилище может сообщить о нашей правке до или после завершения запроса записи.
             if (!ownWritePath || current !== revision + 1 || pathRevision(ownWritePath) !== current) throw stalePlan()
             revision = current
             ownWritePath = undefined
         }
         const fileHashes = new Map<SourceFile, string>()
         const confirm = (item: Operation, sourceHash: string | undefined, note?: NoteSnapshot) => {
+            const { link, target } = item
+            if (link.spacing) outcomeCounts.record('normalize', link.bullet.id)
+            if (item.requests.some(request => request.action === 'updateNoteFields') || link.datePatch ||
+                !syncValuesEqual({ ...link.obsidian, tags: target.tags }, target)) outcomeCounts.record('edit', link.bullet.id)
+            if (item.requests.some(request => request.action === 'addTags' || request.action === 'removeTags') ||
+                !fieldEqual(link.obsidian, target, 'tags')) outcomeCounts.record('tags', link.bullet.id)
             const receipt = confirmedFieldReceipt(item, note)
             if (receipt) fieldReceipts.push(receipt)
             const prior = item.link.namedFieldModel === item.link.record?.namedFieldModel ? item.link.record?.base?.extra : undefined
             const base = prior ? { ...item.target, extra: { ...prior, ...item.target.extra } } : item.target
-            // После перевода редактируемого поля в FROZEN его прежняя строка больше не владеет значением.
             if (prior && item.link.pageShared) for (const name of Object.keys(item.link.pageShared)) delete base.extra![name]
             const [frontName, backName] = explicitBlock(item.link.bullet)?.fieldPair ?? ['Front', 'Back']
             const front = receipt?.fields?.[frontName], back = receipt?.fields?.[backName]
@@ -1907,12 +2001,12 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                 await writeFieldPackets(plugin, plan, operations, () => { checkRevision(); dispatchedWrite = true }, (packet, saved) => {
                     checkRevision()
                     for (const item of packet) confirm(item, item.link.deletionSource, saved.get(item.link.bullet.id))
-                }, defer)
+                }, defer, changes)
             } catch (error) {
+                changes?.add({ action: 'error', direction: 'none', path: '', detail: uiDiagnostic(error, t) })
                 errors.push(uiDiagnostic(error, t))
                 if (error instanceof AnkiProfileError) profileProblem = error
             }
-            // Сбой оставляет неподтверждённые ID в журнале до следующего предпросмотра.
             bySource.clear()
         }
         for (const [source, group] of bySource) {
@@ -1937,7 +2031,6 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         let expected = link.anki
                         let fieldsWritten = false
                         for (const request of item.requests) {
-                            // Пока шла запись, могли измениться другая карточка этого файла или теги этой карточки.
                             const live = await readNotes([id], plan.profile)
                             if (!matchesPreview(live.get(id), link, expected, fieldsWritten)) throw stalePlan()
                             if (request.action === 'updateNoteFields') await checkBrowse(new Set([id]), link.obsidian.front)
@@ -1961,7 +2054,12 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                             if (source.file.path !== source.path || dirtyFiles(plugin).has(source.path) ||
                                 configuration(plugin) !== plan.configuration) throw stalePlan()
                             dispatchedWrite = true
-                            await writeToAnki(plugin.app, request)
+                            const write = () => writeToAnki(plugin.app, request)
+                            if (changes) {
+                                await changes.remoteWrite([{ id, path: source.path, title: link.obsidian.front,
+                                    before: live.get(id)!, request }], write, () => readHistoryNotes(plugin, plan.profile, [id]),
+                                    () => hasPendingBidirectionalWrite(plugin.app))
+                            } else await write()
                             expected = expectedAfterRequest(expected, target, request.action)
                             if (request.action === 'updateNoteFields') fieldsWritten = true
                         }
@@ -1983,12 +2081,12 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         checkRevision()
                         if (await vault.read(source.file) !== output) throw stalePlan()
                         fieldOutputs.set(source, output)
+                        if (changes) for (const item of group) recordLocalChanges(changes, item)
                         verified = await verifyAnkiTargets(plugin, group, plan.profile)
                     }
                 } else {
                     const resuming = group.filter(({ link }) => link.record?.pending?.ankiBacklinks !== undefined)
                     if (resuming.length) {
-                        // Пользователь может снова изменить восстановленную ссылку во время проверки сохранённого Markdown.
                         verified = await verifyAnkiTargets(plugin, resuming, plan.profile)
                         checkRevision()
                     }
@@ -2002,6 +2100,8 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                 }
             } catch (error) {
                 failedSources.add(source)
+                changes?.add({ direction: 'none', action: 'error', path: source.path,
+                    noteId: group.length === 1 ? group[0].link.bullet.id : undefined, detail: uiDiagnostic(error, t) })
                 errors.push(`${source.path}: ${uiDiagnostic(error, t)}`)
                 if (error instanceof AnkiProfileError) {
                     profileProblem = error
@@ -2010,14 +2110,12 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                 if (error instanceof DOMException && error.name === 'TimeoutError') break
             }
         }
-        // Храним подтверждение уже проверенных пакетов в контрольной точке исходного профиля даже после переключения.
         if (fieldReceipts.length) {
             const history = await openOneWayHistory(plugin, plan.profile)
             history.apply(fieldReceipts)
             await history.flush()
         }
         if (confirmed.length) await state.checkpoint(confirmed)
-        let pausedCount = 0
         if (!profileProblem && !hasPendingAnkiWrite(plugin.app) && !hasPendingBidirectionalWrite(plugin.app)) {
             const pauses = chosenPauses.filter(p => !failedSources.has(p.source))
             if (pauses.length) {
@@ -2027,6 +2125,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         if (configuration(plugin) !== plan.configuration) throw stalePlan()
                     }
                     await applyPauseUpdates(plugin, plan, state, pauses, {
+                        history: changes,
                         outputs: fieldOutputs,
                         backupChecked: pending.length > 0,
                         guard,
@@ -2035,16 +2134,24 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                             dispatchedWrite = true
                         },
                     })
-                    pausedCount = pauses.length
+                    for (const pause of pauses) {
+                        if (pause.merge.remoteChange) {
+                            const paused = pause.slots.some(slot => !slot.suspended && pause.merge.target.has(slot.cardId))
+                            const resumed = pause.slots.some(slot => slot.suspended && !pause.merge.target.has(slot.cardId))
+                            const action = paused && resumed ? 'status' : paused ? 'suspend' : 'resume'
+                            outcomeCounts.record(action, pause.id)
+                        } else if (pause.merge.localChange) outcomeCounts.record('status', pause.id)
+                    }
                 } catch (error) {
+                    changes?.add({ action: 'error', direction: 'none', path: pauses.length === 1 ? pauses[0].source.path : '',
+                        noteId: pauses.length === 1 ? pauses[0].id : undefined, detail: uiDiagnostic(error, t) })
                     errors.push(uiDiagnostic(error, t))
                     if (error instanceof AnkiProfileError) profileProblem = error
                 }
             }
         }
-        const pauseSummary = pausedCount ? t(`Review status confirmed for ${pausedCount} notes.`, `Статус повторений подтверждён для записей: ${pausedCount}.`) : ''
-        let removed = 0
         if (plan.deletions.size && !profileProblem) {
+            let deletionPath = ''
             try {
                 const deletionIds = new Set([...plan.deletions.values()].flatMap(group => [...group.evidence.keys()]))
                 const deletionPaths = new Set([...plan.deletions.keys()].map(source => source.path))
@@ -2072,6 +2179,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                     await createFullMigrationBackup(plugin)
                 }
                 for (const [source, group] of plan.deletions) {
+                    deletionPath = source.path
                     const ids = Array.from(group.evidence.keys())
                     const expectedText = fieldOutputs.get(source) ?? source.content
                     const commands = group.commands && explicitDeletes(expectedText, plugin.settings.Syntax, plan.expressions, plan.pageModel, plan.directivePatterns)
@@ -2091,9 +2199,10 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         if (start < 0 || expectedText.indexOf(original, start + 1) >= 0) throw stalePlan()
                         return { ...range, start, end: start + original.length }
                     })
+                    const localRemovalRows = changes ? new Map<number, { before: string; after?: string }>() : undefined
                     const result = cleanConfirmedDeletes(expectedText, commands, new Set(ids),
                         afterDeleteMode(plugin.settings), plugin.settings.TRASH_DELETED_PAGES === true, ranges,
-                        t('Deleted from Anki', 'Удалено из Anki'))
+                        t('Deleted from Anki', 'Удалено из Anki'), localRemovalRows)
                     const verifyLocal = async () => {
                         guard()
                         if (source.path !== source.file.path || vault.getAbstractFileByPath(source.path) !== source.file ||
@@ -2104,6 +2213,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                     await verifyLocal()
                     await requireExpectedAnkiProfile(plugin, plan.profile)
                     const active = ids.filter(id => group.evidence.get(id) !== null)
+                    let deletedNotes: Map<number, NoteSnapshot> | undefined
                     if (active.length) {
                         const notes = await readNotes(active, plan.profile)
                         if (active.some(id => !notes.has(id) || snapshotKey(notes.get(id)!) !== group.evidence.get(id))) throw stalePlan()
@@ -2113,11 +2223,36 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         await requireExpectedAnkiProfile(plugin, plan.profile)
                         guard()
                         dispatchedWrite = true
-                        await writeToAnki(plugin.app, { action: 'deleteNotes', version: 6, params: { notes: active } })
+                        if (changes) deletedNotes = notes
+                        try {
+                            await writeToAnki(plugin.app, { action: 'deleteNotes', version: 6, params: { notes: active } })
+                        } catch (error) {
+                            if (changes) for (const id of active) changes.add({ path: source.path, noteId: id,
+                                direction: 'to-anki', action: 'unknown', detail: 'deleteNotes' })
+                            throw error
+                        }
                     }
                     const problems: string[] = []
-                    const presence = await checkAnkiNoteExistence(ids, problems)
-                    await requireExpectedAnkiProfile(plugin, plan.profile)
+                    let presence: Map<number, boolean>
+                    try {
+                        presence = await checkAnkiNoteExistence(ids, problems)
+                        await requireExpectedAnkiProfile(plugin, plan.profile)
+                    } catch (error) {
+                        if (changes && deletedNotes) for (const id of deletedNotes.keys()) changes.add({ path: source.path,
+                            noteId: id, direction: 'to-anki', action: 'unknown', detail: 'deleteNotes' })
+                        throw error
+                    }
+                    if (changes && deletedNotes) for (const [id, note] of deletedNotes) {
+                        if (presence.get(id) !== false || problems.length) {
+                            changes.add({ path: source.path, noteId: id, direction: 'to-anki', action: 'unknown', detail: 'deleteNotes' })
+                            continue
+                        }
+                        changes.add({ path: source.path, noteId: id, direction: 'to-anki', action: 'delete',
+                            fields: snapshotFields(note).map(([name, before]) => ({ name, before })) })
+                    }
+                    if (!problems.length) for (const id of active) {
+                        if (presence.get(id) === false) outcomeCounts.record('delete', id)
+                    }
                     if (problems.length || ids.some(id => presence.get(id) !== false)) throw stalePlan()
                     await verifyLocal()
                     await requireExpectedAnkiProfile(plugin, plan.profile)
@@ -2143,29 +2278,35 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         if (await vault.read(source.file) !== result.text) throw stalePlan()
                     }
                     checkRevision()
+                    if (changes && localRemovalRows) for (const [id, field] of localRemovalRows) {
+                        changes.add({ path: source.path, noteId: id, direction: 'to-obsidian', action: field.after === undefined ? 'delete' : 'edit',
+                            fields: [{ name: 'Markdown', ...field }] })
+                    }
                     await state.checkpoint(ids.filter(id => !explicitIds.has(id)).map(id => [id, undefined] as const))
-                    removed += ids.length
+                    for (const id of ids) if (group.evidence.get(id) === null) outcomeCounts.record('cleanup', id)
                 }
             } catch (error) {
+                changes?.add({ action: 'error', direction: 'none', path: deletionPath, detail: uiDiagnostic(error, t) })
                 errors.push(uiDiagnostic(error, t))
                 if (error instanceof AnkiProfileError) profileProblem = error
             }
         }
-        const summary = [
-            plan.deletions.size ? t(`Confirmed ${removed} deletions.`, `Подтверждено удалений: ${removed}.`) : '',
-            planned.length ? t(`Confirmed ${confirmed.length} of ${planned.length} linked records.`,
-                `Подтверждено связанных записей: ${confirmed.length} из ${planned.length}.`) : '',
-            pauseSummary,
-        ].filter(Boolean).join(' ')
+        const summary = [outcomeCounts.message(t), browseNotice].filter(Boolean).join('\n')
         if (profileProblem) {
             showAnkiProfileProblem(plugin, profileProblem, dispatchedWrite ? 'in-progress' : 'before-write', summary)
         }
-        if (!errors.length) return summary
+        if (!errors.length) return summary || (mode === 'preview' ? t('No changes.', 'Изменений нет.') : '')
         onPartial?.()
         const retry = mode === 'preview' ? t('Open a fresh preview to review the pending files.',
             'Откройте новый предпросмотр, чтобы проверить оставшиеся файлы.') : ''
-        return [summary, retry, errors[0]].filter(Boolean).join(' ')
-    })
+        const confirmedIds = new Set(confirmed.map(([id]) => id))
+        const uncertain = operations.filter(item => (item.patches.length || item.requests.length) && !confirmedIds.has(item.link.bullet.id)).length
+        const remaining = uncertain ? unconfirmedNotes(uncertain, t) : ''
+        return [summary, remaining, errors[0], retry].filter(Boolean).join('\n')
+    }).catch(error => {
+        changes?.add({ direction: 'none', action: 'error', path: plan.cursor?.path ?? '', detail: uiDiagnostic(error, t) })
+        throw error
+    }).finally(() => changes?.flush())
 }
 
 export async function previewBidirectionalSync(plugin: MyPlugin, scope: Scope = {}): Promise<void> {
@@ -2181,7 +2322,13 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
         return 'stopped'
     }
     let progress: Notice | undefined
-    const progressTimer = scope.scheduled ? undefined : setTimeout(() => {
+    let preparing = true
+    const logStartupFailure = async (detail: string) => {
+        if (!previewRequested && syncHistoryEnabled(plugin)) await recordSyncChanges(plugin, [{
+            mode: 'two-way', action: 'error', direction: 'none', path: scope.currentFile?.path ?? scope.card?.path ?? '', detail,
+        }])
+    }
+    const progressTimer = scope.scheduled ? undefined : window.setTimeout(() => {
         progress = new Notice(t('Checking linked notes in Obsidian and Anki…', 'Проверяю связанные записи в Obsidian и Anki…'), 0)
     }, 500)
     try {
@@ -2191,7 +2338,16 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 'Откройте Markdown-файл для синхронизации с Anki.'))
             scope = { ...scope, currentFile: { file, path: file.path } }
         }
-        const plan = await withFastScanReadLock(plugin, (revision, pathRevision) => buildPlan(plugin, scope, revision, pathRevision))
+        if (!await prepareInitialSchema(plugin, logStartupFailure)) return 'failed'
+        const plan = await withFastScanReadLock(plugin, async (revision, pathRevision) => {
+            const expected = !scope.scheduled && !scope.card && !previewRequested
+                ? await saveBidirectionalEditors(plugin, path =>
+                    (!scope.currentFile || path === scope.currentFile.path) && (!scope.paths || scope.paths.has(path)) &&
+                    describeSyncPath(plugin, path).included)
+                : undefined
+            return buildPlan(plugin, scope, revision, pathRevision, expected)
+        })
+        preparing = false
         const pending = hasPendingBidirectionalWrite(plugin.app) ? pendingBidirectionalWriteMessage :
             hasPendingAnkiWrite(plugin.app) ? pendingAnkiWriteMessage : undefined
         const automatic = !previewRequested && plugin.settings.BIDIRECTIONAL_PREVIEW !== true
@@ -2218,6 +2374,20 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 return !target.conflicts.length && needsUpdate(link, target.value)
             }))
         if (automatic) {
+            if (syncHistoryEnabled(plugin)) {
+                const checks = new BidirectionalChanges(plugin, plan.profile)
+                for (const row of plan.rows) {
+                    if (!held.has(row.id)) continue
+                    checks.add({ path: row.path, noteId: row.id, direction: 'none', action: 'skip',
+                        detail: row.issues?.join(' ') || (row.duplicates?.length ? t('Duplicate ID.', 'Повторяющийся ID.')
+                            : t('Needs confirmation in the preview.', 'Требуется подтверждение в предпросмотре.')) })
+                }
+                if (pending || !plan.complete || plan.issues.length) checks.add({ path: scope.currentFile?.path ?? '', direction: 'none',
+                    action: 'error', detail: pending || plan.issues.join(' ') })
+                else if (!scope.scheduled && !canApply && !held.size) checks.add({ path: scope.currentFile?.path ?? '',
+                    direction: 'none', action: 'check', detail: checkedCount(plan.scanned, 'note', t) + ' ' + t('No changes.', 'Изменений нет.') })
+                await checks.flush()
+            }
             if (pending) {
                 new Notice(t('Anki is still processing the previous write. Wait for it to finish before syncing again.',
                     'Anki ещё обрабатывает предыдущую запись. Дождитесь завершения и повторите синхронизацию.'))
@@ -2229,18 +2399,21 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 return 'failed'
             }
             let partial = false
-            const result = canApply ? await applyPlan(plugin, applicable, automaticChoices, () => { partial = true }, 'background') : ''
-            const deferred = held.size > 0 || plan.issues.length > 0
-            if (result && (!scope.scheduled || partial)) {
-                new Notice(result, partial ? 10000 : 4000)
-            } else if (!scope.scheduled) {
-                // A normal manual run gives feedback without prompting about cards left for an explicit review.
-                const checked = t(`Linked notes checked: ${plan.scanned}.`, `Связанных записей проверено: ${plan.scanned}.`)
-                const message = deferred ? t(`${checked} No changes applied.`, `${checked} Изменения не применялись.`)
-                    : plan.scanned ? checked + t(' No changes.', ' Изменений нет.')
-                    : t('No linked notes found. To create a note, place the cursor in the card and run Preview Current Card.',
-                        'Связанных записей не найдено. Чтобы создать запись, поставьте курсор в карточку и выполните «Предпросмотр текущей карточки».')
-                new Notice(message, 4000)
+            const result = canApply ? await applyPlan(plugin, applicable, automaticChoices, () => { partial = true }, scope.scheduled ? 'background' : 'manual') : ''
+            if (!scope.scheduled) {
+                const checked = checkedCount(plan.scanned, 'note', t)
+                const problem = plan.issues[0] ?? plan.rows.find(row => row.issues?.length)?.issues?.[0]
+                const detail = problem ? uiDiagnostic(problem, t) : ''
+                const deferred = held.size ? deferredNotes(held.size, t) : ''
+                const lines = [checked, result, deferred, detail].filter(Boolean)
+                if (lines.length === 1) {
+                    lines.push(plan.scanned ? t('No changes.', 'Изменений нет.')
+                        : t('No linked notes found. To create a note, place the cursor in the card and run Preview Current Card.',
+                            'Связанных записей не найдено. Чтобы создать запись, поставьте курсор в карточку и выполните «Предпросмотр текущей карточки».'))
+                }
+                new Notice(lines.join('\n'), partial || detail ? 10000 : 4000)
+            } else if (result && partial) {
+                new Notice(result, 10000)
             }
             return partial ? 'failed' : 'completed'
         }
@@ -2264,6 +2437,7 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
             } : undefined, t)
         return 'stopped'
     } catch (error) {
+        if (preparing) await logStartupFailure(error instanceof AnkiProfileError ? profileProblemText(error, t) : uiDiagnostic(error, t))
         if (error instanceof AnkiProfileError) {
             showAnkiProfileProblem(plugin, error)
             return 'blocked-profile'
@@ -2272,7 +2446,7 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
         new Notice(t(`Bidirectional sync stopped. ${reason}`, `Двусторонняя синхронизация остановлена. ${reason}`))
         return 'failed'
     } finally {
-        if (progressTimer !== undefined) clearTimeout(progressTimer)
+        if (progressTimer !== undefined) window.clearTimeout(progressTimer)
         progress?.hide()
     }
 }

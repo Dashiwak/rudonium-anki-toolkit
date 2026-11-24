@@ -28,7 +28,6 @@ export async function settingToData(app: App, settings: PluginSettings, fields_d
         },
         tags: [settings.Defaults.Tag]
     }
-    // При отсутствии переданного списка используется прежний запрос. Пустой список уже считается переданным.
     result.EXISTING_IDS = existingIds ?? (await AnkiConnect.invoke('findNotes', {query: ""}) as number[])
 
     //RegExp section

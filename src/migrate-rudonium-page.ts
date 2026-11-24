@@ -9,7 +9,7 @@ import type { PageIdLocation } from './page-id-location'
 import type { MigrationCandidate, MigrationContext } from './page-migration-context'
 
 const probeRules = { Rudonium: '@page' }
-export interface ExistingPage { source: 'rudonium'; status: 'already'; id?: number }
+export interface ExistingPage { source: 'rudonium' | 'obsidian-to-anki'; status: 'already'; id?: number }
 
 // Use the control slot only when a following Rudonium directive proves that the page was previously linked.
 export function pageRecoverySlot(text: string, bodyStart: number, syntax?: DuplicateMarkerSyntax): number {
@@ -53,11 +53,11 @@ export function detectRudoniumPage(text: string, context: MigrationContext): Mig
             const page = readPageCard(text, probeRules, context.syntax)
             if (page?.id !== undefined) return { source: 'rudonium', status: 'already', id: page.id }
         }
-        if (context.source && context.source !== 'rudonium' && context.source !== 'auto') {
-            return { source: 'rudonium', status: 'already' }
-        }
         const insertion = pageRecoverySlot(text, from, context.syntax)
         const { parsed, metadata } = readUnlinkedPage(text, insertion, head.heading[3] || '\n', context.syntax)
+        if (context.source !== 'rudonium') {
+            return { source: 'rudonium', status: 'already' }
+        }
         return { source: 'rudonium', status: 'candidate', recoverOnly: true, needsLink: !!metadata,
             model: parsed.linkedRoute?.model, deck: parsed.linkedRoute?.deck, fieldNames: parsed.fieldPair,
             linkedRoute: parsed.linkedRoute, front: parsed.front, back: parsed.back }

@@ -1,27 +1,14 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 "use strict";
 
-/**
- * Изменяет штатный FileManager версии 3.6.0 перед настольной сборкой Rollup.
- * Полученный TypeScript выполняется внутри Obsidian.
- *
- * @param {string} source Исходный files-manager.ts.
- * @param {object} ts Интерфейс установленного компилятора TypeScript.
- * @returns {string} Обновлённый исходный код TypeScript.
- */
 function patchManager(source, ts) {
-    // Дерево разбора даёт позиции классов и методов в тексте. После каждой замены
-    // строим его заново, потому что позиции в изменившемся исходнике сдвигаются.
     function syntaxTree() {
         return ts.createSourceFile("files-manager.ts", source, ts.ScriptTarget.Latest, true);
     }
 
-    // Проверка количества совпадений защищает от установки на исходник с другой структурой.
     function managerClass(file) {
         const declarations = file.statements.filter(node =>
             ts.isClassDeclaration(node) && node.name?.text === "FileManager");
@@ -29,8 +16,6 @@ function patchManager(source, ts) {
         return declarations[0];
     }
 
-    // Меняем только содержимое между фигурными скобками выбранного метода.
-    // Имя, параметры и соседние методы остаются в исходнике на своих местах.
     function editBody(name, transform) {
         const file = syntaxTree();
         const members = managerClass(file).members.filter(node =>
@@ -42,15 +27,12 @@ function patchManager(source, ts) {
         source = source.slice(0, start) + transform(source.slice(start, end)) + source.slice(end);
     }
 
-    // Для небольших замен внутри штатного метода требуем ровно одно совпадение.
-    // При несовпадении установщик получит ошибку до записи изменённых файлов.
     function replaceOnce(value, pattern, replacement) {
         const matches = [...value.matchAll(new RegExp(pattern.source, "g"))];
         if (matches.length !== 1) throw new Error("Unexpected FileManager code near " + pattern.source);
         return value.replace(pattern, replacement);
     }
 
-    // Область экспорта из профиля папок определяется до создания FileManager.
     source = replaceOnce(source, /this\.findFilesThatAreNotIgnored\(\s*files\s*,\s*data\s*\)/, "files");
     {
         const file = syntaxTree();
@@ -63,7 +45,6 @@ function patchManager(source, ts) {
     if (/\bfindFilesThatAreNotIgnored\b|\bignored_file_globs\b|\bmultimatch\b/.test(source)) {
         throw new Error("Unexpected remaining legacy folder filter in src/files-manager.ts.");
     }
-    // Общий парсер формирует настройки каждого файла. Раньше эти функции использовались в genAllFiles().
     {
         const file = syntaxTree();
         const names = new Set(["getFolderPathList", "getDefaultDeck", "getDefaultTags", "dataToFileData"]);
@@ -75,10 +56,9 @@ function patchManager(source, ts) {
         }
     }
 
-    // Вставляем рабочие данные одного пакета в начало класса FileManager.
     const file = syntaxTree();
     const firstMember = managerClass(file).members[0].getStart(file);
-    source = source.slice(0, firstMember) + `// Файлы, для которых уже подтверждён хеш и не требуется обычный импорт.
+    source = source.slice(0, firstMember) + `
     checkedHashes = new Map<string, string>()
     recognizedCards = 0
     readonly suspensionHints = new Set<string>()
@@ -86,8 +66,8 @@ function patchManager(source, ts) {
     private readonly suspensionMarks = new Map<string, OneWaySuspendMark[]>()
     suspendOnly?: ReadonlySet<string>
     applySuspension?: (expected: ReadonlyMap<number, readonly SuspendCard[]>, targets: ReadonlyMap<number, ReadonlySet<number>>,
-        guard: () => Promise<void>) => Promise<void>
-    // План обновления существующих заметок по результатам чтения Anki.
+        guard: () => Promise<void>, onVerified?: (action: 'suspend' | 'unsuspend', cards: readonly number[]) => void,
+        onUnconfirmed?: (action: 'suspend' | 'unsuspend', cards: readonly number[]) => void) => Promise<void>
     private existingChanges = new Map<string, AnkiConnect.AnkiConnectRequest[]>()
     private previewDeckMoves = new Map<string, ExportDeckMove[]>()
     private linkedSnapshots = new Map<number, NoteSnapshot>()
@@ -108,6 +88,28 @@ function patchManager(source, ts) {
     recoveryRevision?: () => number
     recoveryIdMarkers?: (text: string) => readonly { id: number }[]
     onWriteRequest?: (answered: boolean) => void
+    onConfirmedNote?: (action: Exclude<ExportConfirmedAction, 'unsuspend'> | 'status', id: number) => void
+    onSyncChange?: (row: Omit<SyncHistoryChange, 'profile' | 'mode'>) => void
+    private readonly moveOwners = new WeakMap<AnkiConnect.AnkiConnectRequest, number>()
+    private readonly deletedFields = new Map<number, [string, string][]>()
+    private changeTitles?: Map<number, string>
+    private changeTitle(id: number): string | undefined {
+        if (!this.changeTitles) {
+            this.changeTitles = new Map()
+            for (const file of this.ownFiles) for (const { identifier, note } of file.notes_to_edit) {
+                const first = this.data.fields_dict?.[note.modelName]?.[0]
+                if (first && note.fields[first]) this.changeTitles.set(identifier, note.fields[first])
+            }
+        }
+        return this.changeTitles.get(id)
+    }
+    private confirmedNote(action: ExportConfirmedAction, id: number, path: string,
+        fields?: () => NonNullable<SyncHistoryChange['fields']>): void {
+        this.onConfirmedNote?.(action === 'unsuspend' ? 'status' : action, id)
+        this.onSyncChange?.({ action, direction: action === 'normalize' || action === 'cleanup' ? 'local' :
+            action === 'link' ? 'to-obsidian' : 'to-anki', title: this.changeTitle(id),
+            path, noteId: id, fields: fields?.() })
+    }
     operationJournal?: ExportOperationJournal
     profileBlocked?: AnkiProfileError
     recoveredCreations = 0
@@ -143,10 +145,8 @@ function patchManager(source, ts) {
     diagnosticSyntax?: DuplicateMarkerSyntax
     readonly cardIssues = new Map<string, ExportCardIssue[]>()
     duplicatePreflight?: DuplicatePreflight
-    // Хеши исходного текста. Используем повторно, если при импорте Markdown остался прежним.
     sourceHashes = new Map<string, string>()
     private recoverySources = new Map<string, { token: string; raw: string; cleanHash: string }>()
-    // Статистика чтения и отдельные списки локальных ошибок и ошибок импорта.
     readCount = 0
     parseCount = 0
     idDateWarnings: Array<{ path: string; id: number; line: number; message: string; russianMessage: string }> = []
@@ -166,7 +166,6 @@ function patchManager(source, ts) {
     }
 
     ` + source.slice(firstMember);
-    // String.raw сохраняет обратные косые черты в регулярных выражениях TypeScript.
     source = String.raw`import { Md5 } from 'ts-md5'
 import type { CustomRegexpOptions } from './custom-regexp-worker'
 import { filteredMoveTargets, findOpenNotesForUpdate, matchesReviewedAnkiEvidence, prepareExistingNoteChanges, readReviewedNoteSnapshots, readUnfilteredMoveSources, snapshotFields, snapshotKey, verifyExistingNoteFieldWrites } from './anki-delta'
@@ -181,6 +180,7 @@ import { oneWaySuspendChange, ownedSuspendMarks } from './oneway-suspend'
 import type { OneWaySuspendMark, SuspendChange } from './oneway-suspend'
 import { readSuspendCards } from './suspend-anki'
 import type { SuspendCard } from './suspend-anki'
+import { oneWayTagKey } from './oneway-history'
 import type { OneWayHistory, OneWayReceipt } from './oneway-history'
 import type { DeckRouteOrigin } from './deck-routes'
 import { findLinkedBullets, readLinkedBulletModels } from './linked-bullets'
@@ -194,6 +194,8 @@ import { duplicateFirstFieldSlots, duplicateFirstFieldSources, inspectCardSource
 import type { CardRange, ExportCardIssue } from './card-export-diagnostics'
 import { collectionDuplicateOptions, DuplicatePreflight } from './duplicate-preflight'
 import { ankiIdNumberTokens, dateLinkedMarkers, formatLocalIdDate } from './anki-id-marker'
+import type { SeparatorRepair } from './card-format-presets'
+import { readSuspendLine } from './suspend-label'
 import { findIdMarkers } from './duplicate-markers'
 import { activeCardMarkdown } from './archived-card'
 import type { DuplicateMarkerSyntax } from './duplicate-markers'
@@ -209,6 +211,8 @@ import { findMarkdownSyntaxSpans } from './markdown-pipeline'
 import { addRecoveryMarker, hasRecoveredLinks, isRecoveryTag, newRecoveryToken, noteRecoverySignature, readRecoveryMarker, readRecoverySlots, recoveryMarkerTokens, recoveryTag } from './export-recovery'
 import type { ExportRecovery, RecoveryEntry, RecoveryPlan, RecoverySlot } from './export-recovery'
 import { isUnsentExportResponse, sendExportBatches } from './export-batch'
+import type { SyncHistoryChange } from './sync-change-history'
+export type ExportConfirmedAction = 'add' | 'edit' | 'delete' | 'suspend' | 'tags' | 'move' | 'link' | 'cleanup' | 'normalize' | 'unsuspend'
 import type { ExportOperationJournal, JournalSource } from './export-operation-journal'
 import { ankiBrowseMessage } from './interface-language'
 import { withAnkiDeadline } from './anki-transport'
@@ -240,10 +244,6 @@ function collectNoteIds(content: string): number[] {
         .filter(id => Number.isSafeInteger(id) && id > 0)
 }
 
-/**
- * Извлекает result из успешного ответа AnkiConnect. Null может быть нормальным
- * результатом операции. Undefined означает ошибку или неполный ответ.
- */
 function fastResult(response: unknown): unknown {
     if (typeof response === "object" && response !== null &&
         "result" in response && "error" in response) {
@@ -253,10 +253,6 @@ function fastResult(response: unknown): unknown {
     return undefined;
 }
 
-/**
- * Сверяет пакет ответов с исходным списком запросов. Multi объединяет несколько
- * действий в один вызов, и отдельное действие внутри пакета может завершиться ошибкой.
- */
 function checkFastResponses(
     requests: AnkiConnect.AnkiConnectRequest[], responses: unknown, errors: string[], location: string
 ): void {
@@ -276,11 +272,9 @@ function checkFastResponses(
             const deferred = typeof error === "string" && /^This action was not sent\. (Anki Browse: ID |Deck type unverified: )/.test(error);
             errors.push(deferred ? error.slice("This action was not sent. ".length) : name + ": " + (error ?? "missing or malformed response"));
         } else if (request.action === "multi") {
-            // Вложенный пакет проверяем по его собственному списку действий.
             checkFastResponses(request.params.actions, result, errors, name);
         } else if (request.action === "addNote" &&
             (typeof result !== "number" || !Number.isSafeInteger(result) || result <= 0)) {
-            // Идентификатор нужен для следующего обновления той же заметки Anki.
             errors.push(name + ": missing note ID");
         }
     });
@@ -288,7 +282,6 @@ function checkFastResponses(
 
 ` + source;
 
-    // Штатный обход всех файлов заменяется инициализацией уже выбранных файлов.
     const latest = syntaxTree();
     const members = managerClass(latest).members;
     const generate = members.find(node => ts.isMethodDeclaration(node) && node.name.getText(latest) === "genAllFiles");
@@ -296,7 +289,7 @@ function checkFastResponses(
     if (!generate || !initialise || generate.end > initialise.getStart(latest)) {
         throw new Error("Unexpected FileManager scan methods.");
     }
-    source = source.slice(0, generate.getStart(latest)) + `/** Разбирает переданный Markdown без запросов к Anki и без записи файлов. */
+    source = source.slice(0, generate.getStart(latest)) + `
     async parseMarkdown(file: TFile, content: string, ids: number[], audit = false,
         models: ReadonlyMap<number, LinkedBulletModel> = new Map(), bullets = findLinkedBullets(content, false, this.diagnosticSyntax),
         preview = false, metadata?: import('obsidian').CachedMetadata, trackRanges = false, noteTypes?: ReadonlySet<string>,
@@ -307,11 +300,6 @@ function checkFastResponses(
         });
     }
 
-    /**
-     * Готовит очередной пакет файлов к импорту. На вход уже поступили кандидаты
-     * из быстрого прохода по метаданным, а AllFile по-прежнему разбирает карточки.
-     * resolveIds проверяет наличие ID в Anki. Сюда передаются только подтверждённые хеши.
-     */
     async initialiseFiles(
         resolveIds: (ids: ReadonlySet<number>) => Promise<number[]>,
         expectedEditorText: ReadonlyMap<string, string> = new Map(),
@@ -327,8 +315,6 @@ function checkFastResponses(
             file: TFile; path: string; content: string; hash: string; mtime: number; size: number;
             tags: string[]; bullets: LinkedBullet[]; ids: number[];
         }> = [];
-        // Сохраняем порядок файлов и ограничиваем число одновременных чтений, в том числе при первом проходе.
-        // Читаем до восьми файлов параллельно. Promise.all сохраняет порядок результатов.
         const readLimit = 8;
         for (let offset = 0; offset < this.files.length; offset += readLimit) {
             const batch = await Promise.all(this.files.slice(offset, offset + readLimit).map(async file => {
@@ -351,13 +337,10 @@ function checkFastResponses(
                     this.scanErrors.push(path + ": " + String(error));
                     return undefined;
                 }
-                // За время ожидания чтения файл мог измениться или переместиться.
                 if (file.path !== path || file.stat.mtime !== mtime || file.stat.size !== size) {
                     this.scanErrors.push(path + ": file changed during the read");
                     return undefined;
                 }
-                // MD5 — отпечаток всего текста. Используем тот же алгоритм, что и штатный
-                // getHash, чтобы сравнивать с хешем последней подтверждённой проверки.
                 const hash = Md5.hashStr(content) as string;
                 if (scan.expectedPreviewHashes && scan.expectedPreviewHashes.get(path) !== hash) {
                     this.scanErrors.push(path + ": Markdown changed after the preview. Open Preview Export again.");
@@ -387,8 +370,6 @@ function checkFastResponses(
                     this.checkedHashes.set(path, hash);
                     return undefined;
                 }
-                // YAML нужен при изменении текста и при первом проходе без подтверждённого хеша.
-                // Ошибка разбора оставляет файл для следующей попытки без новой записи в кэше.
                 let tags: string[];
                 try {
                     tags = frontmatterTags(content);
@@ -413,8 +394,6 @@ function checkFastResponses(
         this.ownFiles = [];
         this.files = [];
         if (!changed.length) return;
-        // notesInfo уже подтверждает существование связанных карточек и даёт их схему.
-        // Для остальных ID и неполных ответов сохраняем отдельную проверку findNotes.
         const requested = new Set<number>();
         const linkedIds = new Set<number>();
         for (const entry of changed) {
@@ -426,8 +405,6 @@ function checkFastResponses(
         try {
             linkedModels = await readLinkedBulletModels(linkedIds, this.linkedSnapshots);
         } catch {
-            // Некоторые версии AnkiConnect отклоняют запрос с отсутствующим ID.
-            // Сначала ищем существующие ID, затем повторяем чтение схемы только для них.
             this.linkedSnapshots.clear();
             const confirmed = new Set(await resolveIds(requested));
             existingIds = confirmed;
@@ -445,13 +422,10 @@ function checkFastResponses(
         for (const { file, path, content, hash, mtime, size, tags, bullets, ids } of changed) {
             if (this.stopAfterPacket?.()) break;
             try {
-                // Проверка повторяется, потому что запрос к Anki занял некоторое время.
                 if (file.path !== path || file.stat.mtime !== mtime || file.stat.size !== size) {
                     this.scanErrors.push(path + ": file changed before import");
                     continue;
                 }
-                // Распознаём локальную связь даже при отсутствующем ID в Anki. Это даёт
-                // диагностировать её и не создавать вместо существующей карточки новую.
                 const inspectMarkers = mayHaveCardMarkers(content, this.diagnosticSyntax);
                 const inspectSuspension = mayHaveSuspendMarker(content, this.diagnosticSyntax);
                 const commands = explicitDeletes(content, this.diagnosticSyntax ?? {}, this.data.custom_regexps, this.data.page_model,
@@ -469,7 +443,6 @@ function checkFastResponses(
                     this.deleteEffects.set(scanned, new Map(commands.directives.map(d =>
                         [d.id, localDeleteEffect(d, this.afterDeleteMode, this.trashDeletedPages)] as const)));
                     if (commands.directives.some(d => !d.card && !d.detached)) {
-                        // Неопознанный формат может порождать черновик без ID. Отложим добавления и сохраним связь.
                         scanned.removeUnsafeNewCards(new Set(scanned.all_notes_to_add));
                     }
                 } else scanned.notes_to_delete = [];
@@ -531,10 +504,7 @@ function checkFastResponses(
                     scanned.notes_to_edit = scanned.notes_to_edit.filter(({ identifier }) => !inspection.skippedIds.has(identifier));
                 }
                 scanned.notes_to_edit = scanned.notes_to_edit.filter(({ identifier }) => !scan.duplicates.has(identifier));
-                // Штатный removeEmpties удаляет все маркеры. При конфликте оставляем
-                // команды удаления этого файла для следующего прохода.
                 if (scanned.notes_to_delete.some(id => scan.duplicates.has(id))) scanned.notes_to_delete = [];
-                // При обычном импорте добавляем YAML-теги к уже собранным штатным тегам.
                 applyAuthoredTags(scanned, content, bullets, tags, this.diagnosticSyntax);
                 if (selected && !scanned.all_notes_to_add.length && !scanned.notes_to_edit.length) {
                     if (!this.cardIssues.get(path)?.length) this.scanErrors.push(path + ": the selected card could not be verified.");
@@ -549,7 +519,6 @@ function checkFastResponses(
                     }
                 }
                 if (this.suspendOnly?.has(path)) {
-                    // Неизменённая заметка проверяется только на приостановку. Внешние изменения полей остаются в Anki.
                     scanned.removeUnsafeNewCards(new Set(scanned.all_notes_to_add));
                     scanned.notes_to_edit = [];
                     scanned.notes_to_delete = [];
@@ -557,13 +526,11 @@ function checkFastResponses(
                 } else this.mediaByNote.set(path, mediaNames(scanned.formatter.detectedMedia));
                 const hasNoNoteActions = !scanned.all_notes_to_add.length && !scanned.notes_to_edit.length && !scanned.notes_to_delete.length;
                 const unresolvedLink = this.cardIssues.get(path)?.some(issue => issue.code === "missing-id");
-                // По одному отсутствующему ID нельзя подтверждать загрузку или замену вложений.
                 if (!this.recoverySources.has(path) && !this.suspensionMarks.has(path) && hasNoNoteActions &&
                     (!scanned.formatter.detectedMedia.size || unresolvedLink)) {
                     if (!this.retryPaths.has(path)) this.checkedHashes.set(path, hash);
                     continue;
                 }
-                // Массивы AllFile и TFile сохраняют одинаковый порядок для разбора ответов.
                 this.sourceHashes.set(path, hash);
                 this.ownFiles.push(scanned);
                 this.files.push(file);
@@ -575,6 +542,40 @@ function checkFastResponses(
 
     deckRouteFor(path: string, markdown: string, parsed?: AllFile): DeckRouteOrigin {
         return portableDeckRoute(this.data, path, markdown, parsed);
+    }
+
+    private reviewSpacing(file: AllFile, describe: boolean): Map<number, SeparatorRepair> {
+        const repairs = new Map<number, SeparatorRepair>();
+        if (!file.separatorRepairs?.size) return repairs;
+        for (const { identifier: id, note } of file.notes_to_edit) {
+            const repair = file.separatorRepairs.get(note);
+            if (repair && typeof id === 'number' && this.reviewOperation(file.path, {
+                kind: "spacing", key: exportOperationKey("spacing", [id, repair.before, repair.after]), id,
+                values: [{ name: "Markdown", before: repair.before, after: repair.after }],
+            }, describe)) repairs.set(id, repair);
+        }
+        return repairs;
+    }
+
+    private saveSpacing(file: AllFile, repairs: Map<number, SeparatorRepair>): Set<number> {
+        const fixed = new Set<number>();
+        if (!repairs.size) return fixed;
+        const rows = file.file.split("\\n");
+        for (const { line, id } of findIdMarkers(file.file, this.diagnosticSyntax)) {
+            const repair = repairs.get(id);
+            if (!repair) continue;
+            let index = line - 2;
+            if (index >= 0 && readSuspendLine(rows[index].trimEnd(), this.diagnosticSyntax)) index--;
+            if (index >= 0 && /^Tags:[ \\t]/u.test(rows[index])) index--;
+            if (index < 0) continue;
+            const endsCR = rows[index].endsWith("\\r");
+            const raw = endsCR ? rows[index].slice(0, -1) : rows[index];
+            if (raw !== repair.before) continue;
+            rows[index] = repair.after + (endsCR ? "\\r" : "");
+            fixed.add(id);
+        }
+        if (fixed.size) file.file = rows.join("\\n");
+        return fixed;
     }
 
     private reviewDateMarkers(file: AllFile, today: string, describe: boolean): Set<number> {
@@ -654,7 +655,6 @@ function checkFastResponses(
     private filterReviewedCreations(files: readonly AllFile[]): void {
         if (!this.previewSelection) return;
         for (const file of files) {
-            // Разрешение незакрытой операции выполняется в существующей команде восстановления.
             if (this.recoverySources.has(file.path)) continue;
             const excluded = new Set<AllFile["all_notes_to_add"][number]>();
             for (const [note, operation] of this.creationOperations(file)) {
@@ -704,12 +704,12 @@ function checkFastResponses(
                 if (!this.reviewOperation(file.path, operation, describe)) continue;
                 kept.push(id);
                 result.set(id, { id, modelName: note.modelName, snapshot });
+                if (this.onSyncChange && !describe) this.deletedFields.set(id, snapshotFields(note));
             }
             if (kept.length && this.afterDeleteMode !== "keep" && this.afterDeleteMode !== "remove") {
                 const plan = explicitDeletes(file.original_file, this.diagnosticSyntax ?? {}, this.data.custom_regexps, this.data.page_model,
                     [this.data.DECK_REGEXP, this.data.TAG_REGEXP, this.data.FROZEN_REGEXP]);
                 if (!plan) throw new Error("The deletion source changed; open a new preview.");
-                // Проверяем точное представление архива до deleteNotes. При неподдерживаемой разметке Anki не меняется.
                 cleanConfirmedDeletes(file.original_file, plan, new Set(kept), this.afterDeleteMode, this.trashDeletedPages, [], this.deletedArchiveLabel);
             }
             file.notes_to_delete = kept;
@@ -743,7 +743,6 @@ function checkFastResponses(
         return unavailable;
     }
 
-    /** Готовит защищённые правки полей и тегов и подтверждаемые переносы между колодами. */
     async prepareExistingUpdates(includeDeckDetails = false): Promise<void> {
         const collectDeckMoves = includeDeckDetails || this.confirmedDeckMoves !== undefined;
         const notes = this.ownFiles.flatMap(file => {
@@ -807,10 +806,11 @@ function checkFastResponses(
                 authorizeField: conflict => this.confirmedFields?.has(oneWayFieldChoice(conflict)) === true,
                 reviewOperation: includeDeckDetails || this.previewSelection ?
                     (path, operation) => this.reviewOperation(path, operation, includeDeckDetails) : undefined,
-                reviewEvidence: this.previewSelection || this.operationJournal ?
+                reviewEvidence: this.previewSelection || this.operationJournal || this.onSyncChange ?
                     (request, evidence) => this.reviewedRequests.set(request, [evidence]) : undefined,
                 includeCardStudyDetails: includeDeckDetails,
                 rememberReviewedCards: (request, cardIds) => this.reviewedStudyCards.set(request, cardIds),
+                rememberMoveOwner: (request, id) => this.moveOwners.set(request, id),
             });
         if (this.confirmedDeckMoves) {
             for (const [path, moves] of this.previewDeckMoves) {
@@ -829,7 +829,7 @@ function checkFastResponses(
                 this.existingChanges.delete(path);
             }
         }
-        if (!includeDeckDetails) return; // При экспорте проверка выполняется у границы каждого пакета.
+        if (!includeDeckDetails) return;
         const openNotes = await findOpenNotesForUpdate(this.existingChanges);
         if (!openNotes.size) return;
         const titles = new Map<number, string>();
@@ -859,7 +859,6 @@ function checkFastResponses(
         for (const file of files) {
             const aliases = byPath.get(file.path);
             if (!aliases) continue;
-            // Меняем только подготовленный HTML для Anki. Ссылки Markdown и маркеры восстановления сохраняем.
             for (const note of file.all_notes_to_add) rewriteImageFields(note.fields, aliases);
             for (const { note } of file.notes_to_edit) rewriteImageFields(note.fields, aliases);
         }
@@ -903,8 +902,6 @@ function checkFastResponses(
         if (entry.path !== file.path || entry.formerPath || entry.sourceHash !== sourceHash) return false;
         if (notes.length === entry.signatures.length) return notes.every((note, index) =>
             noteRecoverySignature(note) === entry.signatures[index]);
-        // В файле могли остаться новые карточки, чьи колоды не прошли проверку.
-        // Восстанавливаем только точные позиции из журнала при том же исходном тексте.
         if (notes.length < entry.signatures.length || !entry.slotLines?.every(line => line !== null)) return false;
         const lines = recoverySlotLines(file);
         const expected = new Map(entry.slotLines.map((line, i) => [line + ":" + entry.signatures[i], i] as const));
@@ -1106,6 +1103,7 @@ function checkFastResponses(
         await this.prepareExistingUpdates(true);
         const allowed = this.ownFiles.filter(file => !this.blockedUpdates.has(file.path));
         await this.reviewSuspensions(allowed.filter(file => !mediaProblems.has(file.path)), true);
+        for (const file of allowed) this.reviewSpacing(file, true);
         if (this.data.id_date) {
             const today = formatLocalIdDate(new Date());
             for (const file of allowed) this.reviewDateMarkers(file, today, true);
@@ -1172,16 +1170,13 @@ function checkFastResponses(
                 operation.kind !== "media" || !duplicateMediaOnly.has(file.path));
             const exportRules = portableFileExportRules(file);
             return added || edited.size || deleted || moved || attachments || optimizedImages?.length ||
-                fieldConflicts?.length || keptAnkiFields?.length || exportRules?.length || operations?.some(op => op.kind === "suspend" || op.kind === "delete" || op.kind === "id-date")
+                fieldConflicts?.length || keptAnkiFields?.length || exportRules?.length || operations?.some(op => op.kind === "suspend" || op.kind === "delete" || op.kind === "id-date" || op.kind === "spacing")
                 ? [{ path: file.path, added, updated: edited.size, moved, deleted, deletionIds: Array.from(file.notes_to_delete),
                     media: attachments, optimizedImages, deckMoves: this.previewDeckMoves.get(file.path),
                     fieldConflicts, keptAnkiFields, plannedFieldUpdates, operations, exportRules }] : [];
         });
     }` + source.slice(initialise.end);
 
-    // Прямое соответствие между запросом и файлом позволяет пропускать пустые
-    // группы. Даже если заметку прочитали для сравнения, при полном совпадении
-    // она не попадает в список действий, меняющих Anki.
     editBody("requests_1", () => `
         const profile = this.ankiProfile;
         const check = this.checkAnkiProfile;
@@ -1243,7 +1238,6 @@ function checkFastResponses(
                     snapshots = await readReviewedNoteSnapshots(
                         reviewed.flatMap(request => this.reviewedRequests.get(request)!.map(evidence => evidence.id)));
                 } catch {
-                    // Неподтверждённую запись нельзя применять по старому предпросмотру.
                 }
                 for (const request of reviewed) {
                     const expected = this.reviewedRequests.get(request)!;
@@ -1265,7 +1259,6 @@ function checkFastResponses(
                     this.profileBlocked = error;
                     return { problem: error.message };
                 }
-                // Проверяем коллекцию даже при отсутствии сведений о расположении карточек.
                 const problem = await checkAtBoundary();
                 if (problem) return { problem };
                 for (const move of moves) reject.set(move, "Could not verify the current deck before moving cards. Open Preview Export again.");
@@ -1294,7 +1287,6 @@ function checkFastResponses(
                 const message = "Some reviewed cards changed decks or entered a filtered deck. Open Preview Export again to review any remaining moves.";
                 if (!safe.length) reject.set(move, message);
                 else {
-                    // Запрос сохраняется для обратной проверки. Подтверждаем только фактически отправленные ID.
                     move.params.cards = safe;
                     if (path) this.retry(path, message);
                 }
@@ -1305,7 +1297,7 @@ function checkFastResponses(
         const journalSources = new Map<AnkiConnect.AnkiConnectRequest, readonly JournalSource[]>();
         const decksByPath = new Map(this.ownFiles.map(file => [file.path, file.target_deck]));
         const track = (request: AnkiConnect.AnkiConnectRequest, paths: ReadonlySet<string>) => {
-            if (!journal) return;
+            if (!journal && !this.onSyncChange) return;
             if (request.action === "multi") {
                 for (const action of request.params.actions) track(action, paths);
             } else {
@@ -1316,8 +1308,23 @@ function checkFastResponses(
             reviewEveryPacket: this.previewSelection !== undefined || journal !== undefined || this.ownFiles.some(file => file.notes_to_delete.length),
             prepareJournalPacket: journal ? (packet: readonly AnkiConnect.AnkiConnectRequest[]) =>
                 journal.prepare(packet, journalSources, this.reviewedRequests) : undefined,
-            observeJournalResponse: journal ? (request: AnkiConnect.AnkiConnectRequest, response: unknown, unsent: boolean) =>
-                journal.observe(request, response, unsent) : undefined,
+            observeJournalResponse: journal || this.onSyncChange ? (request: AnkiConnect.AnkiConnectRequest, response: unknown, unsent: boolean) => {
+                journal?.observe(request, response, unsent);
+                if (!this.onSyncChange || request.action === 'createDeck') return;
+                const result = fastResult(response);
+                if (!unsent && result !== undefined && (request.action !== 'addNote' ||
+                    typeof result === 'number' && Number.isSafeInteger(result) && result > 0)) return;
+                const problem = typeof response === 'object' && response && 'error' in response && typeof response.error === 'string'
+                    ? response.error : 'Anki did not confirm the result.';
+                const ids = request.action === 'updateNoteFields' ? [request.params.note.id] :
+                    request.action === 'addTags' || request.action === 'removeTags' || request.action === 'deleteNotes'
+                        ? request.params.notes : [this.moveOwners.get(request)];
+                for (const source of journalSources.get(request) ?? []) for (const id of ids) {
+                    this.onSyncChange({ path: source.path, noteId: id, direction: 'to-anki', action: unsent ? 'skip' : 'unknown',
+                        title: request.action === 'addNote' ? Object.values(request.params.note.fields)[0] : undefined,
+                        detail: request.action + ': ' + problem });
+                }
+            } : undefined,
         };
         const actions: AnkiConnect.AnkiConnectRequest[] = [];
         const actionPaths: Set<string>[] = [];
@@ -1410,7 +1417,10 @@ function checkFastResponses(
                     if (plan.retiredImageKey) keys.add(retiredMediaMarker(plan.retiredImageKey));
                     this.mediaByNote.set(path, keys);
                 }
-            }, backedUpProfile ?? profile, verifyProfile, this.onWriteRequest);
+            }, backedUpProfile ?? profile, verifyProfile, this.onWriteRequest, this.onSyncChange && ((plan, filename) => {
+                for (const path of plan.notes) this.onSyncChange?.({ action: 'media', direction: 'to-anki', path,
+                    title: filename, fields: [{ name: 'Checksum', before: plan.remoteBefore ?? undefined, after: plan.record.digest }] });
+            }));
         if (profileProblem()) {
             retryPaths(ready, "export stopped during attachment checks");
             return sentPaths;
@@ -1420,7 +1430,6 @@ function checkFastResponses(
             return sentPaths;
         }
         this.applyMediaAliases(verifiedMedia, allowed);
-        // Большие вложения могут задержать запрос. После их проверки сверяем колоду и состояние обозревателя Anki.
         if (media.length) this.linkedSnapshots.clear();
         await this.prepareExistingUpdates();
         const eligible = () => allowed.filter(file => ready.has(file.path) && !mediaProblems.has(file.path) &&
@@ -1428,13 +1437,19 @@ function checkFastResponses(
         let exportFiles = eligible();
         const suspensions = await this.reviewSuspensions(exportFiles, false);
         const localDate = this.data.id_date ? formatLocalIdDate(new Date()) : undefined;
+        const spacing = new Map<string, Map<number, SeparatorRepair>>();
+        for (const file of exportFiles) {
+            const approved = this.reviewSpacing(file, false);
+            if (approved.size) spacing.set(file.path, approved);
+        }
+        const spacedIds = new Map<string, Set<number>>();
         const datedIds = new Map<string, Set<number>>();
         if (localDate) for (const file of exportFiles) {
             const ids = this.reviewDateMarkers(file, localDate, false);
             if (ids.size) datedIds.set(file.path, ids);
         }
 
-        if (this.beforeMutation && !this.stopAfterPacket?.() && (suspensions.length || datedIds.size || exportFiles.some(file =>
+        if (this.beforeMutation && !this.stopAfterPacket?.() && (suspensions.length || datedIds.size || spacing.size || exportFiles.some(file =>
             file.all_notes_to_add.length || file.notes_to_delete.length || this.recoverySources.has(file.path) ||
             this.existingChanges.get(file.path)?.length))) {
             await verifyProfile();
@@ -1510,7 +1525,6 @@ function checkFastResponses(
                 continue;
             }
             if (pending?.path === file.path && !source) {
-                // Предыдущая операция могла сохранить Markdown и остановиться до закрытия журнала.
                 await verifyProfile();
                 await recovery.settle(file.path, sourceHash, profile);
                 await recovery.settleLinked(file.path, file.notes_to_edit.map(note => note.identifier), profile);
@@ -1563,7 +1577,6 @@ function checkFastResponses(
             try {
                 owners = await this.locateRecoveryTokens(new Set(byPath.map(row => row.token)), ids);
             } catch {
-                // Оставляем подтверждённые ID в журнале до повторной проверки исходного файла.
             }
             for (const { path, entry, token } of byPath) {
                 if (this.recoveryRevision?.() !== revision || owners?.get(token) !== path ||
@@ -1646,12 +1659,22 @@ function checkFastResponses(
                 }
             };
             await guard();
+            const reportSuspension = (action: 'suspend' | 'unsuspend', cards: readonly number[], confirmed = true) => {
+                const changed = new Set(cards);
+                for (const change of changesToSuspend) {
+                    const ids = change.cards.filter(card => changed.has(card.cardId)).map(card => card.cardId);
+                    if (!ids.length) continue;
+                    if (confirmed) this.confirmedNote(action, change.id, change.path, () => [{ name: 'Card IDs', after: ids.join(', ') }]);
+                    else this.onSyncChange?.({ action: 'unknown', direction: 'to-anki', path: change.path, noteId: change.id,
+                        title: this.changeTitle(change.id), detail: action + ' · ' + ids.join(', ') });
+                }
+            };
             await this.applySuspension(new Map(changesToSuspend.map(change => [change.id, change.cards] as const)),
-                new Map(changesToSuspend.map(change => [change.id, change.target] as const)), guard);
+                new Map(changesToSuspend.map(change => [change.id, change.target] as const)), guard, reportSuspension,
+                this.onSyncChange && ((action, cards) => reportSuspension(action, cards, false)));
             for (const path of paths) sentPaths.add(path);
         }
 
-        // Успешное создание новой заметки требует наличия её целевой колоды.
         const decks = new Map<string, Set<string>>();
         for (const file of writingFiles) {
             if (!plannedAdds.has(file.path)) continue;
@@ -1671,7 +1694,6 @@ function checkFastResponses(
                 const tag = recoveryTag(plan, index);
                 if (!tag) throw new Error("Could not verify the pending Anki note creation tag.");
                 const tags = [...note.tags.filter(value => !isRecoveryTag(value)), tag];
-                // Anki проверяет итоговую запись при добавлении, учитывая карточки из других и фильтрованных колод.
                 const options = collectionDuplicateOptions(note);
                 return { action: "addNote" as const, version: 6 as const, params: { note: { ...note, tags, options } } };
             });
@@ -1699,7 +1721,6 @@ function checkFastResponses(
             }
         }
 
-        // Пустой план завершается локально. Успех multi проверяется по каждому вложенному действию.
         const { responses: response, uncertain, problem } = await sendExportBatches(actions, send, this.stopAfterPacket, beforeSend, transport);
         if (uncertain) this.writeUncertain = problem;
         if (!Array.isArray(response) || response.length !== actions.length) {
@@ -1752,7 +1773,6 @@ function checkFastResponses(
             });
             await recovery!.record(records, profile);
         }
-        // При смене коллекции оставляем подтверждённые записи в исходном журнале.
         if (profileProblem() || (writingPaths.size && await checkAtBoundary(true))) {
             retryPaths(writingPaths, "export stopped before confirming the Anki writes");
             return sentPaths;
@@ -1761,6 +1781,7 @@ function checkFastResponses(
         const intents: Array<{ path: string; writtenHash: string; sourceHash: string }> = [];
         const settled: Array<{ path: string; currentHash: string }> = [];
         const cleanMarkers = new Set<string>();
+        const appliedDates = new Map<number, { name: string; before: string; after: string }>();
         await recheckResumeOwners();
         for (let index = 0; index < this.ownFiles.length; index++) {
             const own = this.ownFiles[index];
@@ -1771,8 +1792,6 @@ function checkFastResponses(
             const entry = recovery?.get(own.path);
             const slots = resumes.get(own.path) ?? (plannedAdds.has(own.path) ? entry?.slots : undefined);
             if (slots && entry) {
-                // Подтверждённая запись Anki сохраняется даже при ошибке записи Markdown или ссылки на источник.
-                // Сохраняем отправленные значения для обратной проверки, даже если один из шагов завершился ошибкой.
                 const namedLayouts = new Map((own.previewCandidates ?? []).map(row => [row.note, row.namedLayout] as const));
                 slots.forEach((id, slot) => {
                     const note = own.all_notes_to_add[slot];
@@ -1792,7 +1811,6 @@ function checkFastResponses(
                 }
             }
 
-            // Вызываем штатную вставку ID только при подтверждённом добавлении карточки.
             let wroteNewIds = false;
             if (own.note_ids.some(id => id !== null)) {
                 own.writeIDs();
@@ -1816,6 +1834,10 @@ function checkFastResponses(
                     if (eligible.length) {
                         const presence = await deletionPresence(eligible, profile);
                         const confirmed = new Set(eligible.filter(id => presence.get(id) === false));
+                        for (const id of confirmed) if (!this.absentDeletes.has(id)) {
+                            this.confirmedNote('delete', id, own.path, () =>
+                                (this.deletedFields.get(id) ?? []).map(([name, before]) => ({ name, before })));
+                        }
                         if (confirmed.size !== eligible.length) this.retry(own.path, "Anki still contains a requested deletion ID.");
                         const plan = explicitDeletes(own.file, this.diagnosticSyntax ?? {}, this.data.custom_regexps, this.data.page_model,
                             [this.data.DECK_REGEXP, this.data.TAG_REGEXP, this.data.FROZEN_REGEXP]);
@@ -1827,9 +1849,24 @@ function checkFastResponses(
                     }
                 } catch (error) { this.retry(own.path, String(error)); }
             }
+            if (own.separatorRepairs?.size && !this.retryPaths.has(own.path) && !trash.has(own.path) && !this.importErrors.length) {
+                const repairs = spacing.get(own.path) ?? new Map<number, SeparatorRepair>();
+                own.note_ids.forEach((id, slot) => {
+                    const repair = own.separatorRepairs?.get(own.all_notes_to_add[slot]);
+                    if (typeof id === 'number' && repair) repairs.set(id, repair);
+                });
+                if (repairs.size) {
+                    spacing.set(own.path, repairs);
+                    spacedIds.set(own.path, this.saveSpacing(own, repairs));
+                }
+            }
             const ids = datedIds.get(own.path);
             if (localDate && ids && !this.retryPaths.has(own.path) && !trash.has(own.path) && !this.importErrors.length) {
-                own.file = dateLinkedMarkers(own.file, findIdMarkers(own.file, this.diagnosticSyntax), ids, localDate);
+                own.file = dateLinkedMarkers(own.file, findIdMarkers(own.file, this.diagnosticSyntax), ids, localDate,
+                    this.onSyncChange ? (id, _line, before, after) => {
+                        appliedDates.set(id, { name: 'Anki ID', before, after });
+                        return true;
+                    } : undefined);
             }
             if (wroteNewIds) intents.push({ path: own.path, writtenHash: own.getHash(), sourceHash });
         }
@@ -1842,7 +1879,6 @@ function checkFastResponses(
         }
         await recheckResumeOwners();
         if (confirmedCommands.size && this.forgetConfirmedDeletions) {
-            // Пока команда ещё на диске: при сбое её можно повторить, сохранив выбранное оформление.
             await this.forgetConfirmedDeletions(new Set(Array.from(confirmedCommands.values()).flatMap(ids => Array.from(ids))));
         }
         const intentHashes = new Map(intents.map(intent => [intent.path, intent.writtenHash]));
@@ -1860,6 +1896,9 @@ function checkFastResponses(
                     if (!clean) own.file = addRecoveryMarker(own.file, source.token);
                 }
                 const verified = confirmedCommands.get(own.path);
+                const recordCleanup = () => {
+                    for (const id of verified ?? []) if (this.absentDeletes.has(id)) this.confirmedNote('cleanup', id, own.path);
+                };
                 if (verified?.size) {
                     this.deletionGuard?.();
                     await verifyProfile(true);
@@ -1874,11 +1913,11 @@ function checkFastResponses(
                         if (!current(own)) throw new Error("Page changed before moving to trash.");
                         await this.app.vault.trash(file, false);
                         if (this.app.vault.getAbstractFileByPath(own.path)) throw new Error("Page was not moved to vault trash.");
+                        recordCleanup();
                         this.onMarkdownWriteVerified?.(own.path, false);
                         continue;
                     }
                 }
-                // Сравниваем исходный текст внутри Vault.process, чтобы сохранить параллельную правку.
                 await this.app.vault.process(file, current => {
                     if (verified?.size) this.deletionGuard?.();
                     if (file.path !== own.path || current !== own.original_file) {
@@ -1887,15 +1926,22 @@ function checkFastResponses(
                     return own.file;
                 });
                 const writtenHash = intentHashes.get(own.path);
-                // Удаление тоже меняет ревизию хранилища. Подтверждаем только точное сохранённое содержимое.
                 if (!writtenHash && !clean) this.readCount++;
                 if (await this.app.vault.read(file) !== own.file) {
                     throw new Error(writtenHash || clean ? "could not verify the saved Anki IDs in Markdown" :
                         "could not verify the saved Markdown after removing confirmed Anki deletion markers");
                 }
+                if (this.onSyncChange) for (const id of datedIds.get(own.path) ?? []) {
+                    const field = appliedDates.get(id);
+                    if (field) this.onSyncChange({ action: 'id-date', direction: 'local', path: own.path,
+                        noteId: id, title: this.changeTitle(id), fields: [field] });
+                }
+                for (const id of spacedIds.get(own.path) ?? []) {
+                    const repair = spacing.get(own.path)!.get(id)!;
+                    this.confirmedNote('normalize', id, own.path, () => [{ name: 'Markdown', before: repair.before, after: repair.after }]);
+                }
                 const duplicates = duplicateSources.get(own.path);
                 if (duplicates && own.file !== duplicates.before) {
-                    // Учитываем подтверждённые вставки в соседние блоки, ориентируясь на сохранённый текст.
                     const positions = own.id_indexes.concat(own.inline_id_indexes, own.regex_id_indexes);
                     const insertions = writtenHash ? positions.filter((_position, slot) => Boolean(own.note_ids[slot])) : [];
                     const locations = duplicateFirstFieldSources(duplicates.before, own.file, duplicates.ranges, insertions);
@@ -1904,9 +1950,14 @@ function checkFastResponses(
                         if (issue.source) issue.line = issue.source.line;
                     });
                 }
+                recordCleanup();
                 this.onMarkdownWriteVerified?.(own.path, false);
                 if (writtenHash || clean) {
-                    if (resumes.has(own.path)) this.recoveredCreations += own.note_ids.filter(id => id !== null).length;
+                    if (resumes.has(own.path)) {
+                        const recovered = own.note_ids.filter((id): id is number => id !== null);
+                        this.recoveredCreations += recovered.length;
+                        for (const id of recovered) this.confirmedNote('link', id, own.path);
+                    }
                     const entry = recovery?.get(own.path);
                     if (journal && entry) own.note_ids.forEach((noteId, slot) => {
                         const tag = recoveryTag(entry, slot);
@@ -1956,23 +2007,70 @@ function checkFastResponses(
             retryPaths(writingPaths, "export stopped before verifying card source links");
             return sentPaths;
         }
-        // AnkiConnect может сообщить об успехе, пока открытый редактор Anki держит старое поле.
         const models = new Map(this.ownFiles.flatMap(file =>
             file.notes_to_edit.map(({ identifier, note }) => [identifier, note.modelName] as const)));
+        const verifiedMoves = new Set<number>();
         await verifyExistingNoteFieldWrites(submittedChanges, (path, message) => this.retry(path, message), {
             models, created: createdNotes, namedLayouts: this.namedLayouts, confirmedActions, capture: receipt => {
                 this.oneWayReceipts.push(receipt);
                 this.verifiedWriteReceipts.push(receipt);
             },
-            reviewedCards: this.reviewedStudyCards, onCardImpact: impact => this.cardImpactResults.push(impact),
+            onDeckVerified: card => verifiedMoves.add(card), reviewedCards: this.reviewedStudyCards, onCardImpact: impact => this.cardImpactResults.push(impact),
         });
         if ((submittedChanges.size || createdNotes.length) && await checkAtBoundary(true)) {
             retryPaths(submittedChanges.keys(), "export stopped before confirming the Anki writes");
+        } else if (this.onConfirmedNote || this.onSyncChange) {
+            const receipts = new Map(this.verifiedWriteReceipts.map(receipt => [receipt.id, receipt] as const));
+            const added = new Set<number>();
+            for (const note of createdNotes) {
+                const receipt = receipts.get(note.id);
+                if (!plannedAdds.has(note.path) || !receipt) continue;
+                added.add(note.id);
+                if (this.onSyncChange) {
+                    this.changeTitle(note.id);
+                    const first = this.data.fields_dict?.[note.modelName]?.[0];
+                    if (first && note.fields[first]) this.changeTitles?.set(note.id, note.fields[first]);
+                }
+                this.confirmedNote('add', note.id, note.path, () =>
+                    Object.entries(receipt.fields ?? {}).map(([name, after]) => ({ name, after })));
+            }
+            for (const [path, changes] of submittedChanges) for (const request of changes) {
+                if (!confirmedActions.has(request)) continue;
+                if (request.action === 'updateNoteFields') {
+                    const { id, fields } = request.params.note;
+                    const receipt = receipts.get(id);
+                    if (!receipt || added.has(id)) continue;
+                    const confirmed = Object.entries(fields).filter(([name, value]) => receipt.fields?.[name] === value);
+                    if (!confirmed.length) continue;
+                    this.confirmedNote('edit', id, path, () => {
+                        const before = new Map(this.reviewedRequests.get(request)?.find(item => item.id === id)?.fields);
+                        return confirmed.map(([name, after]) => ({ name, before: before.get(name), after }));
+                    });
+                } else if (request.action === 'addTags' || request.action === 'removeTags') {
+                    const adding = request.action === 'addTags';
+                    for (const id of request.params.notes) {
+                        const receipt = receipts.get(id);
+                        const observed = adding ? receipt?.matchedTags : receipt?.removedTags;
+                        if (!observed?.length) continue;
+                        const tags = request.params.tags.split(' ').filter(tag => observed.includes(oneWayTagKey(tag)));
+                        if (tags.length) this.confirmedNote('tags', id, path, () => [
+                            adding ? { name: 'Tags (+)', after: tags.join(' ') } : { name: 'Tags (−)', before: tags.join(' ') }]);
+                    }
+                } else if (request.action === 'changeDeck') {
+                    const id = this.moveOwners.get(request);
+                    const moved = request.params.cards.filter(card => verifiedMoves.has(card));
+                    if (id !== undefined && moved.length) this.confirmedNote('move', id, path, () => {
+                        const wanted = new Set(moved);
+                        return (this.previewDeckMoves.get(path) ?? []).flatMap(move =>
+                            move.cardIds.filter(card => wanted.has(card) && move.to === request.params.deck)
+                                .map(card => ({ name: String(card), before: move.from, after: move.to })));
+                    });
+                }
+            }
         }
         return sentPaths;
     `);
 
-    // Позиционный разбор двух старых пакетов больше не используется.
     const oldMethods = new Set(["parse_requests_1", "requests_2"]);
     const oldTree = syntaxTree();
     const obsolete = managerClass(oldTree).members.filter(member =>
@@ -1990,14 +2088,12 @@ function checkFastResponses(
         .replace(/^import\s*\{\s*basename\s*\}\s*from\s*['"]path['"][ \t]*;?[ \t]*\r?\n/m, "")
         .replace(/^function difference<T>[^\r\n]+\r?\n[\s\S]*?^[ \t]*return _difference[ \t]*;?[ \t]*\r?\n[ \t]*\}[ \t]*\r?\n/m, "");
 
-    // Хеш записывается по тому тексту, который остался в Obsidian после импорта.
     editBody("getHashes", body => replaceOnce(body, /result\[file\.path\] = file\.getHash\(\)/,
-        `// Пересчитываем MD5, если записали ID или иначе изменили Markdown.
+        `
             result[file.path] = file.file === file.original_file
                 ? this.sourceHashes.get(file.path) ?? file.getHash() : file.getHash()`));
 
     return source;
 }
 
-// Установщик вызывает эту функцию для исходника выбранной версии.
 module.exports = { patchManager };

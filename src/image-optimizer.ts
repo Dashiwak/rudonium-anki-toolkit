@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export interface ImageOptimizationSettings {
     enabled: boolean
@@ -95,7 +93,6 @@ function readJpeg(bytes: DataView): Dimensions | undefined {
         if (marker === 0xd9 || offset + 2 > bytes.byteLength) return undefined
         const length = bytes.getUint16(offset)
         if (length < 2 || offset + length > bytes.byteLength) return undefined
-        // JPEG может содержать несколько полноразмерных изображений в контейнере MPF.
         if (marker === 0xe2 && length >= 6 && bytes.getUint32(offset + 2) === 0x4d504600) return undefined
         if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
             if (length < 8 || dimensions) return undefined
@@ -148,7 +145,6 @@ async function encodedImage(canvas: HTMLCanvasElement, format: ImageFormat, targ
     return chosen
 }
 
-/** Возвращает уменьшенную копию, если неподвижное изображение поддерживается и его можно обработать безопасно. */
 export async function optimizeImage(bytes: ArrayBuffer, filename: string,
     settings: ImageOptimizationSettings): Promise<OptimizedImage | undefined> {
     if (!settings.enabled || !bytes.byteLength || bytes.byteLength > maxSourceBytes) return undefined
@@ -166,7 +162,6 @@ export async function optimizeImage(bytes: ArrayBuffer, filename: string,
 
     let canvas: HTMLCanvasElement | undefined
     try {
-        // При декодировании учитываем ориентацию исходника перед измерением видимых размеров.
         const bitmap = await createImageBitmap(new Blob([bytes], { type: format }))
         const { width: originalWidth, height: originalHeight } = bitmap
         let size: Dimensions
@@ -176,7 +171,7 @@ export async function optimizeImage(bytes: ArrayBuffer, filename: string,
             if (size.width === originalWidth && size.height === originalHeight && (!targetBytes || bytes.byteLength <= targetBytes)) {
                 return undefined
             }
-            canvas = document.createElement('canvas')
+            canvas = createEl('canvas')
             canvas.width = size.width
             canvas.height = size.height
             const context = canvas.getContext('2d')

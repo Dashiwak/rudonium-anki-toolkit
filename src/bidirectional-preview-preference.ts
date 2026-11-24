@@ -13,7 +13,6 @@ interface PreferenceControls {
 }
 const controls = new WeakMap<MyPlugin, PreferenceControls>()
 
-/** Настройки и открытый предпросмотр показывают одно сохранённое значение, в том числе после ошибки записи. */
 export function addPreviewPreference(container: HTMLElement, plugin: MyPlugin, surface: Surface): () => void {
     const t = uiFor(plugin.settings)
     const state: PreferenceControls = controls.get(plugin) ?? { busy: false }

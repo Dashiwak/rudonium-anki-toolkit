@@ -38,7 +38,6 @@ const family = [
     ["yanki", "Yanki - Basic", (q, a, id) => "---\nnoteId: " + id + "\n---\n" + q + "\n\n---\n\n" + a],
     ["flashcards", "Obsidian-basic", (q, a, id) => q + "::" + a + " ^" + id],
     ["deck-to-anki", "ob-deck-basic", (q, a, id) => "---\ndeckType: card\ndeckID: " + id + "\n---\n" + q + "\n---\n" + a],
-    ["obsidian-to-anki", "Basic", (q, a, id) => "START\nBasic\nFront: " + q + "\nBack: " + a + "\n<!--ID: " + id + "-->\nEND"],
 ];
 const data = Array.from({ length: 20_000 }, (_, index) => {
     const [origin, model, format] = family[index % family.length];

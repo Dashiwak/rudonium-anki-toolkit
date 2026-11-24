@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { pageYamlId } from './page-frontmatter'
 import { pageFooterId, parseAnkiIdMarker } from './anki-id-marker'
@@ -91,7 +89,6 @@ function abortIfCancelled(signal?: AbortSignal): void {
     if (signal?.aborted) throw new DOMException('Поиск соответствий отменён.', 'AbortError')
 }
 
-/** Сохраняем регистр и значимые знаки. Убираем типовое оформление и служебную ссылку. */
 export function auditRepairFieldKey(value: string): string {
     return value.replace(generatedLink, '')
         .replace(/<br\s*\/?\s*>|<\/?(?:div|p)>/gi, ' ')
@@ -153,7 +150,6 @@ export async function readAuditRepairNotes(ids: readonly number[], signal?: Abor
     return result
 }
 
-/** Проверяет заново разобранный диапазон одной карточки перед применением правки. */
 export async function inspectAuditRepairSource(plugin: MyPlugin, file: TFile, text: string, source: SyncAuditSource,
     signal?: AbortSignal): Promise<AuditRepairSource | undefined> {
     if (file.path !== source.path) return undefined
@@ -269,7 +265,6 @@ async function parseRepairSources(plugin: MyPlugin, locations: ReadonlyMap<strin
                     ? Object.freeze({ ...confirmed, wholePage: true }) : confirmed)
                 continue
             }
-            // Без записи Anki тип простого блока с соседним ID ещё не известен.
             const bullet = bullets.find(item => item.id === source.id)
             if (!bullet || syncAuditDeckKey(parsed.target_deck) !== syncAuditDeckKey(source.assignedDeck ?? '')) continue
             const fields = { Front: parsed.formatter.format(bullet.front, false, false),

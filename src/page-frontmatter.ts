@@ -83,7 +83,6 @@ export function pageControlStart(text: string, start: number, tags: readonly num
     return start
 }
 
-/** Единственное место для команды страницы — отдельная строка под вопросом. */
 export function pageLifecycleSlot(text: string, bodyStart: number, tags: readonly number[], syntax?: DuplicateMarkerSyntax) {
     const lineAt = (offset: number) => /^([^\r\n]*)(?:\r?\n|$)/u.exec(text.slice(offset))!
     const commandOf = (line: string) => {

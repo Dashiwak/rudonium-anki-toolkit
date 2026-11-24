@@ -1,9 +1,11 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as fs from 'fs'
+import * as path from 'path'
+import * as os from 'os'
+import * as crypto from 'crypto'
 import { restoreVaultZip } from './vault-backup-zip'
 
 export interface ZipImportProgress {
@@ -47,16 +49,6 @@ export const zipImportLimits = Object.freeze({ archiveBytes: maxArchiveBytes, en
 const markdownExtension = /\.md$/iu
 const attachmentExtension = /\.(?:jpe?g|png|gif|webp|avif|svg|bmp|ico|tiff?|heic|heif|apng|mp3|wav|ogg|opus|m4a|aac|flac|mp4|webm|mov|pdf)$/iu
 
-function desktop() {
-    if (typeof require !== 'function') throw new Error('ZIP import requires desktop Obsidian.')
-    return {
-        fs: require('fs') as typeof import('fs'),
-        path: require('path') as typeof import('path'),
-        os: require('os') as typeof import('os'),
-        crypto: require('crypto') as typeof import('crypto'),
-    }
-}
-
 function abort(signal?: AbortSignal): void {
     if (signal?.aborted) throw new DOMException('Reading cancelled.', 'AbortError')
 }
@@ -76,9 +68,7 @@ function report(onProgress: Progress | undefined, phase: string, files: number, 
     onProgress?.({ phase, files, bytes, totalFiles, totalBytes, path })
 }
 
-/** Копия архива отделяет проверяемый пакет от исходного файла на съёмном носителе. */
 async function copySource(source: string | File, target: string, onProgress?: Progress, signal?: AbortSignal): Promise<string> {
-    const { fs, path } = desktop()
     const output = await fs.promises.open(target, 'wx', 0o600)
     let input: Awaited<ReturnType<typeof fs.promises.open>> | undefined
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -151,7 +141,6 @@ async function writeFully(file: import('fs/promises').FileHandle, bytes: Uint8Ar
 }
 
 async function readChecked(root: string, entry: Pick<ZipImportEntry, 'path' | 'size'>, expectedHash?: string): Promise<Buffer> {
-    const { fs, path, crypto } = desktop()
     const filename = path.join(root, ...entry.path.split('/'))
     const file = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
     try {
@@ -170,10 +159,8 @@ async function readChecked(root: string, entry: Pick<ZipImportEntry, 'path' | 's
     } finally { await file.close() }
 }
 
-/** Распаковка идёт в отдельный временный каталог. Хранилище и коллекция Anki доступны только вызывающему модулю. */
 export async function prepareZipImportArchive(source: string | File, onProgress?: Progress,
     signal?: AbortSignal): Promise<ZipImportArchive> {
-    const { fs, path, os, crypto } = desktop()
     abort(signal)
     const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'rupos-zip-import-'))
     await fs.promises.chmod(temporary, 0o700)
@@ -209,7 +196,6 @@ export async function prepareZipImportArchive(source: string | File, onProgress?
                     totalBytes += stat.size
                 } else if (row.isFile()) {
                     ignoredFiles++
-                    // База Anki не является набором заметок Obsidian. Её медиа нельзя переносить отдельно по ошибке.
                     if (/^collection\.anki(?:2|21|21b)$/iu.test(row.name) && relative.split('/').filter(Boolean).length <= 1) {
                         containsAnkiCollection = true
                     }
@@ -244,7 +230,6 @@ export async function prepareZipImportArchive(source: string | File, onProgress?
             report(onProgress, 'read', files.length, bytes, candidates.length, totalBytes, candidate.path)
         }
         if (!files.length) throw new Error('The ZIP has no supported Markdown notes or attachments to import.')
-        // Папка с именем files может быть обычной папкой хранилища. Убирать её из пути можно только при наличии маркера пакета переноса.
         const transferPrefixes: string[] = []
         for (const entry of metadata) {
             if (entry.size > 4096) continue

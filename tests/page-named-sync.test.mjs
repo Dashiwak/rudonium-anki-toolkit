@@ -142,7 +142,7 @@ async function pageHost(t, format = 'page') {
 
 test('two-way page preview and recovery preserve named fields, source metadata and the sole tag', async t => {
     const { preview, fields, file, interruptWrite, edit, writes, authored, tail } = await pageHost(t)
-    assert.match(await (await preview()).apply(new Map()), /Confirmed 1 of 1/)
+    assert.match(await (await preview()).apply(new Map()), /Updated 1 note\./)
     assert.ok(file.text.includes('Импортированный: Remote only'))
     fields.Question.value = 'Question from Anki'
     fields.Example.value = 'First line<br>Second line'
@@ -158,7 +158,7 @@ test('two-way page preview and recovery preserve named fields, source metadata a
     assert.equal(fields.Context.value, file.path + ' > Question from Anki', 'new context is written in this same operation')
     assert.deepEqual(writes.map(Object.keys), [['Context']])
     dialog = await preview()
-    assert.match(await dialog.apply(new Map()), /Confirmed 1 of 1/)
+    assert.match(await dialog.apply(new Map()), /Updated 1 note\./)
     assert.ok(file.text.includes('# Question from Anki\r\nAnswer one'))
     assert.ok(file.text.includes('Example: First line\r\nSecond line #anki-page'))
     assert.ok(file.text.endsWith(tail))
@@ -168,7 +168,7 @@ test('two-way page preview and recovery preserve named fields, source metadata a
     edit(file.text.replace('Detail: First\r\nSecond', 'Detail: Local\r\ncorrection'))
     dialog = await preview()
     assert.deepEqual(dialog.preview.rows.flatMap(row => row.changes.map(change => change.field)), ['Detail'])
-    assert.match(await dialog.apply(new Map()), /Confirmed 1 of 1/)
+    assert.match(await dialog.apply(new Map()), /Updated 1 note\./)
     assert.equal(fields.Detail.value, 'Local<br>correction')
     assert.equal(fields.File.value, authored.File)
     assert.equal(fields['Импортированный'].value, 'Remote only')
@@ -192,7 +192,7 @@ test('optional page fields distinguish omitted, emptied and conflicting values a
     const summary = change => [change.field, change.decision, change.allowedSide]
     const initial = await preview(false)
     assert.deepEqual(initial.preview.rows.flatMap(row => row.issues ?? []), [], 'an optional field may be absent from an individual page')
-    assert.match(await apply(initial), /Confirmed 1 of 1/)
+    assert.match(await apply(initial), /Updated 1 note\./)
 
     edit(file.text.replace('Original #anki-page example', 'Edited in Obsidian #anki-page'))
     fields.Detail.value = 'Edited in Anki'
@@ -200,7 +200,7 @@ test('optional page fields distinguish omitted, emptied and conflicting values a
     let dialog = await preview()
     assert.deepEqual(dialog.preview.rows.flatMap(row => row.changes.map(summary)), [
         ['Example','obsidian','obsidian'], ['Detail','anki','anki'], ['Импортированный','anki',undefined]])
-    assert.match(await apply(dialog), /Confirmed 1 of 1/)
+    assert.match(await apply(dialog), /Updated 1 note\./)
     assert.equal(fields.Example.value, 'Edited in Obsidian')
     assert.ok(file.text.includes('Detail: Edited in Anki'))
     assert.ok(file.text.includes('Импортированный: Remote edit'))
@@ -222,7 +222,7 @@ test('optional page fields distinguish omitted, emptied and conflicting values a
     plugin.settings.BIDIRECTIONAL_PREVIEW = true
     dialog = await preview()
     assert.deepEqual(dialog.preview.rows.flatMap(row => row.changes.map(summary)), [['Example','obsidian','obsidian']])
-    assert.match(await apply(dialog), /Confirmed 1 of 1/)
+    assert.match(await apply(dialog), /Updated 1 note\./)
     assert.equal(fields.Example.value, '')
     assert.equal(fields.Detail.value, 'Available only in Anki')
     assert.equal(fields['Импортированный'].value, 'Remote edit')
@@ -249,7 +249,7 @@ test('optional page fields distinguish omitted, emptied and conflicting values a
     const change = dialog.preview.rows.flatMap(row=>row.changes).find(item => item.field === 'Example')
     assert.equal(change.decision,'conflict')
     const conflictWrites = writes.length
-    assert.match(await apply(dialog,new Map([[id + ':extra:Example','anki']])), /Confirmed 1 of 1/)
+    assert.match(await apply(dialog,new Map([[id + ':extra:Example','anki']])), /Updated 1 note\./)
     assert.ok(file.text.includes('Example: Remote choice'))
     assert.equal(fields.Example.value, 'Remote choice')
     assert.equal(writes.length,conflictWrites)
@@ -343,7 +343,7 @@ for (const format of ['block','translated-block','page']) {
         const allChanges = dialog => dialog.preview.rows.flatMap(row => row.changes)
         const sync = async (dialog, choices = new Map()) => {
             assert.deepEqual(dialog.preview.rows.flatMap(row => row.issues ?? []), [])
-            assert.match(await dialog.apply(choices), /Confirmed 1 of 1/)
+            assert.match(await dialog.apply(choices), /Updated 1 note\./)
         }
         // No extra labels or section at first. The Anki model also has unused fields.
         const privateTail = format === 'page' ? tail : '<!--ID: ' + id + ' -->\r\nEND' + tail
@@ -422,7 +422,7 @@ test('first two-way comparison of divergent nonempty named fields keeps both ver
         [['Example','conflict']])
     assert.equal(file.text,before)
     assert.deepEqual(writes,[])
-    assert.match(await dialog.apply(new Map([[id + ':extra:Example','obsidian']])), /Confirmed 1 of 1/)
+    assert.match(await dialog.apply(new Map([[id + ':extra:Example','obsidian']])), /Updated 1 note\./)
     assert.equal(fields.Example.value,'Original example')
     assert.equal((await preview()).preview.canApply,false)
 })
@@ -457,7 +457,7 @@ for (const format of ['block','page']) {
         const {plugin, file, fields, writes, preview, edit} = h
         const name = 'Импортированный'
         const row = name + ': Remote only\r\n'
-        assert.match(await (await preview()).apply(new Map()), /Confirmed 1 of 1/)
+        assert.match(await (await preview()).apply(new Map()), /Updated 1 note\./)
         assert.ok(file.text.includes(row))
         edit(file.text.replace(row, ''))
 
@@ -476,7 +476,7 @@ for (const format of ['block','page']) {
         plugin.settings.BIDIRECTIONAL_SYNC = true
         const next = await preview()
         assert.deepEqual(next.preview.rows.flatMap(r => r.changes.map(c => [c.field,c.decision])),[[name,'anki']])
-        assert.match(await next.apply(new Map()), /Confirmed 1 of 1/)
+        assert.match(await next.apply(new Map()), /Updated 1 note\./)
         assert.ok(file.text.includes(name + ': Fresh after mode change'))
         assert.equal(writes.length,1)
         assert.equal((await preview()).preview.canApply,false)
@@ -498,7 +498,7 @@ for (const format of ['block','page']) {
             assert.deepEqual(dialog.preview.rows.flatMap(row=>row.changes.map(c => [c.field,c.decision])),[['Detail',decision]])
             assert.deepEqual(h.writes,[])
             const choices = remoteChanged ? new Map([[h.id + ':extra:Detail','anki']]) : new Map()
-            assert.match(await dialog.apply(choices), /Confirmed 1 of 1/)
+            assert.match(await dialog.apply(choices), /Updated 1 note\./)
             if (remoteChanged) {
                 assert.equal(h.fields.Detail.value,'Edited independently in Anki')
                 assert.ok(h.file.text.includes('Detail: Edited independently in Anki'))
@@ -535,7 +535,7 @@ for (const format of ['block','page']) {
             assert.equal(h.file.text,before)
             assert.deepEqual(h.writes,[])
             const choices = sample.decision === 'conflict' ? new Map([[h.id + ':extra:Detail','anki']]) : new Map()
-            assert.match(await dialog.apply(choices), /Confirmed 1 of 1/)
+            assert.match(await dialog.apply(choices), /Updated 1 note\./)
             assert.deepEqual(h.writes,sample.decision === 'obsidian' ? [{Detail:sample.final}] : [])
             assert.equal(h.fields.Detail.value,sample.final)
             assert.equal(/^Detail:[ \t]*(.*)$/m.exec(h.file.text)?.[1],sample.final)
@@ -552,13 +552,13 @@ for (const format of ['block','page']) {
         h.plugin.settings.BIDIRECTIONAL_SYNC = true
         const empty = await h.preview()
         assert.deepEqual(empty.preview.rows.flatMap(r => r.changes),[])
-        assert.match(await empty.apply(new Map()), /Confirmed 1 of 1/)
+        assert.equal(await empty.apply(new Map()), 'No changes.')
         assert.doesNotMatch(h.file.text,/^Detail:/m)
         assert.equal((await h.preview()).preview.canApply,false)
         h.fields.Detail.value = 'Fresh value after both cleared'
         const refill = await h.preview()
         assert.deepEqual(refill.preview.rows.flatMap(r => r.changes.map(c => [c.field,c.decision])),[['Detail','anki']])
-        assert.match(await refill.apply(new Map()), /Confirmed 1 of 1/)
+        assert.match(await refill.apply(new Map()), /Updated 1 note\./)
         assert.ok(h.file.text.includes('Detail: Fresh value after both cleared'))
         assert.deepEqual(h.writes,[])
         assert.equal((await h.preview()).preview.canApply,false)
@@ -594,13 +594,13 @@ for (const location of ['yaml','heading','after-answer']) {
         assert.equal(fields.Example.value,'First source')
         plugin.settings.BIDIRECTIONAL_SYNC = true
         const initial = await preview()
-        assert.match(await initial.apply(new Map()), /Confirmed 1 of 1/)
+        assert.equal(await initial.apply(new Map()), 'No changes.')
         assert.equal(fields.Example.value,'First source')
         fields.Example.value = 'edited in Anki'
         fields.Answer.value = 'answer changed in Anki'
         const d = await preview()
         assert.deepEqual(d.preview.rows.flatMap(r=>r.changes.map(c=>[c.field,c.decision])).sort(),[['Answer','anki'],['Example','obsidian']])
-        assert.match(await d.apply(new Map()), /Confirmed 1 of 1/)
+        assert.match(await d.apply(new Map()), /Updated 1 note\./)
         assert.equal(fields.Example.value,'First source')
         assert.ok(file.text.includes('Example: First source\r\n\r\nanswer changed in Anki'))
         assert.ok(file.text.endsWith(footer + tail))
@@ -620,7 +620,7 @@ for (const location of ['yaml','heading','after-answer']) {
         plugin.settings.BIDIRECTIONAL_SYNC = true
         const restored = await preview()
         assert.deepEqual(restored.preview.rows.flatMap(row => row.changes.map(change => [change.field, change.decision])), [['Example', 'anki']])
-        assert.match(await restored.apply(new Map()), /Confirmed 1 of 1/)
+        assert.match(await restored.apply(new Map()), /Updated 1 note\./)
         assert.ok(file.text.includes('Example: Second source'))
         assert.equal((await preview()).preview.canApply,false)
     })

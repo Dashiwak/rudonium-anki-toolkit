@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export type CardGenerationHazard = 'cloze' | 'reverse'
 
@@ -37,7 +35,6 @@ function clozeOrdinals(value: string): string[] {
 }
 
 function movedClozeText(before: string, after: string): boolean {
-    // Одинаковый набор номеров тоже может скрывать перенос знакомого ответа под другой номер.
     function groups(value: string): Map<string, Set<string>> {
         const result = new Map<string, Set<string>>()
         for (const match of value.matchAll(simpleCloze)) {
@@ -59,11 +56,9 @@ function movedClozeText(before: string, after: string): boolean {
 
 function reverseTrigger(value: string): boolean | undefined {
     const plain = value.replace(/<!--[^]*?-->|<\/?(?:div|p)\b[^>]*>|<br\b[^>]*>|&nbsp;|&#(?:160|x0*a0);/giu, '').trim()
-    // Необычная разметка может по-разному учитываться шаблоном Anki.
     return /[<>]|&(?:#\w+|[a-z]+);/iu.test(plain) ? undefined : plain.length > 0
 }
 
-/** Отмечает изменения с риском для состава карточек. Точный результат проверяется после записи. */
 export function cardFieldHazards(field: string, before: string, after: string): CardGenerationHazard[] {
     if (before === after) return []
     const result: CardGenerationHazard[] = []
@@ -105,7 +100,6 @@ function isStudyRow(row: unknown): row is Record<string, unknown> {
     return row !== null && typeof row === 'object' && !Array.isArray(row)
 }
 
-/** Проверяет владельца и ID каждой карточки независимо от порядка строк AnkiConnect. */
 export function parseCardStudyRows(value: unknown, noteId: number, cardIds: readonly number[]): CardStudyDetail[] {
     if (!Array.isArray(value) || value.length !== cardIds.length) throw new Error('Anki did not confirm all requested study cards.')
     const pending = new Set(cardIds)

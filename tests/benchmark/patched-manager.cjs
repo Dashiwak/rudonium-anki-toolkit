@@ -18,7 +18,7 @@ function managerType(api) {
     }
     const fields = extract('source = source.slice(0, firstMember) + ', ' + source.slice(firstMember)')
     const methods = extract('source = source.slice(0, generate.getStart(latest)) + ', ' + source.slice(initialise.end)')
-    const requests = extract('editBody("requests_1", () => ', ');\n\n    // Позиционный')
+    const requests = extract('editBody("requests_1", () => ', ');\n\n    const oldMethods =')
     const src = 'class Manager {\n' + fields + methods + '\nasync requests_1() {' + requests + '\n}}'
     return new Function(...Object.keys(api), stripTypeScriptTypes(src, { mode: 'transform' }) + ';return Manager')(...Object.values(api))
 }

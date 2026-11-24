@@ -7,16 +7,16 @@ import { detectRudoniumPage, renderRecoveredPage } from './migrate-rudonium-page
 import type { ExistingPage } from './migrate-rudonium-page'
 export type { ExistingPage } from './migrate-rudonium-page'
 import { detectDeckToAnki } from './migrate-deck'
-import { detectFlashcards, detectObsidianToAnki } from './migrate-flashcards'
+import { detectFlashcards } from './migrate-flashcards'
 import { detectYanki } from './migrate-yanki'
 import { splitMigrationMarkdown } from './migration-markdown'
 import { deckPageLayoutMarker, insertPageFooterId, linkedPageRouteMarker, readPageCard, sourcePageLayoutMarker } from './page-card'
 import type { DuplicateMarkerSyntax } from './duplicate-markers'
 import type { PageIdLocation } from './page-id-location'
 import type { MigrationAdapter, MigrationCandidate, MigrationContext } from './page-migration-context'
-import { pageCardExpression } from './card-format-presets'
+import { explicitNotePattern, pageCardExpression } from './card-format-presets'
 import { validCardTags } from './bidirectional-markdown'
-import { parseAnkiIdMarker } from './anki-id-marker'
+import { escapeRegex } from './constants'
 import { insertPageYamlId } from './duplicate-markers'
 
 const detectLocalSchedule: MigrationAdapter = (_path, text, context) => {
@@ -25,12 +25,11 @@ const detectLocalSchedule: MigrationAdapter = (_path, text, context) => {
         'This file contains a local Spaced Repetition schedule. It has no verified Anki note link.',
         'В файле есть локальное расписание Spaced Repetition. Подтверждённой связи с записью Anki нет.') }
 }
-const adapters = { 'yanki': detectYanki, 'flashcards': detectFlashcards, 'obsidian-to-anki': detectObsidianToAnki,
+const adapters = { 'yanki': detectYanki, 'flashcards': detectFlashcards,
     'deck-to-anki': detectDeckToAnki, 'spaced-repetition': detectLocalSchedule, 'anki-forge': detectAnkiForge,
     'anki-bridge': detectAnkiBridge, 'anki-ast-sync': detectAnkiAstSync, 'anki-exporter': detectAnkiExporter }
 const auto = Object.values(adapters)
 
-// Служебные свойства целой архивной страницы сохраняются для автора, но больше не заявляют владение ID.
 function migrationSource(text: string): string {
     if (!text.includes('RUDONIUM-ARCHIVE')) return text
     const active = activeCardMarkdown(text)
@@ -59,7 +58,14 @@ export function inspectMigrationFile(path: string, text: string, context: Migrat
             return native
         }
     }
-    if (context.source === 'rudonium') return
+    const syntax = context.syntax ?? {}
+    const begin = syntax['Begin Note'] ?? 'START', end = syntax['End Note'] ?? 'END'
+    const inline = syntax['Begin Inline Note'] ?? 'STARTI', inlineEnd = syntax['End Inline Note'] ?? 'ENDI'
+    if ((begin && text.includes(begin) && explicitNotePattern(escapeRegex(begin), escapeRegex(end)).test(text)) ||
+        (inline && inlineEnd && text.includes(inline) && new RegExp(escapeRegex(inline) + '.*?' + escapeRegex(inlineEnd)).test(text))) {
+        return { source: 'obsidian-to-anki', status: 'already' }
+    }
+    if (context.source === 'rudonium' || context.source === 'obsidian-to-anki') return
     const selected = context.source && context.source !== 'auto' ? [adapters[context.source]] : auto
     let found: MigrationCandidate | undefined
     for (const adapter of selected) {
@@ -154,18 +160,8 @@ export function renderMigrationPage(original: string, item: MigrationCandidate, 
     let text = (source.bom && !prefix.startsWith(source.bom) ? source.bom : '') + prefix
     if (text && text !== '\uFEFF' && !text.endsWith('\n')) text += eol
     text += '# ' + front + ' #anki-page' + (anchor ? ' ^' + anchor : '') + eol
-    let placement = idLocation
-    let date: string | undefined
     if (id !== undefined) {
-        const originalRow = item.source === 'obsidian-to-anki' && source.body.includes('ID:')
-            ? source.body.split(/\r?\n/u).find(row => parseAnkiIdMarker(row)?.id === id) : undefined
-        if (originalRow !== undefined) {
-            // A date or user annotation belongs to the original marker, including text outside its HTML comment.
-            const marker = parseAnkiIdMarker(originalRow)!
-            if (marker.warning || marker.metadata && marker.metadata !== marker.date || originalRow.slice(marker.to).trim()) placement = 'heading'
-            else date = marker.date
-        }
-        if (placement === 'heading') text += (originalRow ?? (comment ? '<!--ID: ' + id + '-->' : 'ID: ' + id)) + eol
+        if (idLocation === 'heading') text += (comment ? '<!--ID: ' + id + '-->' : 'ID: ' + id) + eol
         if (tagLine) text += tagLine + eol
         if (routeLine) text += routeLine + eol
         if (item.source === 'deck-to-anki' && item.fieldNames?.[0] === 'ob-deck-front' && item.fieldNames[1] === 'ob-deck-back') {
@@ -178,10 +174,10 @@ export function renderMigrationPage(original: string, item: MigrationCandidate, 
     const rawBody = back.replace(/^(?:[ \t]*\r?\n)+/u, '').replace(/(?:\r?\n[ \t]*)+$/u, '')
     const body = rawBody.replace(/\r\n/gu, '\n')
     text += eol + rawBody + (original.endsWith('\n') ? eol : '')
-    if (id !== undefined && placement === 'yaml') text = insertPageYamlId(text, id, date)
-    if (id !== undefined && placement === 'after-answer') text = insertPageFooterId(text, id, date)
+    if (id !== undefined && idLocation === 'yaml') text = insertPageYamlId(text, id)
+    if (id !== undefined && idLocation === 'after-answer') text = insertPageFooterId(text, id)
     const check = readPageCard(text, { [model]: pageCardExpression }, syntax)
-    if (!check || check.front !== front || check.back !== body || check.id !== id || (id !== undefined && check.idLocation !== placement) ||
+    if (!check || check.front !== front || check.back !== body || check.id !== id || (id !== undefined && check.idLocation !== idLocation) ||
         check.model !== (item.linkedRoute?.model ?? model) ||
         check.linkedRoute?.deck !== item.linkedRoute?.deck) {
         throw new Error('The converted question, answer or note ID changed during Markdown parsing.')

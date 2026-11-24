@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { isRecoveryTag } from './export-recovery'
 
@@ -58,7 +56,6 @@ function escapeMarkdownText(text: string): string {
 
 type FieldPart = { kind: 'text' | 'open' | 'close' | 'break'; value: string }
 
-/** Допускаем только неактивную HTML-разметку с закрытыми тегами. Декодированный текст сохраняем в Markdown буквально. */
 function inspectField(value: string): { source: string; comparable: string } {
     if (unsafeCharacter.test(value)) throw new Error('The Anki field contains unsupported characters.')
     const parts: FieldPart[] = []
@@ -74,7 +71,6 @@ function inspectField(value: string): { source: string; comparable: string } {
         decoded = ''
     }
 
-    // Разделяем строку только по возможным элементам разметки, чтобы копировать и экранировать длинный простой текст за один проход.
     for (let offset = 0; offset < value.length;) {
         const next = value.slice(offset)
         const plain = /^[^<&]+/u.exec(next)?.[0]
@@ -126,8 +122,6 @@ function inspectField(value: string): { source: string; comparable: string } {
         throw new Error('The Anki field contains audio or a cloze that requires manual restoration.')
     }
 
-    // Редактор Anki может обернуть поле в один абзац или div. Сохраняем эту обёртку
-    // в Markdown и разрешаем форматтеру нормализовать её при повторном разборе.
     const first = parts[0]
     const last = parts[parts.length - 1]
     if (first?.kind === 'open' && containerTag.has(first.value) && last?.kind === 'close' && last.value === first.value &&
@@ -150,7 +144,6 @@ function usableLabel(value: string): boolean {
     return !!value && value.trim() === value && !unsafeCharacter.test(value) && !/[\t\r\n<>]/u.test(value)
 }
 
-/** Формирует связанную запись в штатном синтаксисе блока, чтобы парсер экспорта мог проверить результат. */
 export function formatAnkiSourceRestore(input: RestoreFormatInput): RestoreFormatResult {
     const { id, modelName, fieldNames, fields } = input
     const begin = input.syntax?.['Begin Note'] ?? 'START'
@@ -176,7 +169,6 @@ export function formatAnkiSourceRestore(input: RestoreFormatInput): RestoreForma
         } catch (error) {
             throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`)
         }
-        // Пустое поле с подписью неоднозначно в некоторых штатных типах записей. Проверяем, что значение осталось пустым после разбора.
         if (source) rows.push(`${name}: ${source}`)
     }
 

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { TFile } from 'obsidian'
 import type { App } from 'obsidian'
@@ -77,7 +75,6 @@ function comparisonProfile(result: SyncAuditResult): string | undefined {
     return active && 'active' in active && (!active.expected || active.active === active.expected) ? active.active : undefined
 }
 
-/** Читает только имена из текущего профиля Anki. Содержимое медиа не загружается. */
 export async function auditAttachmentPresence(app: App, result: SyncAuditResult, signal?: AbortSignal): Promise<AuditAttachmentReport> {
     const attachments = rememberedSources.get(result) ?? []
     const local = new Map<string, { name: string; files: Set<string>; notes: Set<string>; distinctNames: Map<string, Set<string>> }>()
@@ -153,7 +150,6 @@ export async function auditAttachmentPresence(app: App, result: SyncAuditResult,
     }
 }
 
-/** По явному запросу сравнивает небольшую группу локальных одноимённых файлов. */
 export async function verifyLocalAttachmentContents(app: App, paths: readonly string[], signal?: AbortSignal): Promise<boolean> {
     let total = 0
     const files = paths.map(path => {
@@ -190,7 +186,6 @@ export interface AttachmentComparisonTarget {
 
 export type AttachmentComparison = { matches: boolean; localBytes: number; remoteBytes: number } | { missing: true }
 
-/** Подбор выполняется только по источникам уже просмотренной колоды. */
 export function auditAttachmentComparisonTargets(app: App, result: SyncAuditResult, query = ''): {
     items: AttachmentComparisonTarget[]; hasMore: boolean
 } {
@@ -214,7 +209,6 @@ export function auditAttachmentComparisonTargets(app: App, result: SyncAuditResu
     return { items, hasMore: false }
 }
 
-/** Запрашивает содержимое только выбранной пары, без записи или сохранения полученных байтов. */
 export async function verifyAuditAttachmentInAnki(app: App, result: SyncAuditResult, target: AttachmentComparisonTarget,
     signal?: AbortSignal): Promise<AttachmentComparison> {
     const sources = rememberedSources.get(result)

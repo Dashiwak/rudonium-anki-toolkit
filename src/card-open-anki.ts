@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Notice } from 'obsidian'
 import type { Editor, TFile } from 'obsidian'
@@ -29,7 +27,6 @@ function problemText(error: unknown, t: UiText): string {
     return error instanceof Error ? error.message : String(error)
 }
 
-/** Открывает существующую запись. Текст редактора и данные коллекции не изменяются. */
 export async function openCurrentCardInAnki(plugin: MyPlugin, editor: Editor, file: TFile): Promise<void> {
     const t = uiFor(plugin.settings)
     opens.get(plugin)?.abort()
@@ -61,7 +58,6 @@ export async function openCurrentCardInAnki(plugin: MyPlugin, editor: Editor, fi
         requireCurrent()
         const profile = await requireExpectedAnkiProfile(plugin, undefined, signal)
         requireCurrent()
-        // Используется тот же разбор текущего буфера, что у предпросмотра. Чтение всего хранилища не требуется.
         const preview = await buildCardPreview(plugin, file, text, offset, true, true)
         requireCurrent()
         const id = preview.id
@@ -94,7 +90,6 @@ export async function openCurrentCardInAnki(plugin: MyPlugin, editor: Editor, fi
         }
         await requireExpectedAnkiProfile(plugin, profile, signal)
         requireCurrent()
-        // nid выбирает запись независимо от фильтрованной колоды, приостановки и числа её карточек.
         const cards: unknown = await withAnkiDeadline(() => AnkiConnect.invoke('guiBrowse', { query: `nid:${id}` }),
             'Open Anki Browse', readTimeoutMs, signal)
         if (!Array.isArray(cards) || cards.some(card => !Number.isSafeInteger(card) || card <= 0)) {

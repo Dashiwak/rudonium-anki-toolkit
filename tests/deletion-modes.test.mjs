@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import overlay from '../Build/overlay-source.cjs'
 import pageFile from './benchmark/page-file.cjs'
 import { loadSync } from './benchmark/load-sync.mjs'
-import { useHost } from './benchmark/host.mjs'
+import { MarkdownView, useHost } from './benchmark/host.mjs'
 
 const modes = ['keep', 'remove', 'mark', 'strike', 'hidden']
 const id = 1750000000001, sibling = id + 1
@@ -76,6 +76,29 @@ function fixture(runtime, mode) {
     return { host, file, plugin, preview, apply, edit }
 }
 
+test('manual no-change notices show the checked count and a separate outcome in Russian', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const [count, noun] of [[0,'записей'],[1,'запись'],[2,'записи'],[5,'записей'],[11,'записей'],[19,'записей'],[21,'запись']]) {
+        const h = fixture(runtime, 'keep')
+        useHost(h.host)
+        h.plugin.settings.INTERFACE_LANGUAGE = 'ru'
+        h.host.notes.clear()
+        const lines = []
+        for (let i = 0; i < count; i++) {
+            lines.push(`- Q${i} :: A\n<!--ID: ${id+i} -->\n`)
+            h.host.notes.set(id+i, note(id+i, 'Q'+i, 'A'))
+        }
+        h.edit(prefix + lines.join(''))
+        assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+        assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+        const message = h.host.notices.at(-1)
+        assert.equal(message.split('\n')[0], `Проверено: ${count} ${noun}.`)
+        if (count) assert.equal(message.split('\n')[1], 'Изменений нет.')
+        else assert.match(message, /Предпросмотр текущей карточки/u)
+    }
+})
+
 test('preview off syncs an independent card and keeps deletion or conflict for manual review', async t => {
     const runtime = await loadSync(overlay.directory)
     t.after(runtime.dispose)
@@ -94,12 +117,12 @@ test('preview off syncs an independent card and keeps deletion or conflict for m
         assert.equal(h.host.dialog, undefined, kind)
         assert.match(h.file.text,/Neighbor :: New independent answer/,kind)
         assert.equal(h.host.calls.some(call=>call.action==='deleteNotes'),false)
-        assert.match(h.host.notices.at(-1), /Confirmed 1 of 1/, kind)
+        assert.match(h.host.notices.at(-1), /Updated 1 note\./, kind)
         assert.doesNotMatch(h.host.notices.join(' '), /awaiting review|Preview now/i)
         h.host.notices.length = 0
         assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'completed', kind)
         assert.equal(h.host.dialog, undefined, kind)
-        assert.match(h.host.notices.at(-1), /Linked notes checked: 2\. No changes applied\.$/, kind)
+        assert.match(h.host.notices.at(-1), /Checked 2 notes\.\nDeferred 1 note for review\.$/, kind)
         h.host.notices.length = 0
         assert.equal(await runtime.scanVaultFast(h.plugin, 'scheduled'), 'completed', kind)
         assert.deepEqual(h.host.notices, [], 'a timer must not repeat a prompt for an unresolved item')
@@ -130,7 +153,7 @@ test('a vault with only an unresolved field gives a quiet completion on every ma
     for (let attempt = 0; attempt < 2; attempt++) {
         h.host.notices.length = 0
         assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
-        assert.match(h.host.notices.at(-1) ?? '', /Linked notes checked: 1\. No changes applied\.$/)
+        assert.match(h.host.notices.at(-1) ?? '', /Checked 1 note\.\nDeferred 1 note for review\.$/)
         assert.equal(h.host.dialog, undefined)
         assert.equal(h.file.text, prefix + original)
         assert.equal(h.host.notes.get(id).fields.Front.value, 'Edited in Anki')
@@ -150,7 +173,7 @@ test('first bidirectional run keeps ambiguous fields quiet; both manual and enab
     assert.doesNotMatch(h.host.notices.at(-1), /Back|awaiting review|Preview now/i)
     h.plugin.settings.INTERFACE_LANGUAGE = 'ru'
     assert.equal(await runtime.scanVaultFast(h.plugin, true), 'completed')
-    assert.match(h.host.notices.at(-1), /Связанных записей проверено: 2.*Изменения не применялись/u)
+    assert.match(h.host.notices.at(-1), /Проверено: 2 записи\.\nОтложена 1 запись для проверки\./u)
     assert.equal(h.host.dialog, undefined)
     for (const explicit of [true, false]) {
         h.plugin.settings.BIDIRECTIONAL_PREVIEW = !explicit
@@ -192,6 +215,85 @@ test('manual sync rereads a same-size external edit in the active note before re
     }
 })
 
+test('settings preview initializes the field schema on a cold start and retries after Anki opens', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    useHost(h.host)
+    h.plugin.fields_dict = {}
+    let attempts = 0
+    runtime.registerFastScan(h.plugin, undefined, async () => {
+        if (++attempts === 1) throw new Error('Anki is offline')
+        h.plugin.fields_dict = { Basic: ['Front', 'Back'] }
+        h.plugin.note_types = ['Basic']
+    })
+    await runtime.previewBidirectionalSync(h.plugin)
+    assert.equal(h.host.dialog, undefined)
+    assert.match(h.host.notices.at(-1), /Could not load note types/)
+    const dialog = await h.preview()
+    assert.equal(attempts, 2)
+    assert.equal(dialog.preview.scanned, 2)
+    assert.equal(dialog.preview.rows.length, 0)
+})
+
+test('the first manual two-way sync saves a pending editor before comparing the linked fields', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const persisted of [false, true]) {
+        const h = fixture(runtime, 'keep')
+        useHost(h.host)
+        h.file.stat.mtime = 1795150951000
+        h.host.notes.get(id).mod = 1795150950
+        if (persisted) await h.apply()
+        const changed = initial.replace('Old :: Answer', 'Kazem :: Answer')
+        const view = Object.assign(new MarkdownView(), {
+            file: h.file, data: initial, getMode: () => 'source', getViewData: () => changed,
+            async save() {
+                await Promise.resolve()
+                h.edit(changed)
+                this.data = changed
+            },
+        })
+        h.plugin.app.workspace.getLeavesOfType = () => [{ view }]
+        const request = h.host.request
+        let writes = 0
+        h.host.request = async (action, params) => {
+            if (action !== 'updateNoteFields') return request(action, params)
+            assert.equal(h.file.text, changed)
+            assert.deepEqual(params.note, { id, fields: { Front: 'Kazem' } })
+            h.host.notes.get(id).fields.Front.value = 'Kazem'
+            writes++
+            return null
+        }
+        // A new plugin instance has no in-memory scan cache.
+        const restarted = { ...h.plugin }
+        assert.equal(await runtime.scanVaultFast(restarted), 'completed')
+        assert.equal(h.host.notes.get(id).fields.Front.value, 'Kazem')
+        assert.equal(await runtime.scanVaultFast(restarted), 'completed')
+        assert.equal(writes, 1)
+    }
+})
+
+test('a split-view conflict or unfinished save prevents a stale first sync', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const scenario of ['split', 'unfinished', 'already-saving']) {
+        const split = scenario === 'split'
+        const h = fixture(runtime, 'keep')
+        useHost(h.host)
+        const views = (split ? ['First', 'Second'] : ['First']).map(front => Object.assign(new MarkdownView(), {
+            file: h.file, data: scenario === 'already-saving' ? initial.replace('Old', front) : initial,
+            getMode: () => 'source', getViewData: () => initial.replace('Old', front),
+            async save() { this.data = this.getViewData() },
+        }))
+        h.plugin.app.workspace.getLeavesOfType = () => views.map(view => ({ view }))
+        assert.equal(await runtime.scanVaultFast(h.plugin), 'failed')
+        assert.match(h.host.notices.at(-1), split ? /conflicting unsaved edits/ : /differs from the editor/)
+        assert.equal(h.host.notes.get(id).fields.Front.value, 'Old')
+        assert.equal(h.file.text, initial)
+    }
+})
+
 test('a manual check catches duplicated IDs introduced without a vault modification event', async t => {
     const runtime = await loadSync(overlay.directory)
     t.after(runtime.dispose)
@@ -200,7 +302,7 @@ test('a manual check catches duplicated IDs introduced without a vault modificat
     h.file.text = initial.replace(String(id), String(sibling))
     h.host.notes.get(sibling).fields.Back.value = 'New Anki value'
     assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
-    assert.match(h.host.notices.at(-1), /No changes applied/)
+    assert.match(h.host.notices.at(-1), /Duplicate Anki ID/)
     const dialog = await h.preview()
     assert.ok(dialog.preview.rows.some(row => row.issues?.some(issue => issue.includes('Duplicate Anki ID'))))
     assert.equal(h.file.text, initial.replace(String(id), String(sibling)))
@@ -246,7 +348,7 @@ test('a manual sync reports slow work and distinguishes an unlinked draft from u
         assert.match(h.host.notices.at(-1), /Checking linked notes/)
     } finally { release() }
     assert.equal(await run, 'completed')
-    assert.match(h.host.notices.at(-1), /Linked notes checked: 2.*No changes/)
+    assert.match(h.host.notices.at(-1), /Checked 2 notes\.\nNo changes\./)
     h.edit('- New :: Draft\n')
     assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
     assert.match(h.host.notices.at(-1), /No linked notes.*Preview Current Card/)
@@ -294,7 +396,7 @@ test('Browse allows saved incoming values and protects outbound edits until the 
     const source = h.file.text.replace('Saved in Browse', 'New Markdown')
     h.edit(source)
     assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
-    assert.match(h.host.notices.at(-1), /^No changes applied\.$/)
+    assert.match(h.host.notices.at(-1), /Select another note or close Browse/)
     assert.equal(h.host.notes.get(id).fields.Back.value, 'Saved in Browse')
     assert.match(await h.apply(), /Select another note or close Browse/)
     selection = []
@@ -650,5 +752,29 @@ test('first two-way sync reconciles multiple notes and fields after a verified o
     assert.deepEqual(live.tags, ['FromAnki'])
     assert.deepEqual(live.cards, [id + 100])
     assert.deepEqual(other.cards, [sibling + 100])
+    assert.equal((await h.preview()).preview.canApply, false)
+})
+
+test('linked punctuation survives edits in both directions without changing neighboring Markdown', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    const live = h.host.notes.get(id)
+    const request = h.host.request
+    h.host.request = (action, params) => {
+        if (action !== 'updateNoteFields') return request(action, params)
+        assert.equal(params.note.id, id)
+        for (const [key, value] of Object.entries(params.note.fields)) live.fields[key].value = value
+        return null
+    }
+    await h.apply()
+    h.edit(initial.replace('Old :: Answer', 'Казематы===- :: Ответ====.'))
+    await h.apply()
+    assert.equal(live.fields.Front.value, 'Казематы===-')
+    assert.equal(live.fields.Back.value, 'Ответ====.')
+    live.fields.Front.value = 'Казематы====-'
+    const expected = initial.replace('Old :: Answer', 'Казематы====- :: Ответ====.')
+    await h.apply()
+    assert.equal(h.file.text, expected)
     assert.equal((await h.preview()).preview.canApply, false)
 })

@@ -1,13 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 "use strict";
 
 function patchAcceptedMatches(searchCode) {
-    // Проверяем исходные захваты до передачи штатному парсеру, который вправе менять массив.
     const nativeMatches = /\bfindignore\(\s*regexp\s*,\s*this\.file\s*,\s*this\.ignore_spans\s*\)/g;
     const directMatches = /this\.file\.matchAll\(\s*regexp\s*\)/g;
     const nativeCount = Array.from(searchCode.matchAll(nativeMatches)).length;
@@ -19,8 +16,6 @@ function patchAcceptedMatches(searchCode) {
         (usesClaimedSpans ? "" : " || this.ignore_spans.some(([from, to]) => from <= start && start < to)");
     const code = searchCode.replace(usesClaimedSpans ? nativeMatches : directMatches,
         () => `checkedCustomAnkiMatches(${candidates}, this.file, search_id, this.idDateWarnings, ${excluded})`)
-        // RegexNote снимает ID и теги через pop(). Предпросмотру и повторному
-        // использованию результата worker нужны все первоначальные группы.
         .replace(/(\bnew\s+RegexNote\s*\(\s*)match(?=\s*[,)])/g, "$1copyMatchForRegexNote(match)");
     return { code, usesClaimedSpans };
 }
@@ -35,8 +30,6 @@ function pageMethods() {
     private namedFieldProtection?: Map<string, ReadonlySet<string> | undefined>
 
     namedSyncFrozenFields(model: string): ReadonlySet<string> | undefined {
-        // Общие значения уже разобраны штатным экспортёром. На одну заметку и модель
-        // проверяем их один раз, в том числе если в заметке тысячи блоков START/END.
         if (this.pageCard?.sharedFields && this.pageCard.model === model) {
             this.namedFieldProtection ??= new Map<string, ReadonlySet<string> | undefined>();
             if (!this.namedFieldProtection.has(model)) this.namedFieldProtection.set(model, new Set(this.pageCard.sharedFields.values.keys()));
@@ -136,7 +129,6 @@ function patchPageIdWriter(source) {
         }`);
 }
 
-/** Сохраняет штатный разбор и порядок распознавания карточек. Изолирует только сопоставление пользовательских регулярных выражений. */
 function patchCustomRegexpIsolation(source, ts) {
     const tree = ts.createSourceFile("file.ts", source, ts.ScriptTarget.Latest, true);
     const core = tree.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "AllFile");
@@ -161,7 +153,14 @@ function patchCustomRegexpIsolation(source, ts) {
         '\n' + indent + 'const matches = matchesByPattern.get(customRegexpKey(pattern));' +
         '\n' + indent + 'if (!matches) throw new Error("Missing Custom Regexp worker result.");');
     const loop = patchAcceptedMatches(searchCode);
-    searchCode = loop.code;
+    searchCode = loop.code.replace('this.ignore_spans.push([match.index, match.index + match[0].length])', match =>
+        String.raw`const spacingRule = isKnowledgeRule(regexp_str) || currentCardExpression(regexp_str) === remNoteExpression
+                    const line = spacingRule ? match[0].split(/[\r\n]/u, 1)[0] : ''
+                    if (isKnowledgeRule(regexp_str) && !knowledgeMatchAllowed(line, search_id)) continue
+                    ` + match).replace('if (search_id) {', match =>
+        `const repair = spacingRule && separatorRepair(line, search_id)
+                    if (repair) (this.separatorRepairs ??= new Map()).set(parsed.note, repair)
+                    ` + match);
     const searchSignature = /^search\(\s*(note_type:\s*string,\s*regexp_str:\s*string)\s*\)/;
     if (!searchSignature.test(searchCode)) throw new Error("Unexpected Custom Regexp search signature.");
     searchCode = searchCode.replace(searchSignature,
@@ -203,7 +202,7 @@ function patchCustomRegexpIsolation(source, ts) {
             "            if (pageOnly || this.custom_regexps[note_type] === pageCardExpression) continue;",
             "            this.presetStartBlocked = readDelimitedRule(this.custom_regexps[note_type])",
             "                ? (wizardGuard ??= wizardStartGuard(this.file, this.ignore_spans, [this.data.DECK_REGEXP, this.data.TAG_REGEXP, this.data.FROZEN_REGEXP]))",
-            "                : namedCardExpressions.has(currentCardExpression(this.custom_regexps[note_type]))",
+            "                : (isKnowledgeRule(this.custom_regexps[note_type]) || namedCardExpressions.has(currentCardExpression(this.custom_regexps[note_type])))",
             "                ? (guard ??= presetStartGuard(this.file, this.ignore_spans)) : undefined;",
         ].join("\n"))
         .replace(stockCall, "this.search(note_type, regexp_str, matchesByPattern)");
@@ -245,7 +244,7 @@ function patchCustomRegexpIsolation(source, ts) {
         "import { readDelimitedRule } from './delimited-rule'\n" +
         "import { insertPageFooterId, validatePageYamlPlacement, readPageCard, writePageId, isLinkedPageSchema, needsLinkedPageLayout, pageSourceContext, pageExportFieldNames, pageContentTags } from './page-card'\n" +
         "import type { PageCard } from './page-card'\n" +
-        "import { currentCardExpression, cardRegexpWithSuffix, tableCardExpression, remNoteExpression, applyRemNoteMetadata, namedCardExpressions, pageCardExpression } from './card-format-presets'\n" +
+        "import { currentCardExpression, isKnowledgeRule, knowledgeMatchAllowed, separatorRepair, cardRegexpWithSuffix, tableCardExpression, remNoteExpression, applyRemNoteMetadata, namedCardExpressions, pageCardExpression } from './card-format-presets'\n" +
         "import { presetStartGuard, wizardStartGuard, tableIdConflicts } from './card-export-diagnostics'\n" +
         "import { checkedCustomAnkiMatches, copyMatchForRegexNote } from './anki-id-marker'\n" +
         "import type { AnkiIdDateWarning } from './anki-id-marker'\n" +

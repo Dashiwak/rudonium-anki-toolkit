@@ -535,7 +535,7 @@ test('an interrupted 0.9.7 annex write releases only the absent field and resume
     }}]])
     const before = h.file.text
     const dialog = await h.preview()
-    assert.match(await dialog.apply(new Map()), /Confirmed 1 of 1/)
+    assert.match(await dialog.apply(new Map()), /Updated 1 note\./)
     assert.equal(h.file.text, before.replace(':: Old',':: New'))
     assert.deepEqual(h.host.writes,[])
     assert.equal((await h.preview()).preview.canApply,false)
@@ -658,4 +658,112 @@ test('a Knowledge rule assigned to another model keeps the existing linked dicti
     await plan.apply(new Map())
     assert.equal(h.file.text, original.replace('Казематы', 'Обновлено в Anki'))
     assert.deepEqual(h.host.writes, [])
+})
+
+test('linked separator spacing is proposed, applied with inbound/outbound changes, and never rewrites a stale source', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression, remNoteExpression } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    const before = '- Казематы:: Сводчатые помещения :: R'
+    const expected = '- Казематы :: Сводчатые помещения :: R'
+    for (const rule of [knowledgeBulletExpression, knowledgeBulletExpression.replace('^- ', '^[-] '), remNoteExpression]) {
+        const h = fixture(runtime, { rule, names, body: before, values: ['Казематы', 'Сводчатые помещения', 'R', '', ''] })
+        h.plugin.settings.SYNC_CHANGE_HISTORY = true
+        const original = h.file.text
+        const preview = await h.preview()
+        assert.equal(h.file.text, original)
+        assert.ok(preview.preview.canApply, JSON.stringify(preview.preview))
+        assert.ok(preview.preview.rows.flatMap(row => row.changes).some(change => change.merged === expected))
+        await preview.apply(new Map())
+        assert.equal(h.file.text, original.replace(before, expected))
+        assert.deepEqual(h.host.writes, [])
+        assert.equal((await h.preview()).preview.canApply, false)
+        h.edit(h.file.text.replace(expected, '- Каземат:: Новый ответ ::R'))
+        await (await h.preview()).apply(new Map())
+        assert.ok(h.file.text.includes('- Каземат :: Новый ответ :: R'))
+        assert.equal(h.notes.fields.Back.value, 'Новый ответ')
+        h.edit(h.file.text.replace(' :: Новый ответ', ' ::Новый ответ'))
+        h.notes.fields.Back.value = 'Изменено в Anki'
+        await (await h.preview()).apply(new Map())
+        assert.ok(h.file.text.includes('- Каземат :: Изменено в Anki :: R'), h.file.text)
+        const normalization = (await runtime.readSyncChanges(h.plugin)).find(row => row.action === 'normalize')
+        assert.equal(normalization.direction, 'local')
+        assert.deepEqual(normalization.fields, [{ name: 'Markdown', before: '- Каземат ::Новый ответ :: R', after: '- Каземат :: Изменено в Anki :: R' }])
+        assert.ok(h.file.text.includes('\r\n<!--ID: ' + id + ' -->\r\n\r\nDraft'))
+        h.edit(h.file.text.replace(' :: Изменено', ':: Изменено'))
+        const stale = await h.preview()
+        const latest = h.file.text + '!'
+        h.edit(latest)
+        await assert.rejects(stale.apply(new Map()))
+        assert.equal(h.file.text, latest)
+    }
+})
+
+test('only unambiguous Knowledge card separators receive spacing repairs', async () => {
+    const { separatorRepair, knowledgeMatchAllowed } = await module('card-format-presets')
+    const cases = [
+        ['- Казематы:: Сводчатые ::R', true, '- Казематы :: Сводчатые :: R'],
+        ['- Казематы::Ответ ::B=de_DE', false, '- Казематы :: Ответ :: B=de_DE'],
+        ['- Казематы ::Ответ', true, '- Казематы :: Ответ'],
+        ['- Статус:: Готово', false], ['- std::vector', true], ['- [::1] :: IP', true],
+        ['- `key:: value` :: R', true], ['- foo::: bar', true], ['- x : Ответ', true],
+        ['- Q :: A :: R', true], ['- A:: B :: unknown', true], ['Status:: In Progress', true],
+    ]
+    for (const [line, linked, expected] of cases) {
+        assert.equal(separatorRepair(line, linked)?.after, expected, line)
+        if (expected) assert.equal(knowledgeMatchAllowed(line, linked), true, line)
+    }
+})
+
+test('one-way separator preview and write preserve the ID, Markdown guards and line endings', async () => {
+    const { separatorRepair } = await module('card-format-presets')
+    const before = '- Казематы:: Ответ ::R', after = '- Казематы :: Ответ :: R'
+    const note = { modelName: 'Basic' }
+    const repair = separatorRepair(before, true)
+    for (const eol of ['\n', '\r\n']) {
+        const input = ['## Карточки', before, 'Tags: history', 'SUSPEND', '<!--ID: ' + id + '-->', 'Extra', before].join(eol)
+        const Manager = patched.managerType({ findIdMarkers: () => [{ line: 5, id }],
+            readSuspendLine: line => line === 'SUSPEND', exportOperationKey: (...args) => JSON.stringify(args) })
+        const manager = new Manager()
+        const file = { path: 'Cards.md', file: input, notes_to_edit: [{ identifier: id, note }], separatorRepairs: new Map([[note, repair]]) }
+        const suggested = manager.reviewSpacing(file, true)
+        assert.deepEqual([...suggested.keys()], [id])
+        const [op] = manager.previewOperations.get(file.path)
+        assert.deepEqual(op.values, [{ name: 'Markdown', before, after }])
+        assert.equal(file.file, input)
+        manager.previewSelection = { paths: new Map([[file.path, new Set()]]) }
+        assert.equal(manager.reviewSpacing(file, false).size, 0)
+        manager.previewSelection.paths.get(file.path).add(op.key)
+        const approved = manager.reviewSpacing(file, false)
+        assert.deepEqual([...manager.saveSpacing(file, approved)], [id])
+        assert.equal(file.file, input.replace(before, after))
+        assert.equal(manager.saveSpacing(file, approved).size, 0)
+        file.file = input.replace(before, before + '!')
+        assert.equal(manager.saveSpacing(file, approved).size, 0)
+        assert.ok(file.file.endsWith(before))
+    }
+})
+
+test('a failed first two-way sync records the schema error once; preview and disabled history stay read-only', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, { rule: '^Q (.+?) A (.+)$', names: ['Front', 'Back'], body: 'Q One A Two', values: ['One', 'Two'] })
+    useHost(h.host)
+    h.plugin.fields_dict = {}
+    runtime.registerFastScan(h.plugin, undefined, async () => { throw new Error('AnkiConnect offline on startup') })
+    h.plugin.settings.SYNC_CHANGE_HISTORY = true
+    await runtime.previewBidirectionalSync(h.plugin, { currentOnly: true })
+    assert.deepEqual(await runtime.readSyncChanges(h.plugin), [])
+    assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'failed')
+    const rows = await runtime.readSyncChanges(h.plugin)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].path, h.file.path)
+    assert.equal(rows[0].profile, undefined)
+    assert.equal(rows[0].action, 'error')
+    assert.equal(rows[0].direction, 'none')
+    assert.match(rows[0].detail, /note types.*AnkiConnect offline on startup/)
+    h.plugin.settings.SYNC_CHANGE_HISTORY = false
+    assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'failed')
+    assert.equal((await runtime.readSyncChanges(h.plugin)).length, 1)
 })

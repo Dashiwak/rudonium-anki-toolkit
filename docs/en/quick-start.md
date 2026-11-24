@@ -12,13 +12,20 @@ Quick Start opens automatically when the vault has no configured format or compl
 
 Download the install archive (`Rudonium-<version>.zip`) from the latest published release. Close Obsidian and extract the archive into your vault’s `.obsidian/plugins/`. Reopen the vault and enable the plugin in **Settings → Community plugins**. [GitFlic project](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit)
 
-If Rudonium’s settings show a different version from the release you installed, close Obsidian and replace `main.js`, `manifest.json` and any stylesheet together from the same release in `.obsidian/plugins/rudonium-anki-toolkit/`. Keep your settings, caches and journals. Reopen the vault. Select **Interface Language** just above **About the plugin** in settings to change the language.
+If Rudonium’s settings show a different version from the release you installed, close Obsidian and replace `main.js`, `manifest.json` and any stylesheet together from the same release in `.obsidian/plugins/rudonium-anki-toolkit/`. Keep your settings, caches and journals. Reopen the vault. To change the language, open **Interface and plugin information** and select **Interface Language**.
 
 ## Connect
 
-1. Install the [AnkiConnect add-on](https://ankiweb.net/shared/info/2055492159), restart Anki and open the profile where you want to create the card.
-2. In **Quick Start**, click **Check Connection** and check the displayed Anki profile. Choose an ordinary deck, a note type such as **Basic**, and keep the preset **RemNote** style. For this example, the type should have a question field followed by an answer field.
-3. Look at the sample Markdown and the front and back in the wizard. For the appearance of your Anki template, open **More options → Preview Anki template**. Select **Save Setup**. You can reopen Quick Start from the command palette.
+1. On the same computer as Obsidian, open desktop Anki and choose **Tools → Add-ons → Get Add-ons**. Enter `2055492159`, confirm the installation and restart Anki. [AnkiConnect on AnkiWeb](https://ankiweb.net/shared/info/2055492159)
+2. Open **Tools → Add-ons**, select **AnkiConnect** and click **Config**. Find `webCorsOriginList` and add `"app://obsidian.md"` to the array. Keep any existing entries and the rest of the configuration. With the default localhost entry, the array will look like this:
+
+   ```json
+   ["http://localhost", "app://obsidian.md"]
+   ```
+
+3. Save the configuration and restart Anki. Open the profile you want to study with and leave its collection open while using Rudonium. The plugin uses the local address `127.0.0.1`, port `8765` and the default AnkiConnect configuration with `apiKey` set to `null`.
+4. In **Quick Start**, click **Check Connection**. Check the profile name and choose an ordinary deck, a two-field note type such as **Basic**, and the **RemNote** format for the first example below. If the check fails, verify that AnkiConnect is enabled in Anki, the configured port is 8765 and the list contains the exact Obsidian origin.
+5. Compare the sample Markdown with the displayed front and back. **More options → Preview Anki template** shows how your Anki template renders the card. Choose **Save Setup**.
 
 On a new installation, bidirectional sync is off and the default tag field is empty. Enter a tag if you want it added to exported notes. **Auto-scan interval (minutes)** controls how often your notes are checked for export. Leave it at 0 to run scans manually.
 
@@ -38,7 +45,7 @@ What is the capital of Austria? :: Vienna
 
 The bidirectional preview checks notes that already have IDs. To add a new card, place the editor cursor inside it and choose **Preview new card at cursor** in the bidirectional preview. Review the card, choose **Sync this card** and confirm creation. Other drafts in the note stay available for later.
 
-Enable **Bidirectional sync** and select **Sync now** beside it. The ribbon button runs the same check. With preview off, verified changes are applied immediately. When the same linked field changes on both sides, sync uses the later version by default if the timestamps establish an order. To choose these values manually, expand **Sync settings** below the **Bidirectional sync** row and turn off **Apply the newer edit**. Open the preview from the same section, choose a direction with the arrows beside the field and apply the selection.
+Open **Sync settings**, enable **Bidirectional sync** and select **Sync now**. The ribbon button runs the same check. With preview off, verified changes are applied immediately. When the same linked field changes on both sides, sync uses the later version by default if the timestamps establish an order. To choose these values manually, turn off **Apply the newer edit**. Open the preview from the same section, choose a direction with the arrows beside the field and apply the selection.
 
 ## Sync one file
 

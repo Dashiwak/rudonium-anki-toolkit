@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { MarkdownView } from 'obsidian'
 import type { TFile } from 'obsidian'
@@ -202,10 +200,8 @@ function sourcePaths(plugin: MyPlugin, id: number, source: SourceRecord,
         }
         if (isContext) {
             for (const path of contextPaths(value)) add(contexts, path)
-            // Штатный Context дописывается в конец выбранного поля без разделителя.
             if (name === contextField && /\.md\b/i.test(value) && (plugin.settings.Defaults['Add Context'] || /\s>\s/.test(value))) {
                 const matches = [...markdown.keys()].filter(path => contextSuffix(value, path) !== undefined)
-                // Путь файла в корне может совпасть с концом полного пути во вложенной папке. Выбираем полный путь.
                 for (const path of matches) {
                     if (!matches.some(other => other !== path && other.endsWith('/' + path))) contexts.add(path)
                 }
@@ -236,7 +232,6 @@ function authoredFields(fields: Readonly<Record<string, string>>, plugin: MyPlug
         const withoutContext = ownedContext === undefined ? value : value.slice(0, ownedContext)
         const isFile = name === sourceField || name.toLowerCase() === 'file'
         if (isFile && sourceLinkPath(withoutContext.trim(), vaultName, id)) return [name, '']
-        // Удаляем только точное совпадение со сформированной ссылкой, даже если исходный файл переместился.
         const clean = withoutContext.replace(generatedAnchor, (original, url: string) =>
             (isFile || /^<br\b/i.test(original)) && sourceLinkPath(url, vaultName, id) ? '' : original)
         return [name, clean]
@@ -318,8 +313,6 @@ async function verifyAppend(plugin: MyPlugin, file: TFile, source: string, prefi
     const data = await settingToData(plugin.app, config, plugin.fields_dict, ids)
     const savedMetadata = plugin.app.metadataCache.getCache(file.path)
     for (const blockEnding of new Set([ending, '\n'])) {
-        // Некоторые старые парсеры разделяют блок по LF и оставляют CR в названии типа записи.
-        // Повторно проверяем только дописываемый блок с окончанием LF. Исходные байты и разделитель сохраняются.
         const block = formatted.markdown.replace(newline, blockEnding)
         const next = prefix + block + blockEnding
         const metadata = editorPreviewMetadata(next, savedMetadata)

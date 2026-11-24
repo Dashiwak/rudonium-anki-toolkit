@@ -6,6 +6,7 @@ import type { DuplicateMarkerSyntax } from './duplicate-markers'
 import { withFastScanReadLock, savePluginDataInOrder } from './fast-scan'
 import { uiDiagnostic, uiFor } from './interface-language'
 import type { UiText } from './interface-language'
+import { legacySettingLabel } from './interface-settings-ui'
 import { createSettingsGroup } from './settings-layout'
 import { deletionLabelProblem, suspendLabel, suspendLabelProblem } from './suspend-label'
 import { afterDeleteMode, isAfterDeleteMode } from './deletion-policy'
@@ -32,8 +33,6 @@ export function renamedSuspendSyntax(previous: Syntax, label: string): Syntax {
     return next
 }
 
-// Сохранённая метка продолжает распознаваться после переименования. Проверяем и обратную коллизию,
-// когда пользователь редактирует в штатном интерфейсе, например, строку DELETE.
 export function allowSyntaxEdit(plugin: MyPlugin, key: string, value: string): boolean {
     const current: Syntax = plugin.settings.Syntax
     const next = { ...current, [key]: value }
@@ -57,9 +56,12 @@ async function saveChange(plugin: MyPlugin, change: (current: Settings) => Parti
     }))
 }
 
-/** Завершаем редактирование синтаксиса перед сохранением: частично набранный DELETE не становится командой. */
-export function bindSyntaxEdit(input: TextComponent, plugin: MyPlugin, key: string): void {
-    const value = () => (plugin.settings.Syntax as Record<string, string>)[key] ?? ''
+export function isLifecycleSyntax(key: string): boolean {
+    return ['Suspend Line', 'Suspend Line Aliases', 'Delete Note Line', 'Frozen Fields Line'].includes(key)
+}
+
+export function bindSyntaxEdit(input: TextComponent, plugin: MyPlugin, key: string, fallback = ''): void {
+    const value = () => (plugin.settings.Syntax as Record<string, string>)[key] ?? fallback
     input.setValue(value())
     input.inputEl.addEventListener('keydown', event => {
         if (event.key === 'Enter' && !event.isComposing) input.inputEl.blur()
@@ -114,6 +116,8 @@ export function installCardLifecycleSettings(container: HTMLElement, plugin: MyP
             })
         })
     refresh()
+    new Setting(body).setName(legacySettingLabel('Delete Note Line', t))
+        .addText(text => bindSyntaxEdit(text, plugin, 'Delete Note Line', 'DELETE'))
     const deletionRow = new Setting(body).setName(t('Markdown after confirmed Anki deletion',
         'Что делать с текстом после удаления записи в Anki'))
     let action: DropdownComponent
@@ -177,4 +181,6 @@ export function installCardLifecycleSettings(container: HTMLElement, plugin: MyP
         .setDesc(t('Choose an Anki note type and add shared values to its fields, such as a source and a chapter.',
             'Выберите тип записи Anki и заполните общие поля, например источник и главу.'))
         .addButton(button => button.setButtonText(t('Edit shared fields', 'Редактировать общие поля')).onClick(() => openFrozenFields(plugin)))
+    new Setting(body).setName(legacySettingLabel('Frozen Fields Line', t))
+        .addText(text => bindSyntaxEdit(text, plugin, 'Frozen Fields Line', 'FROZEN'))
 }

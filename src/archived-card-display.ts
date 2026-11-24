@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import type { MarkdownPostProcessorContext } from 'obsidian'
-import type { StateField, Text } from '@codemirror/state'
-import type { DecorationSet, EditorView, ViewUpdate } from '@codemirror/view'
+import { editorLivePreviewField, type MarkdownPostProcessorContext } from 'obsidian'
+import { StateEffect, type Text } from '@codemirror/state'
+import { Decoration, ViewPlugin, type DecorationSet, type EditorView, type ViewUpdate } from '@codemirror/view'
 import type MyPlugin from '../main'
 import { archivedCardRanges } from './archived-card'
 
-// Начиная с 0.8.6 каждый вариант записан в переносимом Markdown/HTML.
-// Старые блоки без указания стиля по-прежнему оформляет расширение.
 const legacyOpener = /<!--RUDONIUM-ARCHIVE:[1-9]\d{0,15}-->/u
 const openerLookaround = '<!--RUDONIUM-ARCHIVE:'.length + String(Number.MAX_SAFE_INTEGER).length + '-->'.length
 const bodyClass = 'rudonium-archived-card-body'
@@ -18,7 +16,7 @@ interface ReadingSpan { first: number; last: number; bodyFirst: number; bodyLast
 function rangesForDisplay(text: string): ReturnType<typeof archivedCardRanges> {
     if (!legacyOpener.test(text)) return []
     try { return archivedCardRanges(text).filter(range => range.style === 'legacy') }
-    catch { return [] } // Пока пользователь правит границы, показываем исходное оформление.
+    catch { return [] }
 }
 
 function lowerBound(length: number, before: (index: number) => boolean): number {
@@ -65,8 +63,6 @@ function registerReadingView(plugin: MyPlugin): void {
         const { lineStart: first, lineEnd: last } = section
         const ranges = doc.spans
         const r = ranges[lowerBound(ranges.length, i => ranges[i].last < first)]
-        // Obsidian может отдавать границы всего списка даже при запросе отдельного пункта.
-        // У смешанного фрагмента оставляем обычный Markdown и видимый текстовый статус.
         if (!r || !Number.isInteger(first) || !Number.isInteger(last) || first > last ||
             first < r.first || last > r.last || first > r.bodyLast || last < r.bodyFirst ||
             element.closest('.callout, .internal-embed') || element.querySelector('.internal-embed')) return
@@ -84,7 +80,6 @@ function registerReadingView(plugin: MyPlugin): void {
 }
 
 function containsLegacyOpener(doc: Text, from = 0, to = doc.length): boolean {
-    // Итератор не создаёт копию всей заметки для обычного файла без архива.
     const iterator = doc.iterRange(from, to)
     while (!iterator.next().done) if (legacyOpener.test(iterator.value)) return true
     return false
@@ -107,11 +102,8 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
     registerReadingView(plugin)
     if (typeof plugin.registerEditorExtension !== 'function') return
     try {
-        const live = (require('obsidian') as { editorLivePreviewField?: StateField<boolean> }).editorLivePreviewField
-        if (!live) return
-        const cm = require('@codemirror/state') as typeof import('@codemirror/state')
-        const { Decoration, ViewPlugin } = require('@codemirror/view') as typeof import('@codemirror/view')
-        const refresh = cm.StateEffect.define<void>()
+        if (!editorLivePreviewField) return
+        const refresh = StateEffect.define<void>()
         const mark = Decoration.mark({ class: bodyClass })
         class ArchiveView {
             decorations: DecorationSet = Decoration.none
@@ -119,7 +111,7 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
             private marked = false
             private timerWindow?: Window
             private timer?: number
-            constructor(view: EditorView) { if (view.state.field(live!, false)) this.read(view) }
+            constructor(view: EditorView) { if (view.state.field(editorLivePreviewField, false)) this.read(view) }
             private read(view: EditorView): void {
                 this.marked = containsLegacyOpener(view.state.doc)
                 this.spans = this.marked ? rangesForDisplay(view.state.doc.toString()).map(r => ({ from: r.bodyStart, to: r.bodyEnd })) : []
@@ -129,14 +121,14 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
                 this.decorations = Decoration.set(visibleArchiveSpans(this.spans, view.visibleRanges).map(s => mark.range(s.from, s.to)))
             }
             update(update: ViewUpdate): void {
-                if (!update.state.field(live!, false)) {
+                if (!update.state.field(editorLivePreviewField, false)) {
                     this.destroy()
                     this.spans = []
                     this.marked = false
                     this.decorations = Decoration.none
                     return
                 }
-                if (!update.startState.field(live!, false) || update.transactions.some(tr => tr.effects.some(effect => effect.is(refresh)))) {
+                if (!update.startState.field(editorLivePreviewField, false) || update.transactions.some(tr => tr.effects.some(effect => effect.is(refresh)))) {
                     this.read(update.view)
                     return
                 }

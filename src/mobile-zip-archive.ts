@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export interface MobileZipProgress {
     phase: string
@@ -66,7 +64,7 @@ function abort(signal?: AbortSignal): void {
     if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError')
 }
 function pathKey(path: string): string { return path.normalize('NFC').toLowerCase() }
-function pause(): Promise<void> { return new Promise(resolve => setTimeout(resolve, 0)) }
+function pause(): Promise<void> { return new Promise(resolve => window.setTimeout(resolve, 0)) }
 
 function report(progress: Progress | undefined, phase: string, files: number, bytes: number,
     totalFiles: number, totalBytes: number, path?: string): void {
@@ -76,7 +74,7 @@ function report(progress: Progress | undefined, phase: string, files: number, by
 export function validateMobileZipPath(name: string, directory = false): string {
     const clean = directory && name.endsWith('/') ? name.slice(0, -1) : name
     if (encoder.encode(clean).length > 4096 || clean.split('/').some(part => !part || part === '.' || part === '..' ||
-        /[\\:<>|"*?\x00-\x1f\x7f]/u.test(part) || /[ .]$/u.test(part) ||
+        /[\\:<>|"*?\p{Cc}]/u.test(part) || /[ .]$/u.test(part) ||
         /^(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(?:\.|$)/iu.test(part))) {
         throw problem(`Unsafe ZIP path: ${name}`, `Недопустимый путь в ZIP: ${name}`)
     }
@@ -274,7 +272,7 @@ async function expand(source: Blob, entry: CheckedEntry, signal?: AbortSignal): 
     let result: Uint8Array
     if (entry.method === 0) result = new Uint8Array(await part.arrayBuffer())
     else {
-        const Inflate = (globalThis as unknown as { DecompressionStream?: Inflater }).DecompressionStream
+        const Inflate = typeof DecompressionStream === 'function' ? DecompressionStream as unknown as Inflater : undefined
         if (!Inflate) throw problem('This Android WebView cannot read compressed ZIP files. Use an uncompressed ZIP or update Android System WebView.',
             'Этот Android WebView не умеет читать сжатый ZIP. Используйте ZIP без сжатия или обновите Android System WebView.')
         let transform: InstanceType<Inflater>
@@ -306,7 +304,6 @@ async function expand(source: Blob, entry: CheckedEntry, signal?: AbortSignal): 
     return result
 }
 
-/** Файл остаётся в Blob. В памяти находится содержимое только одной проверяемой записи. */
 export async function prepareMobileZip(input: Blob | Uint8Array, progress?: Progress, signal?: AbortSignal): Promise<MobileZipArchive> {
     abort(signal)
     if (input instanceof Uint8Array && input.byteLength > mobileZipLimits.archiveBytes) {
@@ -386,7 +383,6 @@ function dated(view: DataView, at: number): void {
     view.setUint16(at + 2, (year - 1980) << 9 | (now.getMonth() + 1) << 5 | now.getDate(), true)
 }
 
-/** Запись без сжатия совместима с настольным ZIP. Размер результата ограничен до объединения буферов. */
 export async function buildMobileZip(input: AsyncIterable<MobileZipFile> | Iterable<MobileZipFile>, progress?: Progress,
     signal?: AbortSignal): Promise<Uint8Array> {
     const body: Uint8Array[] = []

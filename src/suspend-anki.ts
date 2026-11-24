@@ -72,7 +72,6 @@ export async function readSuspendCards(profile: string, notes: ReadonlyMap<numbe
     return result
 }
 
-/** Снимок карт из notesInfo подтверждает и владельца, и полный набор карточек, включая добавленные шаблоны. */
 export async function verifySuspendCards(profile: string, expected: CardMap, targets?: ReadonlyMap<number, ReadonlySet<number>>): Promise<void> {
     if (!expected.size) return
     const notes = [...expected.keys()]
@@ -113,7 +112,9 @@ export async function verifySuspendCards(profile: string, expected: CardMap, tar
 
 export async function applySuspendCards(plugin: MyPlugin, profile: string, expected: CardMap,
     targets: ReadonlyMap<number, ReadonlySet<number>>, guard?: (noteIds: readonly number[]) => void | Promise<void>,
-    onWriteRequest?: (answered: boolean) => void): Promise<void> {
+    onWriteRequest?: (answered: boolean) => void,
+    onVerified?: (action: 'suspend' | 'unsuspend', cards: readonly number[]) => void,
+    onUnconfirmed?: (action: 'suspend' | 'unsuspend', cards: readonly number[]) => void): Promise<void> {
     if (!expected.size) return
     const add: number[] = [], remove: number[] = []
     const owners = new Map<number, number>()
@@ -128,7 +129,6 @@ export async function applySuspendCards(plugin: MyPlugin, profile: string, expec
             if (slot.suspended !== wanted) (wanted ? add : remove).push(slot.cardId)
         }
     }
-    // Проверяем изменяемые пакеты перед каждой записью. При переносе только в Markdown сверяем весь снимок.
     if (!add.length && !remove.length) {
         await verifySuspendCards(profile, expected)
         return
@@ -146,18 +146,26 @@ export async function applySuspendCards(plugin: MyPlugin, profile: string, expec
             await verifySuspendCards(profile, touched, observed)
             await guard?.([...touched.keys()])
             await requireExpectedAnkiProfile(plugin, profile)
-            await withAnkiWriteDeadline(plugin.app, async () => {
-                onWriteRequest?.(false)
-                const answer = await AnkiConnect.invoke(action, { cards })
-                onWriteRequest?.(true)
-                return answer
-            }, 'AnkiConnect ' + action)
-            for (const cardId of cards) {
-                const set = observed.get(owners.get(cardId)!)!
-                if (action === 'suspend') set.add(cardId)
-                else set.delete(cardId)
+            let dispatched = false
+            try {
+                await withAnkiWriteDeadline(plugin.app, async () => {
+                    onWriteRequest?.(false)
+                    dispatched = true
+                    const answer = await AnkiConnect.invoke(action, { cards })
+                    onWriteRequest?.(true)
+                    return answer
+                }, 'AnkiConnect ' + action)
+                for (const cardId of cards) {
+                    const set = observed.get(owners.get(cardId)!)!
+                    if (action === 'suspend') set.add(cardId)
+                    else set.delete(cardId)
+                }
+                await verifySuspendCards(profile, touched, observed)
+            } catch (error) {
+                if (dispatched) onUnconfirmed?.(action, cards)
+                throw error
             }
-            await verifySuspendCards(profile, touched, observed)
+            onVerified?.(action, cards)
             lastVerified = touched
         }
     }

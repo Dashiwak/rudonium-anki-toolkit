@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { Modal, Setting } from 'obsidian'
 import type MyPlugin from '../main'
-import { vaultFolderEntries } from './folder-tree'
+import { createFolderTree, vaultFolderEntries } from './folder-tree'
 import { uiFor } from './interface-language'
 import type { UiText } from './interface-language'
 import { installModalLayout } from './modal-layout'
@@ -15,16 +15,18 @@ import { previewFieldText } from './card-preview-ui'
 
 const active = new WeakMap<MyPlugin, PageMigrationWizard>()
 const registered = new WeakSet<MyPlugin>()
-const sources: Record<MigrationSource, string> = {
-    yanki: 'Yanki', flashcards: 'Flashcards', 'obsidian-to-anki': 'Obsidian_to_Anki', 'deck-to-anki': 'Deck To Anki',
+const sources: Record<Exclude<MigrationSource, 'obsidian-to-anki' | 'rudonium' | 'spaced-repetition'>, string> = {
+    yanki: 'Yanki', flashcards: 'Flashcards', 'deck-to-anki': 'Deck To Anki',
     'anki-forge': 'Anki Forge', 'anki-bridge': 'Anki Bridge', 'anki-ast-sync': 'Anki AST Sync', 'anki-exporter': 'Anki Exporter',
-    'spaced-repetition': 'Spaced Repetition', rudonium: 'Rudonium (@page)',
 }
 type Filter = 'all' | PageMigrationRow['status']
 const pageSize = 25
 
 function sourceLabel(source: string): string {
-    return Object.prototype.hasOwnProperty.call(sources, source) ? sources[source as MigrationSource] : source
+    if (source === 'spaced-repetition') return 'Spaced Repetition'
+    if (source === 'rudonium') return 'Rudonium'
+    if (source === 'obsidian-to-anki') return 'Obsidian To Anki'
+    return Object.prototype.hasOwnProperty.call(sources, source) ? sources[source as keyof typeof sources] : source
 }
 
 function button(parent: HTMLElement, label: string, action: () => void, primary = false): HTMLButtonElement {
@@ -54,7 +56,6 @@ class PageMigrationWizard extends Modal {
     private source: MigrationSource | 'auto' = 'auto'
     private folder = ''
     private watched: string[] = []
-    private folders: string[] = []
     private backup = ''
     private defaultDirectory = ''
     private plan?: PageMigrationPlan
@@ -85,7 +86,6 @@ class PageMigrationWizard extends Modal {
     onOpen(): void {
         this.titleEl.setText(this.t('Migrate card files', 'Перенести карточки из файлов'))
         installModalLayout(this, this.t)
-        this.folders = vaultFolderEntries(this.plugin.app.vault).map(item => item.path)
         this.render()
     }
 
@@ -123,15 +123,15 @@ class PageMigrationWizard extends Modal {
 
     private renderScope(body: HTMLElement): void {
         const t = this.t
-        body.createEl('p', { text: t('Find Markdown files that each contain one card. First, review the proposed changes.',
-            'Найдите заметки Markdown, каждая из которых содержит одну карточку. Сначала мастер покажет предполагаемые изменения.') })
+        body.createEl('p', { text: t('Convert one-card files from another plugin. Rudonium pages and Obsidian To Anki cards already work with regular export; keep your original format settings.',
+            'Преобразуйте файлы другого плагина, в каждом из которых одна карточка. Страницы Rudonium и карточки Obsidian To Anki уже поддерживаются обычным экспортом. Сохраните исходные настройки формата.') })
         const placement = pageIdLocation(this.plugin.settings.PAGE_ID_LOCATION)
         if (placement === 'yaml') body.createEl('p', { text: t(
-            'Verified IDs go in the anki-page-ID property. An ID with a personal annotation stays below the heading.',
-            'Подтверждённый ID записывается в свойство anki-page-ID. ID с авторской пометкой остаётся под заголовком.') })
+            'Verified IDs go in the anki-page-ID property.',
+            'Подтверждённый ID записывается в свойство anki-page-ID.') })
         if (placement === 'after-answer') body.createEl('p', { text: t(
-            'Verified IDs go after the answer. An ID with a personal annotation stays below the heading.',
-            'Подтверждённый ID записывается после ответа. ID с авторской пометкой остаётся под заголовком.') })
+            'Verified IDs go after the answer.',
+            'Подтверждённый ID записывается после ответа.') })
         const source = field(body, t('Source plugin', 'Исходный плагин')).createEl('select')
         source.createEl('option', { text: t('Detect automatically', 'Определить автоматически'), value: 'auto' })
         for (const [id, name] of Object.entries(sources)) source.createEl('option', { value: id, text: name })
@@ -139,12 +139,8 @@ class PageMigrationWizard extends Modal {
         const hint = body.createEl('small')
         const showSourceHint = () => {
             const hints: Partial<Record<MigrationSource | 'auto', string>> = {
-                'spaced-repetition': t('Scheduling markers from Spaced Repetition are listed for manual review.',
-                    'Метки расписания Spaced Repetition отображаются для ручной проверки.'),
-                yanki: t('To include unmarked Yanki files, select their original card folder. Enter / if the entire vault was that folder. Leave the field empty to use file markers only.',
-                    'Чтобы включить заметки Yanki без меток, укажите прежнюю папку карточек. Если ей было всё хранилище, введите /. При пустом поле мастер ищет только по меткам внутри файлов.'),
-                rudonium: t('For a #anki-page file without its ID, choose “Check cards without an ID” in the preview.',
-                    'Для страницы #anki-page без ID в результатах нажмите «Проверить карточки без ID».'),
+                yanki: t('To include unmarked Yanki files, choose their original folder. If it was the vault root, choose “Entire vault including unmarked Yanki files”.',
+                    'Чтобы включить заметки Yanki без меток, выберите прежнюю папку карточек. Если ей было всё хранилище, выберите «Всё хранилище, включая файлы Yanki без меток».'),
                 'anki-exporter': t('Select Anki Exporter explicitly to check a single Question :: Answer line without its Anki ID marker.',
                     'Выберите Anki Exporter, чтобы проверить одиночную строку «Вопрос :: Ответ» без метки ID Anki.'),
                 'anki-forge': t('Anki Forge block anchors identify Obsidian blocks. The wizard verifies the corresponding Anki note separately.',
@@ -159,35 +155,66 @@ class PageMigrationWizard extends Modal {
             hint.setText(text)
         }
         showSourceHint()
-        const folderLabel = field(body, t('Folder to search', 'Папка для поиска'))
-        const input = folderLabel.createEl('input', { attr: { type: 'text', spellcheck: 'false',
-            placeholder: t('Entire vault', 'Всё хранилище'), list: 'rudonium-page-import-folders' } })
-        input.classList.add('rudonium-full-width')
-        input.value = this.folder
-        const list = folderLabel.createEl('datalist', { attr: { id: 'rudonium-page-import-folders' } })
-        const updateFolders = () => {
-            list.empty()
-            const key = input.value.trim().toLowerCase()
-            if (this.source === 'yanki' && (!key || key === '/')) list.createEl('option', { value: '/' })
-            let count = 0
-            for (const path of this.folders) {
-                if (key && !path.toLowerCase().includes(key)) continue
-                list.createEl('option', { value: path })
-                if (++count === 50) break
-            }
+        const entire = t('Entire vault', 'Всё хранилище')
+        const yankiRoot = t('Entire vault including unmarked Yanki files', 'Всё хранилище, включая файлы Yanki без меток')
+        const scope = body.createDiv({ cls: 'rudonium-page-migration-row' })
+        scope.createDiv({ text: t('Folder to search', 'Папка для поиска') })
+        const selectedLabel = () => this.folder === '/' ? yankiRoot : this.folder || entire
+        const browse = button(scope, selectedLabel(), () => openPicker())
+        const suggestions = scope.createDiv()
+        const panel = scope.createDiv()
+        panel.hidden = true
+        const closePicker = () => {
+            panel.empty()
+            panel.hidden = true
+            browse.setText(selectedLabel())
+            browse.setAttribute('aria-label', t('Choose folder: ', 'Выбрать папку: ') + selectedLabel())
+            browse.setAttribute('aria-expanded', 'false')
+            if (previewButton) previewButton.disabled = !this.model
         }
-        source.onchange = () => { this.source = source.value as typeof this.source; showSourceHint(); updateFolders() }
-        input.oninput = () => { this.folder = input.value; updateFolders() }
-        updateFolders()
-        const suggestions = body.createDiv()
+        let previewButton: HTMLButtonElement | undefined
+        const openPicker = (detected?: readonly string[]) => {
+            const select = (path: string) => {
+                if (detected) {
+                    this.source = 'yanki'
+                    source.value = this.source
+                    showSourceHint()
+                }
+                this.folder = path
+                closePicker()
+                browse.focus()
+            }
+            panel.empty()
+            panel.hidden = false
+            browse.setAttribute('aria-expanded', 'true')
+            if (previewButton) previewButton.disabled = true
+            if (!detected) {
+                button(panel, entire, () => select(''))
+                if (this.source === 'yanki') button(panel, yankiRoot, () => select('/'))
+            }
+            const tree = createFolderTree(panel, {
+                t, entries: detected ? detected.map(path => ({ path })) : vaultFolderEntries(this.plugin.app.vault),
+                initiallyVisible: [this.folder], onExactMatch: select, pickSearchResults: true,
+                renderAction: (row, _label, { path }) => {
+                    const choose = button(row, t('Choose', 'Выбрать'), () => select(path))
+                    choose.setAttribute('aria-label', t('Choose folder: ', 'Выбрать папку: ') + path)
+                    return choose
+                },
+            })
+            button(panel, t('Cancel', 'Отмена'), () => { closePicker(); browse.focus() })
+            tree.focus()
+        }
+        closePicker()
+        source.onchange = () => {
+            this.source = source.value as typeof this.source
+            if (this.folder === '/' && this.source !== 'yanki') this.folder = ''
+            showSourceHint()
+            closePicker()
+        }
         const showFolders = (folders: string[]) => {
             if (!suggestions.isConnected || !folders.length) return
             suggestions.empty()
-            const label = suggestions.createEl('label', { text: t('Folders with Yanki IDs', 'Папки с ID Yanki') + ' ' })
-            const choose = label.createEl('select')
-            choose.createEl('option', { value: '', text: t('Choose a detected folder', 'Выбрать найденную папку') })
-            for (const value of folders) choose.createEl('option', { text: value, value })
-            choose.onchange = () => { if (choose.value) { this.source = 'yanki'; source.value = this.source; showSourceHint(); this.folder = input.value = choose.value; updateFolders() } }
+            button(suggestions, t('Folders with Yanki IDs', 'Папки с ID Yanki'), () => openPicker(folders))
         }
         if (this.watched.length) showFolders(this.watched)
         else void detectMigrationFolders(this.plugin).then(folders => { this.watched = folders; showFolders(folders) }, () => {})
@@ -206,7 +233,8 @@ class PageMigrationWizard extends Modal {
             : t('Refresh the Anki note types in settings and check the configured page model. Page cards need at least two fields.',
                 'Обновите типы записей Anki в настройках и проверьте тип, назначенный формату страницы. Нужны как минимум два поля.') })
         const actions = body.createDiv({ cls: 'modal-button-container' })
-        button(actions, t('Preview files', 'Проверить файлы'), () => void this.preview(), true).disabled = !this.model
+        previewButton = button(actions, t('Preview files', 'Проверить файлы'), () => void this.preview(), true)
+        previewButton.disabled = !this.model
     }
 
     private start(phase: 'preview' | 'apply', message: string): AbortSignal {
@@ -267,7 +295,7 @@ class PageMigrationWizard extends Modal {
         const hasChanges = !!(ready.length || linkCount)
         const labels: Record<Filter, string> = { all: t('All results', 'Все результаты'), ready: t('Ready', 'Готово к переносу'),
             link: t('Exact Anki match', 'Точное совпадение в Anki'), review: t('Needs review', 'Проверить вручную'),
-            already: t('Already converted', 'Уже преобразовано'), unchecked: t('Not checked', 'Ожидает проверки') }
+            already: t('Already supported', 'Уже поддерживается'), unchecked: t('Not checked', 'Ожидает проверки') }
         body.createEl('p', { text: t(`Checked ${plan.scanned} files · ${plan.model}`, `Проверено файлов: ${plan.scanned} · ${plan.model}`) +
             (plan.profile ? ' · ' + plan.profile : '') })
         for (const warning of plan.warnings) body.createEl('p', { text: warning })

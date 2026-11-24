@@ -1,9 +1,8 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { createHash } from 'crypto'
 import { Modal, Notice, Setting, TFile } from 'obsidian'
 import type MyPlugin from '../main'
 import { previewVaultExport } from './fast-scan'
@@ -103,7 +102,6 @@ function zipDiagnostic(error: unknown, t: UiText): string {
     return uiDiagnostic(error, t)
 }
 
-/** Сравнение показывает текст как текст, без выполнения Markdown или HTML из архива. */
 function comparisonPane(parent: HTMLElement, title: string, text: string | undefined,
     other: string | undefined, t: UiText): void {
     const pane = parent.createDiv()
@@ -205,7 +203,7 @@ class ZipComparisonModal extends Modal {
             pane.createEl('h3', { text: title })
             pane.createEl('p', { text: size === undefined ? t('No current file', 'Файл отсутствует') : bytes(size) })
             if (data) {
-                const digest = (require('crypto') as typeof import('crypto')).createHash('sha256').update(data).digest('hex')
+                const digest = createHash('sha256').update(data).digest('hex')
                 pane.createEl('p', { text: `SHA-256 · ${digest}` }).classList.add('rudonium-wrap-anywhere')
                 if (type) {
                     const url = URL.createObjectURL(new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer], { type }))
@@ -728,7 +726,6 @@ export function openArchivePackage(plugin: MyPlugin): void {
     modal.open()
 }
 
-/** Обе стороны ручного обмена доступны из одного окна рядом с инструкцией. */
 export function openZipExchange(plugin: MyPlugin): void {
     if (exchanges.has(plugin)) return
     const t = uiFor(plugin.settings)

@@ -11,13 +11,20 @@ const pageFile = require('./benchmark/page-file.cjs');
 
 test('literal equals in a linked field round-trip while highlight delimiters stay protected', async () => {
     const { load } = require('./benchmark/migration-modules.cjs');
-    const modules = await load(['bidirectional-markdown'], {});
+    const modules = await load(['bidirectional-markdown', 'markdown-pipeline'], {});
+    const pattern = modules['markdown-pipeline'].markdownHighlightPattern();
     const { readEditableAnkiField, writeEditableAnkiField } = modules['bidirectional-markdown'];
-    for (const literal of ['Казематы===', 'Казематы==', 'a == b', 'x===y']) {
+    for (const literal of ['Казематы===-', 'Казематы====-', 'Казематы====.', 'Казематы========', 'Казематы====!',
+        'Казематы==', 'a == b', 'x===y', 'x===y====z', 'de_DE-42%', 'Размер №3 (50%)']) {
+        assert.equal(literal.replace(pattern, '<mark>$1</mark>'), literal);
         assert.equal(readEditableAnkiField(literal), literal);
         assert.equal(writeEditableAnkiField(literal), literal);
     }
-    for (const markup of ['==выделено==', 'Казематы====', '===']) {
+    assert.equal('x====- ==выделено=='.replace(pattern, '<mark>$1</mark>'), 'x====- <mark>выделено</mark>');
+    assert.equal('**Казематы**====-'.replace(pattern, '<mark>$1</mark>'), '**Казематы**====-');
+    assert.equal(readEditableAnkiField('<b>Казематы</b>====-'), '**Казематы**====-');
+    assert.equal(writeEditableAnkiField('**Казематы**====-'), '<strong>Казематы</strong>====-');
+    for (const markup of ['==выделено==', 'x ==a=b==', '===', '---', 'a :: b', '<b>bad', '[[Wiki]]', 'a\u0000b']) {
         assert.equal(readEditableAnkiField(markup), undefined);
         assert.throws(() => writeEditableAnkiField(markup));
     }

@@ -3,7 +3,7 @@ import type { MultilineOwnership } from './wizard-card-ownership'
 import { readDelimitedRule } from './delimited-rule'
 import { insertPageFooterId, validatePageYamlPlacement, readPageCard, writePageId, isLinkedPageSchema, needsLinkedPageLayout, pageSourceContext, pageExportFieldNames, pageContentTags } from './page-card'
 import type { PageCard } from './page-card'
-import { currentCardExpression, cardRegexpWithSuffix, tableCardExpression, remNoteExpression, applyRemNoteMetadata, namedCardExpressions, pageCardExpression } from './card-format-presets'
+import { currentCardExpression, isKnowledgeRule, knowledgeMatchAllowed, separatorRepair, cardRegexpWithSuffix, tableCardExpression, remNoteExpression, applyRemNoteMetadata, namedCardExpressions, pageCardExpression } from './card-format-presets'
 import { presetStartGuard, wizardStartGuard, tableIdConflicts } from './card-export-diagnostics'
 import { checkedCustomAnkiMatches, copyMatchForRegexNote } from './anki-id-marker'
 import type { AnkiIdDateWarning } from './anki-id-marker'
@@ -269,6 +269,7 @@ export interface CardPreviewCandidate {
 export class AllFile extends AbstractFile {
     /** UTF-16 offsets in the same Markdown snapshot passed to the parser. */
     previewCandidates?: CardPreviewCandidate[]
+    separatorRepairs?: Map<AnkiConnectNote, NonNullable<ReturnType<typeof separatorRepair>>>
     acceptExplicitType?: (source: string, inline: boolean) => boolean
 
     /** The upstream ID writer requires the insertion position to stay aligned with each card. */
@@ -333,7 +334,6 @@ export class AllFile extends AbstractFile {
         const linkedRanges: Array<[number, number]> = []
         let acceptedEnd = -Infinity
         for (const bullet of this.linkedBullets ?? []) {
-            // Штатные START, STARTI и исключённые участки уже зарезервированы.
             if (claimed(bullet.start) || bullet.start < acceptedEnd) continue
             const { model, id, start, end } = bullet
             const sourceFields = linkedBulletSourceFields(bullet, model)
@@ -357,6 +357,7 @@ export class AllFile extends AbstractFile {
                 )
             if (parsed.identifier !== id) continue
             this.notes_to_edit.push(this.previewCandidates ? this.captureLinkedPreview(parsed, start, end, Object.keys(sourceFields), false) : parsed)
+            if (bullet.separatorRepair) (this.separatorRepairs ??= new Map()).set(parsed.note, bullet.separatorRepair)
             this.auditNoteRanges?.push([start, end])
             this.ignore_spans.push([start, end])
             linkedRanges.push([start, end])
@@ -365,7 +366,6 @@ export class AllFile extends AbstractFile {
         this.linkedBulletOverlap = makeSpanOverlap(linkedRanges)
     }
 
-    // При обычном экспорте массив позиций не создаётся.
     auditNoteRanges?: Array<[number, number]>
 
     ignore_spans: [number, number][]
@@ -504,6 +504,9 @@ export class AllFile extends AbstractFile {
                 const pattern = this.customRegexpPattern(regexp_str, search_id, search_tags);
                 const matches = matchesByPattern.get(customRegexpKey(pattern));
                 if (!matches) throw new Error("Missing Custom Regexp worker result.");for (let match of checkedCustomAnkiMatches(matchesOutsideSpans(matches, this.file, this.ignore_spans), this.file, search_id, this.idDateWarnings, (start, end) => this.tableOwnsRange?.(start, end) || this.multilineOwnsRange?.(start, end, note_type) || this.presetStartBlocked?.(start) || this.linkedBulletOverlap(start, end))) {
+                    const spacingRule = isKnowledgeRule(regexp_str) || currentCardExpression(regexp_str) === remNoteExpression
+                    const line = spacingRule ? match[0].split(/[\r\n]/u, 1)[0] : ''
+                    if (isKnowledgeRule(regexp_str) && !knowledgeMatchAllowed(line, search_id)) continue
                     this.ignore_spans.push([match.index, match.index + match[0].length])
                     const parsed: AnkiConnectNoteAndID = new RegexNote(
                         copyMatchForRegexNote(match), note_type, this.data.fields_dict,
@@ -515,6 +518,8 @@ export class AllFile extends AbstractFile {
                         this.data,
                         this.data.add_context ? this.getContextAtIndex(match.index) : ""
                     )
+                    const repair = spacingRule && separatorRepair(line, search_id)
+                    if (repair) (this.separatorRepairs ??= new Map()).set(parsed.note, repair)
                     if (search_id) {
                         if (!(this.data.EXISTING_IDS.includes(parsed.identifier))) {
                             if (parsed.identifier == CLOZE_ERROR) {
@@ -572,7 +577,7 @@ export class AllFile extends AbstractFile {
             if (pageOnly || this.custom_regexps[note_type] === pageCardExpression) continue;
             this.presetStartBlocked = readDelimitedRule(this.custom_regexps[note_type])
                 ? (wizardGuard ??= wizardStartGuard(this.file, this.ignore_spans, [this.data.DECK_REGEXP, this.data.TAG_REGEXP, this.data.FROZEN_REGEXP]))
-                : namedCardExpressions.has(currentCardExpression(this.custom_regexps[note_type]))
+                : (isKnowledgeRule(this.custom_regexps[note_type]) || namedCardExpressions.has(currentCardExpression(this.custom_regexps[note_type])))
                 ? (guard ??= presetStartGuard(this.file, this.ignore_spans)) : undefined;
             const regexp_str: string = this.custom_regexps[note_type]
             if (regexp_str) {
@@ -596,8 +601,6 @@ export class AllFile extends AbstractFile {
     private namedFieldProtection?: Map<string, ReadonlySet<string> | undefined>
 
     namedSyncFrozenFields(model: string): ReadonlySet<string> | undefined {
-        // Общие значения уже разобраны штатным экспортёром. На одну заметку и модель
-        // проверяем их один раз, в том числе если в заметке тысячи блоков START/END.
         if (this.pageCard?.sharedFields && this.pageCard.model === model) {
             this.namedFieldProtection ??= new Map<string, ReadonlySet<string> | undefined>();
             if (!this.namedFieldProtection.has(model)) this.namedFieldProtection.set(model, new Set(this.pageCard.sharedFields.values.keys()));
@@ -695,7 +698,6 @@ export class AllFile extends AbstractFile {
                 this.data.id_date ? formatLocalIdDate(new Date()) : undefined, this.data.page_id_location);
             return;
         }
-        // Вычисляем дату один раз для всех новых ID в этом файле.
         const date = this.data.id_date && this.note_ids.some(Boolean) ? formatLocalIdDate(new Date()) : undefined
         let normal_inserts: [number, string][] = []
         this.id_indexes.forEach(

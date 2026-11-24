@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import * as AnkiConnect from './anki'
 import * as fs from 'fs'
@@ -126,8 +124,6 @@ function verifyCollection(sqlite: OnlineSqlite, path: string): 'sqlite-quick-che
             verify('PRAGMA quick_check')
             return 'sqlite-quick-check'
         } catch (error) {
-            // Обычный SQLite не может применить алгоритм сортировки unicase, который Anki использует в индексах колод и типов записей.
-            // Онлайн-копирование сохраняет эти страницы. Основные таблицы коллекции проверяем отдельно.
             if (!(error instanceof Error) || !/^no such collation sequence: unicase$/i.test(error.message)) throw error
             for (const table of tables) verify(`PRAGMA quick_check('${table}')`)
             return 'sqlite-core-tables'
@@ -137,7 +133,6 @@ function verifyCollection(sqlite: OnlineSqlite, path: string): 'sqlite-quick-che
     }
 }
 
-/** Создаёт каталог коллекции для восстановления без подключения к Anki, в собственном формате резервной копии. */
 export async function backupAnkiCollection(outputArchive: string, onProgress?: VaultZipProgressCallback,
     expectedProfile?: string): Promise<{ profile: string; files: number; bytes: number }> {
     const sqlite = sqliteBackupApi()
@@ -185,8 +180,6 @@ export async function backupAnkiCollection(outputArchive: string, onProgress?: V
             let files = 1
             onProgress?.({ phase: 'verify', files, totalFiles, bytes, totalBytes, path: collectionFilename })
             verification = verifyCollection(sqlite, stagedDb)
-            // При открытии копии в режиме WAL для проверки SQLite может создать временные сопутствующие файлы.
-            // Основной файл резервной копии уже готов. Временные файлы остаются в рабочем каталоге.
             for (const ending of ['-wal', '-shm', '-journal']) {
                 const sidecar = await fs.promises.stat(stagedDb + ending).catch((error: NodeJS.ErrnoException) => {
                     if (error.code !== 'ENOENT') throw error

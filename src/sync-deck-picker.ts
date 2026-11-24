@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal } from 'obsidian'
 import type { App } from 'obsidian'
@@ -11,7 +9,6 @@ import { englishUi } from './interface-language'
 import type { UiText } from './interface-language'
 import { installModalLayout } from './modal-layout'
 
-/** Позволяет выбрать точную колоду для аудита из списка или подтвердить введённое имя. */
 export class SyncAuditDeckPicker extends Modal {
     private readonly onChoose: (deck: string) => void
     private readonly obsidianDecks: readonly string[]

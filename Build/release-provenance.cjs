@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 "use strict";
 
-// Уведомления собираются только при подготовке сборки. Работа плагина и экспорт
-// карточек не читают эти файлы и не отправляют дополнительных запросов.
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -45,7 +43,6 @@ function parts(relative) {
     return relative.split("/");
 }
 
-// Не переходим по ссылкам, в том числе по ссылке в промежуточном каталоге.
 function checked(root, relative, optional = false) {
     let absolute = root;
     const segments = parts(relative);
@@ -135,7 +132,6 @@ function walkSource(root, visit, skipGeneratedDependencies = false) {
     walk("", 0);
 }
 
-/** Сохраняет доказательства происхождения, но не объявляет противоречие лицензий разрешённым. */
 function captureUpstream(source, kit, options) {
     const root = rootDirectory(source), kitRoot = rootDirectory(kit);
     if (!options || !/^[a-f\d]{40}$/u.test(options.expectedCommit || "") ||
@@ -210,12 +206,10 @@ function requireRelease(release, license) {
     if (license !== "GPL-3.0-only") fail("this release helper expects the declared fork license GPL-3.0-only.");
 }
 
-/** Меняет только метаданные корня; отдельные лицензии зависимостей не переписываются. */
 function applyReleaseMetadata(source, release, license) {
     requireRelease(release, license);
     const root = rootDirectory(source);
     checked(root, snapshotDirectory + "/origin.json");
-    // Имя npm-пакета независимо от ID уже установленного плагина Obsidian.
     const metadata = { name: "rudonium-anki-toolkit", version: release.version, license };
     const packageJson = readJson(root, "package.json"), lock = readJson(root, "package-lock.json");
     if (lock.packages !== undefined && (!lock.packages || typeof lock.packages !== "object" || Array.isArray(lock.packages))) fail("invalid package-lock packages object.");
@@ -257,7 +251,6 @@ function writeDependencyCatalogs(stage, entries) {
     return catalogs;
 }
 
-/** Копирует уведомления всех установленных npm-пакетов, включая инструменты сборки. */
 function collectDependencyNotices(source) {
     const root = rootDirectory(source), packages = [], issues = [];
     let entries = 0, packageBytesRead = 0;
@@ -384,7 +377,6 @@ function collectDependencyNotices(source) {
     } finally { fs.rmSync(stage, { recursive: true, force: true }); }
 }
 
-/** Связывает исходный снимок, итоговые файлы и найденные уведомления в один отчёт. */
 function finalizeProvenance(source, options) {
     requireRelease(options?.release, options?.license);
     const root = rootDirectory(source), origin = readJson(root, snapshotDirectory + "/origin.json");

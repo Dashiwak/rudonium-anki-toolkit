@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type { AnkiConnectRequest } from './anki'
 import { AnkiWritePendingError, hasPendingAnkiWrite, isDefiniteAddNoteRejection, pendingAnkiWriteMessage, withAnkiDeadline, withAnkiWriteDeadline } from './anki-transport'
@@ -39,7 +37,6 @@ const encoder = new TextEncoder()
 const emptyPacketBytes = encoder.encode(JSON.stringify({ action: 'multi', version: 6, params: { actions: [] } })).length
 const unsent = Symbol('Anki action was not sent')
 
-/** Удалённый ответ не может выдать себя за локально подтверждённую неотправку. */
 export function isUnsentExportResponse(response: unknown): boolean {
     return typeof response === 'object' && response !== null && unsent in response
 }
@@ -67,7 +64,6 @@ function isConfirmedNoteId(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
-/** Сохраняет порядок действий и форму ответов вложенных пакетов. */
 export async function sendExportBatches(actions: readonly AnkiConnectRequest[],
     send: (actions: AnkiConnectRequest[]) => Promise<unknown>, isStopRequested?: () => boolean,
     beforeSend?: () => Promise<string | undefined>, options: ExportBatchOptions = {}): Promise<ExportBatchResult> {
@@ -92,12 +88,10 @@ export async function sendExportBatches(actions: readonly AnkiConnectRequest[],
             const action = pending[offset + packet.length]
             action.bytes ??= encoder.encode(JSON.stringify(action.request)).length
             const added = action.bytes + (packet.length ? 1 : 0)
-            // Если одно неделимое поле превышает лимит, отправляем его отдельно.
             if (packet.length && bytes + added > maxBytes) break
             packet.push(action.request)
             bytes += added
         }
-        // Фиксируем намерение раньше последней проверки профиля и исходника.
         if (options.prepareJournalPacket) {
             try {
                 await options.prepareJournalPacket(packet)
@@ -175,7 +169,6 @@ export async function sendExportBatches(actions: readonly AnkiConnectRequest[],
                         createdIds.set(row.result, pending[index])
                         continue
                     }
-                    // Один ID на два создания: оба ответа требуют сверки до записи в Markdown.
                     const error = 'Anki returned the same ID for different creations: ' + row.result
                     previous.replies[previous.index] = replies[position] = { result: null, error }
                     problem ??= error
@@ -191,7 +184,6 @@ export async function sendExportBatches(actions: readonly AnkiConnectRequest[],
             }
         }
         offset = end
-        // Даже при потерянном ответе Anki могла записать отправленные изменения.
         if (problem) break
     }
     if (problem) {

@@ -1,9 +1,8 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { markdownHighlightPattern } from './markdown-pipeline'
 import { hasLinkedAnswerSlot } from './card-format-presets'
 import { parseAnkiIdMarker } from './anki-id-marker'
 import type { LinkedBullet } from './linked-bullets'
@@ -50,7 +49,7 @@ function tagIndex(tags: readonly string[]): Map<string, string> {
 
 export function validCardTags(value: unknown): value is string[] {
     return Array.isArray(value) && value.every((tag: unknown) =>
-        typeof tag === 'string' && tag.length > 0 && !/[\s\x00-\x1f\x7f-\x9f\ud800-\udfff]/u.test(tag))
+        typeof tag === 'string' && tag.length > 0 && !/[\s\p{Cc}\ud800-\udfff]/u.test(tag))
 }
 
 function lineEnd(content: string, start: number): number {
@@ -64,7 +63,6 @@ function followingLine(content: string, anchor: number): number | undefined {
     if (content[anchor] === '\n') return anchor + 1
 }
 
-/** A tag override may precede or follow the editable fields of the same ID. */
 function tagLine(content: string, anchor: number) {
     const next = followingLine(content, anchor)
     if (next === undefined) return
@@ -87,7 +85,6 @@ function cardMetadata(content: string, card: TagSource) {
     return { anchor: last?.anchor ?? anchor, tag: first ?? last, end: first?.end ?? anchor }
 }
 
-/** Keep inert 0.9.7 appendices outside a deleted or archived card. */
 export function cardMetadataEnd(content: string, card: TagSource): number {
     const metadata = cardMetadata(content, card)
     if (metadata.tag) tagComment(content, card, metadata)
@@ -118,7 +115,6 @@ export function readCardTagOverride(content: string, bullet: TagSource): CardTag
     return tagComment(content, bullet)?.override
 }
 
-/** Меняет теги только этой карточки, сохраняя теги YAML, папки и файла. */
 export function reconcileCardTags(inherited: readonly string[], override?: CardTagOverride): string[] {
     if (!override) return inherited.filter(tag => !isRecoveryTag(tag))
     const tags = tagIndex([...inherited, ...override.add])
@@ -127,17 +123,13 @@ export function reconcileCardTags(inherited: readonly string[], override?: CardT
 }
 
 function isEditablePlainField(text: string): boolean {
-    // Markdown keeps intraword underscores literal (de_DE, tcp_port); isolated markup stays protected.
     const syntax = text.includes('_') ? text.replace(/(?<=[\p{L}\p{N}])_(?=[\p{L}\p{N}])/gu, 'a') : text
-    // The exporter needs both == delimiters for a highlight. A single trailing == or === is literal.
-    const firstDelimiter = text.indexOf('==')
-    if (firstDelimiter !== -1 && (text.indexOf('==', firstDelimiter + 2) !== -1 || /^=+$/u.test(text))) return false
+    if (text.includes('==') && (markdownHighlightPattern().test(text) || /^=+$/u.test(text))) return false
     return text.length > 0 && text.trim() === text && !fieldSeparator.test(text) &&
-        !/[\x00-\x1f\x7f-\x9f\u2028\u2029\ud800-\udfff<>[\]{}*_~$\x60\\]|(?:^|\s)(?:#|Tags:(?: |$))|&(?:#[\da-fx]+|[a-z][a-z\d]*);/iu.test(syntax) &&
+        !/[\p{Cc}\u2028\u2029\ud800-\udfff<>[\]{}*_~$\x60\\]|(?:^|\s)(?:#|Tags:(?: |$))|&(?:#[\da-fx]+|[a-z][a-z\d]*);/iu.test(syntax) &&
         !/^(?:[-+]\s|\d{1,9}[.)]\s|-{3,}$|::(?: |$))| ::$/u.test(text)
 }
 
-/** Only paired, non-nested bold spans have a reversible Markdown representation. */
 export function isEditableMarkdownField(text: string): boolean {
     if (!text.includes('*')) return isEditablePlainField(text)
     const parts = text.split('**')
@@ -152,7 +144,6 @@ function unwrapEditorContainer(html: string): string {
     return /^<(div|p)>(.*)<\/\1>$/isu.exec(html)?.[2] ?? html
 }
 
-/** Принимает только точную ссылку, созданную плагином для этого ID записи. */
 export function readGeneratedAnkiBacklink(html: string, id: number): string | undefined {
     const body = unwrapEditorContainer(html)
     const link = /<br ?\/?><a href="(obsidian:\/\/anki-card\?[^"<>\r\n]*)" class="obsidian-link">Obsidian<\/a>$/iu.exec(body)
@@ -166,15 +157,12 @@ export function readGeneratedAnkiBacklink(html: string, id: number): string | un
     }
 }
 
-/** Декодирует простой текст Anki вместе с необязательной обёрткой редактора. Сложный HTML остаётся в отчёте о конфликте. */
 export function readEditableAnkiField(html: string, generatedBacklink?: string, allowEmpty = false): string | undefined {
     let body = unwrapEditorContainer(html)
     if (generatedBacklink && body.endsWith(generatedBacklink)) {
         body = unwrapEditorContainer(body.slice(0, -generatedBacklink.length))
     }
     if (allowEmpty && emptyEditorField.test(body)) return ''
-    // Literal asterisks in HTML text are not formatting. Only actual, bare HTML
-    // tags may introduce Markdown delimiters, including when entities are decoded.
     if (!/[<>]/u.test(body)) {
         const plain = decodeFieldText(body)
         return plain !== undefined && isEditablePlainField(plain) ? plain : undefined
@@ -216,7 +204,6 @@ function decodeFieldText(body: string): string | undefined {
     if (needsHtmlDecoder) {
         if (typeof DOMParser === 'undefined') return
         try {
-            // Сюда попадает только текст. Начальный символ предотвращает потерю ведущих пробелов при обработке HTML.
             const decoded = new DOMParser().parseFromString('.' + body, 'text/html').body.textContent
             if (!decoded?.startsWith('.')) return
             text = decoded.slice(1)
@@ -227,7 +214,6 @@ function decodeFieldText(body: string): string | undefined {
     return text
 }
 
-/** Кодирует простой текст перед отправкой в поле Anki с HTML-разметкой. */
 export function writeEditableAnkiField(text: string, allowEmpty = false): string {
     if (!(allowEmpty && text === '') && !isEditableMarkdownField(text)) throw new Error('This value requires manual Markdown editing.')
     const escaped = text.replace(/&/gu, '&amp;').replace(/"/gu, '&quot;').replace(/'/gu, '&#39;').replace(/\u00a0/gu, '&nbsp;')
@@ -258,8 +244,7 @@ export function readEditableAnkiBlockField(html: string, block: EditableBlockFor
     }
     if (allowEmpty && emptyEditorField.test(body)) return ''
     if (block.layout?.multiline || !block.format || block.format === 'page') {
-        // Showdown renders separate Markdown paragraphs as <p>…</p>, and wraps soft line breaks in <br />.
-        // Decode only sibling paragraphs or divs without attributes. Mixed or decorated HTML stays in review.
+        // Preserve paragraph and line boundaries from the exporter.
         const bare = generatedBacklink && html.endsWith(generatedBacklink) ? html.slice(0, -generatedBacklink.length) : html
         if (/^<p>(?:[^<>]|<br\s*\/?>|<\/p>\s*<p>)*<\/p>$/iu.test(bare)) {
             body = bare.slice(3, -4).replace(/<\/p>\s*<p>/giu, '\n\n')
@@ -359,12 +344,13 @@ function cardFieldSpans(content: string, bullet: LinkedBullet): Record<EditableC
     const line = content.slice(bullet.start, end)
     const prefix = /^ {0,3}[-+*][ \t]+/.exec(line)?.[0]
     if (!prefix || end >= bullet.end) throw new Error(`Anki ID ${bullet.id} is no longer at the saved Markdown location.`)
-    const separator = fieldSeparator.exec(line.slice(prefix.length))
+    const join = bullet.separatorRepair ? /[ \t]*::[ \t]*/u : fieldSeparator
+    const separator = join.exec(line.slice(prefix.length))
     if (!separator) throw new Error(`Anki ID ${bullet.id} has no editable Markdown fields.`)
     const front = bullet.start + prefix.length
     const split = front + separator.index
     const back = split + separator[0].length
-    const suffix = fieldSeparator.exec(content.slice(back, end))
+    const suffix = join.exec(content.slice(back, end))
     const spans = { Front: trimmedSpan(content, front, split), Back: trimmedSpan(content, back, suffix ? back + suffix.index : end) }
     for (const [key, expected] of [['Front', bullet.front], ['Back', bullet.back]] as const) {
         const field = spans[key]
@@ -436,11 +422,9 @@ function planCardTagPatch(content: string, card: TagSource & { start: number }, 
     const effective = tagIndex(tags.effective)
     const priorAdditions = tagIndex(current?.override.add ?? [])
     const exclusions = tagIndex([...inherited.values(), ...(current?.override.remove ?? [])])
-    // Выбор для отдельной записи сохраняется при временном добавлении или удалении того же общего тега.
     const add = Array.from(effective).filter(([key]) => !inherited.has(key) || priorAdditions.has(key)).map(([, tag]) => tag)
     const remove = Array.from(exclusions).filter(([key]) => !effective.has(key)).map(([, tag]) => tag)
     if (!add.length && !remove.length) return current ? { start: anchor, end: current.end, text: '' } : undefined
-    // JSON хранится внутри комментария. Экранируем дефисы, чтобы теги не могли сформировать '-->'.
     const json = JSON.stringify({ add, remove }).replace(/[-<>]/gu, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'))
     const sourceLineEnd = lineEnd(content, card.start)
     const eol = content.startsWith('\r\n', anchor) ||
@@ -452,7 +436,6 @@ function planCardTagPatch(content: string, card: TagSource & { start: number }, 
     return content.slice(anchor, end) !== text ? { start: anchor, end, text } : undefined
 }
 
-/** Применяет изменения, подготовленные для одной неизменяемой версии Markdown. */
 export function applyMarkdownPatches(content: string, patches: readonly MarkdownPatch[]): string {
     const ordered = Array.from(patches).sort((left, right) => left.start - right.start)
     const pieces: string[] = []

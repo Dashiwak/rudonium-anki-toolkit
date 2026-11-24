@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
@@ -20,7 +18,6 @@ const refreshSettingsProfile = new WeakMap<MyPlugin, (profile: string) => void>(
 
 type ProfileSettingsChange = Partial<Pick<MyPlugin['settings'], 'REQUIRE_ANKI_PROFILE' | 'EXPECTED_ANKI_PROFILE'>>
 
-/** Сохраняем настройку перед изменением назначения экспорта в памяти. */
 async function writeProfileSettings(plugin: MyPlugin, change: ProfileSettingsChange): Promise<void> {
     await plugin.saveData({
         settings: { ...plugin.settings, ...change },

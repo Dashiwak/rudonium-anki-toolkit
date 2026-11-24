@@ -49,7 +49,7 @@ test('one-way dispatch defers the selected note by ID, continues its neighbour a
     const src = [{ id: 3001, front: q }, { id: 3002, front: 'Что находится рядом?' }]
     const target = 'новый ответ'
     const remote = new Map(src.map(n => [n.id, 'прежний ответ']))
-    const selected = new Set([3001]), sent = []
+    const selected = new Set([3001]), sent = [], history = []
     const read = async (action, params) => {
         if (action === 'guiSelectedNotes') return [...selected]
         if (action === 'notesInfo') return params.notes.map(noteId => ({ noteId, modelName: 'Knowledge', tags: [], cards: [noteId + 55],
@@ -80,14 +80,16 @@ test('one-way dispatch defers the selected note by ID, continues its neighbour a
     async function sync() {
         const m = new Manager()
         Object.assign(m, { data:{fields_dict:{Knowledge:['Front','Back']}}, files:[file], app:{vault:{getAbstractFileByPath: () => file}},
-            ankiProfile:'A', checkAnkiProfile:async () => 'A', getRecovery:async () => ({get:noop,records:()=>[]}),
+            ankiProfile:'A', checkAnkiProfile:async () => 'A', onSyncChange: row => history.push(row), getRecovery:async () => ({get:noop,records:()=>[]}),
             ownFiles:[{path,global_tags:'',all_notes_to_add:[], notes_to_delete:[],notes_to_edit:src.map(row => ({
                 identifier:row.id,note:{modelName:'Knowledge',fields:{Front:row.front,Back:target}}
             })),note_ids:[],file:'',original_file:'',formatter:{detectedMedia:new Set()}}],
             prepareExistingUpdates: async () => {
-                m.existingChanges.set(path, src.filter(row => remote.get(row.id) !== target).map(row => ({
-                    action:'updateNoteFields',version:6,params:{note:{id:row.id, fields:{Back:target}}}
-                })))
+                m.existingChanges.set(path, src.filter(row => remote.get(row.id) !== target).map(row => {
+                    const request = {action:'updateNoteFields',version:6,params:{note:{id:row.id, fields:{Back:target}}}}
+                    m.reviewedRequests.set(request, [{id:row.id, modelName:'Knowledge', fields:[['Back',remote.get(row.id)]]}])
+                    return request
+                }))
             },
         })
         await m.requests_1()
@@ -102,6 +104,14 @@ test('one-way dispatch defers the selected note by ID, continues its neighbour a
     selected.clear()
     assert.deepEqual(await sync(),[])
     assert.deepEqual(sent,[3002,3001])
+    assert.deepEqual(history.map(row => [row.noteId, row.action]), [[3001, 'skip'], [3002, 'edit'], [3001, 'edit']])
+    for (const row of history.filter(row => row.action === 'edit')) {
+        assert.equal(row.path, path)
+        assert.equal(row.direction, 'to-anki')
+        assert.deepEqual(JSON.parse(JSON.stringify(row.fields)), [{name:'Back',before:'прежний ответ',after:target}])
+    }
+    assert.deepEqual(await sync(), [])
+    assert.equal(history.length, 3)
 })
 
 test('a mismatched field readback without a selected note does not blame the browser', async () => {

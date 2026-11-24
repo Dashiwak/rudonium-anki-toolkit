@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { hasPageYamlIdText } from './page-frontmatter'
 import { activeCardMarkdown } from './archived-card'
@@ -153,7 +151,6 @@ export function fieldReviewIssue(message: string): { id: string; field: string; 
     return { id: match[1], field: match[2], reason: match[4] ? 'cards' : match[3].startsWith('no confirmed') ? 'first' : 'both' }
 }
 
-/** Переводит известные ошибки. Исходные ответы дополнений остаются в журнале экспорта. */
 export function localizeExportError(error: string, t: UiText): string {
     if (t('en', 'ru') === 'en') return error
     const clean = error.replace(/^Error:\s*/i, '')
@@ -274,7 +271,6 @@ export function wizardServiceGuard(text: string, directivePatterns: ReadonlyArra
 }
 
 function declaredInlineType(text: string): string | undefined {
-    // STARTI [Basic] — документированный синтаксис однострочной карточки. Тестовый парсер также поддерживает вариант с вертикальной чертой.
     return /^\s*\[([^\r\n\]]+)\]/.exec(text)?.[1]?.trim() ?? /^\s*([^|]+)\|/.exec(text)?.[1]?.trim()
 }
 
@@ -282,7 +278,6 @@ function looksLikeInlineFields(text: string): boolean {
     return /^\s*\[/.test(text) || text.includes('|') || /\b(?:Front|Back):[ \t]/.test(text)
 }
 
-/** Шаблон может допускать произвольное имя типа. Проверяем его перед созданием записи Anki. */
 export function typeInExplicitMatch(match: string, inline: boolean, syntax?: DuplicateMarkerSyntax): string | undefined {
     const text = match.trimStart()
     const marker = inline ? syntax?.['Begin Inline Note'] ?? 'STARTI' : syntax?.['Begin Note'] ?? 'START'
@@ -305,7 +300,6 @@ export function duplicateFirstFieldSlots(response: unknown, expectedLength: numb
     return slots
 }
 
-/** Хеш зависит от выделенного блока, но не от способа перевода строк редактором. */
 export function exportCardSourceDigest(text: string): string {
     return Md5.hashStr(text.replace(/\r\n?/g, '\n')) as string
 }
@@ -327,7 +321,6 @@ function occurrences(text: string, block: string): number[] {
     return offsets
 }
 
-/** Переносит точные диапазоны отказов на подтверждённый Markdown после записи соседних ID. */
 export function duplicateFirstFieldSources(before: string, after: string, ranges: readonly (CardRange | undefined)[],
     insertions: readonly number[] = []): Array<ExportCardLocation | undefined> {
     const unchanged = before === after
@@ -370,8 +363,6 @@ export function duplicateFirstFieldSources(before: string, after: string, ranges
     })
 }
 
-// Парсер экспорта принимает только документированный синтаксис. При проверке считаем близкие варианты
-// возможными старыми связями, чтобы отредактированная карточка не получила новый ID.
 const damagedIdStart = /^[ \t]*(<!--[ \t]*)?(ID[ \t]*:[ \t]*(\d+))(?=[ \t]|-->|$)/im
 const inlineIdTail = /^[ \t]*(<!--[ \t]*)?(ID[ \t]*:[ \t]*(\d+))(?=[ \t|]|-->|$)(?:[ \t]*\|[^\r\n]*?|[ \t]+\d{4}-\d{2}-\d{2})?[ \t]*(-->)?[ \t]*$/i
 
@@ -414,7 +405,6 @@ export function mayHaveCardMarkers(text: string, syntax?: DuplicateMarkerSyntax)
         damagedIdStart.test(text)
 }
 
-/** Проверяет явные маркеры в исходнике по диапазонам, которые действительно распознал штатный парсер. */
 export function inspectCardSources<T extends CardRange>(input: InspectSource<T>): CardInspection<T> {
     const { ranges, noteTypes, existingIds, duplicateIds } = input
     const text = input.text.includes('RUDONIUM-ARCHIVE') ? activeCardMarkdown(input.text) : input.text
@@ -497,7 +487,6 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
                 flagBlock(row, offset, row.offset + from, declaredInlineType(body), inlineStart)
             }
         }
-        // Оба маркера могут встречаться в пояснительном тексте. Дополнительно проверяем наличие полей карточки.
         if (!inlineStart || !inlineEnd || !row.text.includes(inlineStart)) continue
         while (from < row.text.length) {
             const at = row.text.indexOf(inlineStart, from)
@@ -557,7 +546,6 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
         const column = prefix.length - identifier.length
         const marker = { id, line: row.line, column }
         const close = comment ? commentEnds.get(row.offset + column - comment.length) : undefined
-        // Исключение для отдельного комментария со старым ID не распространяется на примеры внутри больших комментариев.
         const standaloneComment = close !== undefined && close <= row.end &&
             text.slice(close - 3, close) === '-->' && !text.slice(close, row.end).trim()
         damagedMarkers.set(marker, standaloneComment)
@@ -577,7 +565,6 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
             const offset = range.end + tail.indexOf(identifier)
             if (markedOffsets.has(offset)) continue
             const marker = { id, line: row.line, column: offset - row.offset }
-            // Принимаем только комментарий вне полей, закрывающийся собственным маркером.
             const standaloneComment = Boolean(opening && commentEnds.get(offset - opening.length) ===
                 range.end + tail.trimEnd().length)
             damagedMarkers.set(marker, standaloneComment)
@@ -636,7 +623,6 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
         if (predecessor) skippedNew.add(predecessor)
         invalidBlocks.push([markerStart, offset + 1])
     }
-    // Диапазоны, принятые парсером, также учитываются для форматов со своим расположением ID.
     for (const [id, linked] of edits) {
         const conflict = duplicateIds.get(id)
         if (!conflict && existingIds.has(id)) continue

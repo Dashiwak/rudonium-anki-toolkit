@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { activeCardMarkdown, archivedCardRanges } from './archived-card'
 import { Notice } from 'obsidian'
@@ -75,7 +73,6 @@ export async function buildCardPreview(plugin: MyPlugin, file: TFile, text: stri
         throw new Error(t('This card was deleted from Anki and is archived in Markdown.', 'Эта карточка удалена из Anki и хранится в архиве Markdown.'))
     }
     const markers = findIdMarkers(text, settings.Syntax)
-    // ID из текущего файла позволяют распознать связанные блоки. Их наличие в Anki проверяется отдельно.
     const ids = ankiIdNumberTokens(text.includes('RUDONIUM-ARCHIVE') ? activeCardMarkdown(text) : text)
     const bullets = findLinkedBullets(text, false, settings.Syntax)
     const atCursor = bullets.filter(bullet => containsCardOffset(bullet, text, offset))

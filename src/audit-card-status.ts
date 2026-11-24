@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type MyPlugin from '../main'
 import type { SyncAuditDifference, SyncAuditResult, SyncAuditSource, SyncAuditUnlinked } from './sync-audit'
@@ -102,7 +100,6 @@ export function classifyAuditDifference(difference: SyncAuditDifference,
     let unknown = !base || !!difference.missingTags.length || !!difference.extraTags.length || !!difference.decks.length
     for (const field of difference.fields) {
         const common = base && Object.prototype.hasOwnProperty.call(base, field.name) ? base[field.name] : undefined
-        // Парсер может оставить пустой заполнитель для поля, которым Markdown не управляет.
         if (common === undefined || field.kind === 'missing' || field.actual === undefined || field.expected === '') {
             unknown = true
             continue
@@ -125,13 +122,11 @@ function agreedBaseline(difference: SyncAuditDifference, oneWay: Readonly<Record
     for (const field of difference.fields) {
         const { name } = field
         const common = name === 'Front' ? twoWay.base.front : name === 'Back' ? twoWay.base.back : twoWay.base.extra?.[name]
-        // Истории не имеют общей последовательности. При разных подтверждённых версиях направление не доказано.
         if (common !== undefined && oneWay[name] !== oneWayFieldDigest(common)) return undefined
     }
     return oneWay
 }
 
-/** История читается лишь при наличии расхождений полей и никогда не модифицируется аудитом. */
 export async function classifyAuditFieldChanges(plugin: MyPlugin, result: SyncAuditResult, profile: string): Promise<void> {
     const rows = linkedRows.get(result)
     if (!rows?.length) return
@@ -152,7 +147,6 @@ export async function classifyAuditFieldChanges(plugin: MyPlugin, result: SyncAu
                 twoWay.get(row.id)))
         }
     } catch (error) {
-        // Повреждённая или недоступная история не доказывает направление правок.
         console.warn('[Rudonium Anki Toolkit] Не удалось прочитать историю полей для аудита', error)
     }
 }

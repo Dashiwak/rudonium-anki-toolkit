@@ -10,7 +10,7 @@ import type { NoteTypeRule } from './note-type-rules'
 import { withFastScanReadLock } from './fast-scan'
 import { readDelimitedRule } from './delimited-rule'
 import { previewRuleOnNote, showRuleReport } from './rule-note-preview'
-import { createSettingsGroup } from './settings-layout'
+import { createSettingsGroup, rememberGroup } from './settings-layout'
 
 export function formatControl(container: HTMLElement, t: UiText, expression: string, custom: boolean,
     change: (expression: string, custom: boolean) => void, input: (expression: string) => void): void {
@@ -110,6 +110,7 @@ export function installNoteTypeRules(container: HTMLElement, plugin: MyPlugin): 
             pattern.createEl('summary', { text: preset.expression === pageCardExpression
                 ? t('Page marker', 'Обозначение страницы') : t('Regular expression', 'Регулярное выражение') })
             pattern.createEl('code', { text: preset.expression })
+            rememberGroup(pattern, plugin, 'note-types-pattern')
             if (preset.expression === pageCardExpression) {
                 pattern.createEl('p', { text: t(
                     'Mark the note with #anki-page. Its first H1 is the question. For extra Anki fields, add this section after the answer and use the exact field names.',

@@ -1,15 +1,13 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { savePluginDataInOrder, withFastScanReadLock } from './fast-scan'
 import { uiDiagnostic, uiFor } from './interface-language'
 import { pageIdLocation, pageIdLocationLabel, pageIdLocations } from './page-id-location'
-import { createSettingsGroup } from './settings-layout'
+import { createSettingsGroup, rememberGroup } from './settings-layout'
 
 export interface IdMarkerSettingsActions {
     toComment(): void
@@ -18,7 +16,6 @@ export interface IdMarkerSettingsActions {
     foldingChanged?(): void
 }
 
-/** Выбор места для новых связей и оформление существующих маркеров ID. */
 export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin, actions: IdMarkerSettingsActions): void {
     const t = uiFor(plugin.settings)
     const body = createSettingsGroup(container, plugin, 'id-markers', t('Anki ID Markers', 'Маркеры ID Anki'),
@@ -52,6 +49,7 @@ export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin
     }
     example.ontoggle = () => { if (example.open) refreshExample() }
     refreshExample()
+    rememberGroup(example, plugin, 'id-markers-example')
     let moving = false
     location.addDropdown(control => {
         for (const choice of pageIdLocations) control.addOption(choice, pageIdLocationLabel(choice, t))

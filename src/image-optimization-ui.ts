@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Setting } from 'obsidian'
 import type { ToggleComponent } from 'obsidian'
@@ -26,9 +24,8 @@ const limitFields = (t: UiText): ReadonlyArray<{ key: LimitKey; name: string; de
         min: imageOptimizationLimits.minTargetKb, max: imageOptimizationLimits.maxTargetKb },
 ]
 
-/** Принимает полные пути для разных настольных систем. Экспорт проверяет фактический каталог. */
 function isAbsoluteFolder(value: string): boolean {
-    if (!value || /[\u0000-\u001f]/.test(value)) return false
+    if (!value || /\p{Cc}/u.test(value)) return false
     return value.startsWith('/') || /^[A-Za-z]:[/\\]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value)
 }
 

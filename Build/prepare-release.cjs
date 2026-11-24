@@ -143,7 +143,7 @@ function notes(repo, version) {
     const file = safePath(repo, `docs/releases/${version}.md`);
     const text = exists(file) ? fs.readFileSync(file, "utf8").trimEnd() : "# Rudonium Anki Toolkit " + version;
     const publishable = text.replaceAll("(../../PUBLISHING.md)", "(https://github.com/Dashiwak/rudonium-anki-toolkit/blob/" + version + "/PUBLISHING.md)");
-    return publishable + "\n\n## Комплект для публикации\n\nНа GitHub и GitFlic приложите установочный ZIP, полный Repository.zip и SHA256SUMS.txt. Для каталога Obsidian загрузите на GitHub также отдельные main.js, manifest.json и styles.css (если используется).\n";
+    return publishable + "\n\n## Комплект для публикации\n\nНа GitFlic приложите установочный ZIP. Для каталога Obsidian прикрепите к GitHub Release отдельные main.js, manifest.json и styles.css, сверив их с результатом проверки тега. Сохраните Repository.zip как базу исходников.\n";
 }
 function releaseAssets(build, info) {
     const names = ["main.js", "manifest.json"];

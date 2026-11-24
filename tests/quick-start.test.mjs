@@ -23,6 +23,13 @@ export class Element {
     constructor(tag = 'div', options = {}) { this.tag = tag; this.text = options.text; this.attr = options.attr || {}; this.children = []; this.classList = createClassList(); this.options = []; this.isConnected = true; this.value = options.value || '' }
     empty() { this.children = [] }
     setText(value) { this.text = value }
+    setAttribute(key, value) { this.attr[key] = value }
+    getAttribute(key) { return this.attr[key] ?? null }
+    querySelectorAll(selector) {
+        if (selector === 'details[data-rudonium-settings-group]') return this.all().filter(el => el.tag === 'details' && el.attr['data-rudonium-settings-group'])
+        throw new Error('Unexpected selector: ' + selector)
+    }
+    focus() {}
     createEl(tag, options) { const child = new Element(tag, options); child.parent = this; this.children.push(child); return child }
     createSpan(options) { return this.createEl('span', options) }
     createDiv(options) { return this.createEl('div', options) }
@@ -60,10 +67,15 @@ register('modal-layout', 'export const installModalLayout = () => {}')
 register('sync-audit', "export const auditRead = async () => ['Default', 'Cities']")
 register('note-type-refresh', "export const schema = {names: ['Basic','Other'], fields: {Basic: ['Front','Back','Source'], Other: ['Q','A']}}; export const readNoteTypeSchema = async () => schema")
 register('fast-scan', 'export const withFastScanReadLock = async (_plugin, task) => task()')
-register('settings-layout', 'export const createSettingsGroup = parent => parent.createDiv()')
+register('settings-layout', source('settings-layout'))
 register('custom-regexp-worker', `export const customRegexpKey = p => p.source; export const matchCustomRegexps = async (sample, [p]) => new Map([[p.source, [...sample.matchAll(new RegExp(p.source, p.flags))]]])`)
 register('rule-note-preview', 'export const previewRuleOnNote = (...args) => args[0].previewRule(...args.slice(1)); export const showRuleReport = (el, result) => el.setText(result.path)')
-register('folder-tree', "export const vaultFolderEntries = () => [{path:'Cards'},{path:'Special'}]")
+register('folder-tree', `
+export const vaultFolderEntries = () => [{path:'Cards'},{path:'Special'}]
+export function createFolderTree(parent, options) {
+    for (const entry of options.entries) options.renderAction(parent, parent, entry)
+    return {focus() {}}
+}`)
 register('page-migration-context', "export const detectMigrationFolders = async () => ['Cards']")
 register('page-migration', `
 export const previewPageMigration = async (plugin, options, signal, progress) => plugin.preview(options, signal, progress)
@@ -118,6 +130,55 @@ test('Quick Start opens after layout on a fresh vault without connecting, and on
     plugin.app.firstRunShown=false; plugin.stopped=true
     ready(); await settle()
     assert.equal(modals.length,before)
+})
+test('Quick Start gives local AnkiConnect setup before the first request in both languages', () => {
+    for (const [lang, title, check] of [['en', 'Set up AnkiConnect', 'Check Connection'],
+        ['ru', 'Как настроить AnkiConnect', 'Проверить соединение']]) {
+        freshSetup({ INTERFACE_LANGUAGE: lang, Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: {} },
+            () => assert.fail('Reading setup instructions must not change settings'))
+        const modal = modals.at(-1)
+        const guide = row(modal.contentEl, title).parent
+        const text = guide.all().map(el => el.text).join(' ')
+        assert.match(text, /2055492159/)
+        assert.match(text, /webCorsOriginList/)
+        assert.match(text, /127\.0\.0\.1:8765/)
+        assert.deepEqual(JSON.parse(guide.all().find(el => el.tag === 'pre').text), ['http://localhost', 'app://obsidian.md'])
+        assert.equal(guide.all().find(el => el.tag === 'a').attr.href, 'https://ankiweb.net/shared/info/2055492159')
+        assert.equal(row(modal.contentEl, check).disabled, false)
+        modal.close()
+    }
+})
+test('Quick Start remembers both disclosure choices on redraw, close and restart', async () => {
+    const local = new Map()
+    function session(language) {
+        const plugin = {manifest: {id}, settings: { Defaults: { Deck: 'Default' }, INTERFACE_LANGUAGE: language },
+            fields_dict: {}, register() {}, app: { loadLocalStorage: key => local.get(key),
+                saveLocalStorage: (key, value) => local.set(key, structuredClone(value)) }}
+        setupCommand(plugin).callback()
+        return modals.at(-1)
+    }
+    let modal = session('en')
+    const guide = row(modal.contentEl, 'Set up AnkiConnect').parent
+    assert.equal(guide.open, true)
+    guide.open = false
+    click(modal.contentEl, 'Check Connection'); await settle()
+    const more = row(modal.contentEl, 'More options').parent
+    assert.equal(more.open, false)
+    more.open = true
+    select(modal.contentEl, 'Deck', 'Cities')
+    assert.equal(row(modal.contentEl, 'More options').parent.open, true)
+    modal.close()
+    modal = session('ru')
+    const reopened = row(modal.contentEl, 'Как настроить AnkiConnect').parent
+    assert.equal(reopened.open, false)
+    click(modal.contentEl, 'Проверить соединение'); await settle()
+    assert.equal(row(modal.contentEl, 'Дополнительные настройки').parent.open, true)
+    row(modal.contentEl, 'Дополнительные настройки').parent.open = false
+    modal.close()
+    modal = session('en')
+    click(modal.contentEl, 'Check Connection'); await settle()
+    assert.equal(row(modal.contentEl, 'More options').parent.open, false)
+    modal.close()
 })
 test('first setup saves the first verified schema', async () => {
     const before = modals.length
@@ -252,10 +313,10 @@ test('migration settings and palette reach one bilingual wizard with scoped prev
     await settle()
     const sourcePicker = row(modal.contentEl, 'Yanki').parent
     sourcePicker.value='yanki'; sourcePicker.onchange()
-    assert.ok(modal.contentEl.all().some(el => el.tag === 'option' && el.value === '/'))
-    assert.ok(modal.contentEl.all().some(el => el.tag === 'small' && el.text.includes('введите /')))
-    const suggested = row(modal.contentEl,'Выбрать найденную папку').parent
-    suggested.value='Cards'; suggested.onchange()
+    click(modal.contentEl, 'Всё хранилище')
+    assert.ok(row(modal.contentEl, 'Всё хранилище, включая файлы Yanki без меток'))
+    click(modal.contentEl, 'Папки с ID Yanki')
+    modal.contentEl.all().find(item => item.attr['aria-label'] === 'Выбрать папку: Cards').onclick()
     click(modal.contentEl, 'Проверить файлы'); await settle()
     assert.deepEqual(calls, [{ model:'Basic', source:'yanki', folder:'Cards' }])
     assert.equal(row(modal.contentEl,'Создать копию и преобразовать').disabled, true)
@@ -312,7 +373,7 @@ test('failed and interrupted conversions keep the wizard open for a fresh previe
     assert.ok(row(modal.contentEl,'Migration stopped'))
     assert.ok(row(modal.contentEl,'/backups/interrupted.zip'))
     click(modal.contentEl,'Check again'); await settle()
-    assert.ok(row(modal.contentEl,'Already converted (1)'))
+    assert.ok(row(modal.contentEl,'Already supported (1)'))
     assert.equal(row(modal.contentEl,'Back up and convert').hidden,true)
     assert.equal(row(modal.contentEl,'Full vault ZIP · backup folder outside the vault').parent.classList.contains('rudonium-hidden'), true)
     modal.close()
@@ -355,8 +416,8 @@ test('migration looks up absent IDs only on request, keeps the folder and requir
     }
     openPageMigration(plugin)
     const modal = modals.at(-1), view = modal.contentEl
-    const folder = row(view,'Folder to search').parent.children.find(el => el.tag === 'input')
-    folder.value = 'Cards'; folder.oninput()
+    click(view, 'Entire vault')
+    view.all().find(item => item.attr['aria-label'] === 'Choose folder: Cards').onclick()
     assert.equal(calls.length, 0)
     click(view,'Preview files'); await settle()
     assert.equal(calls.length, 1)
@@ -392,9 +453,10 @@ test('recovery shows real Anki fields and records consent per path and ID across
     }
     openPageMigration(plugin)
     const modal = modals.at(-1), view = modal.contentEl
-    for (const source of ['Anki Forge','Anki Bridge','Anki AST Sync','Anki Exporter','Rudonium (@page)']) {
+    for (const source of ['Anki Forge','Anki Bridge','Anki AST Sync','Anki Exporter']) {
         assert.ok(view.all().some(el => el.tag === 'option' && el.text === source))
     }
+    for (const native of ['Rudonium (@page)', 'Obsidian_to_Anki', 'Spaced Repetition']) assert.ok(!view.all().some(el => el.tag === 'option' && el.text === native))
     click(view,'Preview files'); await settle()
     const choices = () => view.all().filter(el => el.tag === 'input' && el.attr['aria-label']?.startsWith('Link '))
     assert.equal(choices().length, 24)

@@ -1,12 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { editorInfoField, parseLinktext } from 'obsidian'
-import type { EditorState } from '@codemirror/state'
-import type { DecorationSet, EditorView, ViewUpdate } from '@codemirror/view'
+import { StateEffect, type EditorState } from '@codemirror/state'
+import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type MyPlugin from '../main'
 import { previewCurrentCard } from './card-preview'
 import { inspectEditorCardLines } from './editor-warning-rules'
@@ -65,18 +63,12 @@ function visibleLines(view: EditorView, language: MarkdownLanguage): EditorWarni
     return lines
 }
 
-/** Обновляет только видимые строки. Anki запрашивается исключительно после явного открытия предпросмотра. */
 export function registerEditorCardWarnings(plugin: MyPlugin): void {
     if (typeof plugin.registerEditorExtension !== 'function') return
     try {
-        // Используем экземпляры модулей того же редактора, в который добавляется расширение.
-        const state = require('@codemirror/state') as typeof import('@codemirror/state')
-        const view = require('@codemirror/view') as typeof import('@codemirror/view')
-        // Модуль языка предоставляет Obsidian вместе с редактором. В сборку вторая копия не включается.
         const language: MarkdownLanguage = require('@codemirror/language')
         if (typeof language.syntaxTree !== 'function' || typeof language.syntaxTreeAvailable !== 'function') return
-        const { Decoration, EditorView, ViewPlugin } = view
-        const refresh = state.StateEffect.define<void>()
+        const refresh = StateEffect.define<void>()
         const extension = ViewPlugin.fromClass(class {
             decorations: DecorationSet = Decoration.none
             private timer?: number

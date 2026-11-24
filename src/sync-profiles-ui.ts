@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting, TFolder } from 'obsidian'
 import type MyPlugin from '../main'
@@ -42,7 +40,6 @@ function profileDescription(plugin: MyPlugin, profile: SyncFolderProfile, t: UiT
     return scope + excludes + (count ? t(` · Export rules: ${count}`, ` · Правил экспорта: ${count}`) : '')
 }
 
-/** Публикует изменения настроек после сохранения data.json под блокировкой сканирования. */
 function saveProfiles(plugin: MyPlugin, change: (state: ProfileSettings) => ProfileSettings | undefined): Promise<void> {
     return withFastScanReadLock(plugin, () => savePluginDataInOrder(plugin, async () => {
         const next = change(readSyncProfiles(plugin.settings))

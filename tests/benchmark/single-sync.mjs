@@ -209,7 +209,7 @@ function expectChange(dialog, decision) {
     assert.deepEqual(row.changes.map(change => [change.field, change.decision]), [['Back', decision]])
 }
 async function applyOne(dialog, choices = new Map()) {
-    assert.equal(await dialog.apply(choices), 'Confirmed 1 of 1 linked records.')
+    assert.equal(await dialog.apply(choices), 'Updated 1 note.')
 }
 async function steady(currentOnly) {
     const dialog = await preview(currentOnly)
@@ -253,7 +253,7 @@ try {
         const dialog = await preview(packed)
         assert.equal(dialog.preview.rows.length, 0)
         assert.equal(dialog.preview.canApply, true)
-        assert.equal(await dialog.apply(new Map()), `Confirmed ${size} of ${size} linked records.`)
+        assert.equal(await dialog.apply(new Map()), 'No changes.')
         assertWrites(0, 0)
     })
     for (const currentOnly of (packed ? [true] : [false, true])) {
@@ -385,7 +385,7 @@ try {
             await measure(scope + '.all-' + direction, async () => {
                 const dialog = await preview(packed)
                 assert.equal(dialog.preview.rows.length, size)
-                assert.equal(await dialog.apply(new Map()), `Confirmed ${size} of ${size} linked records.`)
+                assert.equal(await dialog.apply(new Map()), `Updated ${size} ${size === 1 ? 'note' : 'notes'}.`)
                 assertWrites(direction === 'inbound' ? files.length : 0, direction === 'outbound' ? size : 0)
             })
             checkAll()
@@ -413,7 +413,7 @@ try {
     // A failed outbound request leaves a checkpoint; a fresh plan recovers exactly once.
     dialog = await preview(true)
     host.failNextWrite = true
-    assert.match(await dialog.apply(new Map()), /Confirmed 0 of 1 .*Simulated temporary write failure/)
+    assert.match(await dialog.apply(new Map()), /Could not confirm changes to 1 note\.\n.*Simulated temporary write failure/)
     assertWrites(0, 0)
     dialog = await preview(true)
     await applyOne(dialog)

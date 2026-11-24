@@ -18,7 +18,7 @@ const rudoniumManifest = JSON.parse(rudoniumReadFile(new URL("./manifest.json", 
 function bundleNotice(release, license) {
     return [
         "/*!",
-        " * " + release.name + " " + release.version + " — modified 2026-11-22.",
+        " * " + release.name + " " + release.version + " — modified 2026-11-23.",
         " * SPDX-License-Identifier: " + license,
         " * Rudonium additions: Copyright (C) 2026 dashiwak. GNU GPLv3. Original component permissions and notices are retained.",
         " * Derived from Obsidian_to_Anki 3.6.0 by Pseudonium and contributors.",
@@ -42,8 +42,6 @@ function rudoniumRollupConfig(config, notice, version) {
             intro: prepend(output?.intro, "const RUDONIUM_BUILD_VERSION = " + JSON.stringify(version) + ";") };
     }
 
-    // Obsidian предоставляет собственные экземпляры CodeMirror. Сохраняем и
-    // исходные исключения Rollup, включая пользовательскую функцию с контекстом.
     const inherited = config.external;
     const rules = Array.isArray(inherited) ? inherited : inherited ? [inherited] : [];
     return {

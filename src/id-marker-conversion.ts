@@ -1,9 +1,11 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as path from 'path'
+import * as os from 'os'
+import * as crypto from 'crypto'
+import { constants, promises as fs } from 'fs'
 import { MarkdownView, TFile } from 'obsidian'
 import type MyPlugin from '../main'
 import { withFastScanReadLock } from './fast-scan'
@@ -37,23 +39,19 @@ const maximumBytes = 256 * 1024 * 1024
 
 function desktop(plugin: MyPlugin) {
     const adapter = plugin.app.vault.adapter as typeof plugin.app.vault.adapter & { getBasePath?(): string }
-    if (typeof require !== 'function' || typeof adapter.getBasePath !== 'function') throw new Error(uiFor(plugin.settings)(
+    if (typeof adapter.getBasePath !== 'function') throw new Error(uiFor(plugin.settings)(
         'ID conversion requires a local desktop vault.', 'Для преобразования ID нужно локальное настольное хранилище.'))
-    return { fs: (require('fs') as typeof import('fs')).promises, constants: (require('fs') as typeof import('fs')).constants,
-        path: require('path') as typeof import('path'), os: require('os') as typeof import('os'),
-        crypto: require('crypto') as typeof import('crypto'), base: adapter.getBasePath() }
+    return { fs, constants, path, os, crypto, base: adapter.getBasePath() }
 }
 
-function digest(text: string): string { return (require('crypto') as typeof import('crypto')).createHash('sha256').update(text).digest('hex') }
+function digest(text: string): string { return crypto.createHash('sha256').update(text).digest('hex') }
 function signature(plugin: MyPlugin): string { return JSON.stringify([plugin.settings.Syntax, syncScopeSignature(plugin.settings)]) }
 
 function safeRelative(relative: string): boolean {
-    return !!relative && relative.split('/').every(part => !!part && part !== '.' && part !== '..' && !/[\\:\u0000-\u001f]/u.test(part))
+    return !!relative && relative.split('/').every(part => !!part && part !== '.' && part !== '..' && !/[\\:\p{Cc}]/u.test(part))
 }
 
-/** Каждый компонент пути проверяется до чтения и записи; символические ссылки не используются. */
 async function checkedPath(root: string, relative: string, create = false): Promise<string> {
-    const fs = (require('fs') as typeof import('fs')).promises, path = require('path') as typeof import('path')
     if (!safeRelative(relative)) throw new Error('Invalid conversion file path. / Недопустимый путь файла преобразования.')
     let absolute = root
     const parts = relative.split('/')
@@ -140,7 +138,6 @@ export function previewIdMarkerConversion(plugin: MyPlugin, direction: IdMarkerD
 
 export interface IdMarkerConversionResult { files: number; markers: number; backupPath: string }
 
-/** Перед первой записью проверяются все исходники и сохраняется проверенный стандартный ZIP. */
 export function applyIdMarkerConversion(plugin: MyPlugin, plan: IdMarkerConversionPlan,
     selectedPaths: ReadonlySet<string>): Promise<IdMarkerConversionResult> {
     return withFastScanReadLock(plugin, async () => {

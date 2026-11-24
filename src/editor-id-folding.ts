@@ -1,12 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import * as Obsidian from 'obsidian'
-import type { EditorState, StateField, StateEffectType } from '@codemirror/state'
-import type { DecorationSet, EditorView, ViewUpdate } from '@codemirror/view'
+import { Prec, StateEffect, type EditorState, type StateEffectType } from '@codemirror/state'
+import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import type MyPlugin from '../main'
 import { collectIdMarkerSpans } from './id-marker-format'
 import type { IdMarkerSpan } from './id-marker-format'
@@ -36,7 +34,6 @@ const views = new WeakMap<MyPlugin, Set<EditorView>>()
 const effects = new WeakMap<MyPlugin, StateEffectType<void>>()
 const registered = new WeakSet<MyPlugin>()
 
-/** Изменяется только оформление открытых редакторов. Текст и файловая система не затрагиваются. */
 export function refreshEditorIdFolding(plugin: MyPlugin): void {
     const effect = effects.get(plugin)
     if (!effect) return
@@ -49,18 +46,13 @@ function selectedLine(state: EditorState, from: number, to: number): boolean {
     return state.selection.ranges.some(range => range.from <= to && range.to >= from)
 }
 
-/** Расширение рисует небольшую метку вместо маркера, сохраняя все символы исходного документа. */
 export function registerEditorIdFolding(plugin: MyPlugin): void {
     if (registered.has(plugin) || typeof plugin.registerEditorExtension !== 'function') return
     try {
-        // Все экземпляры CodeMirror предоставляет сам Obsidian; вторая копия в сборку не включается.
-        const cmState = require('@codemirror/state') as typeof import('@codemirror/state')
-        const cmView = require('@codemirror/view') as typeof import('@codemirror/view')
         const language: MarkdownLanguage = require('@codemirror/language')
-        const livePreview = (Obsidian as { editorLivePreviewField?: StateField<boolean> }).editorLivePreviewField
+        const livePreview = Obsidian.editorLivePreviewField
         if (!livePreview || typeof language.syntaxTree !== 'function' || typeof language.syntaxTreeAvailable !== 'function') return
-        const { Decoration, EditorView, ViewPlugin, WidgetType } = cmView
-        const refresh = cmState.StateEffect.define<void>()
+        const refresh = StateEffect.define<void>()
         const editors = new Set<EditorView>()
 
         class IdWidget extends WidgetType {
@@ -72,13 +64,12 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
             }
 
             toDOM(editor: EditorView): HTMLElement {
-                const button = editor.dom.ownerDocument.createElement('button')
+                const button = editor.dom.ownerDocument.createDocumentFragment().createEl('button')
                 button.type = 'button'
                 button.className = badgeClass + (this.warning ? ` ${badgeClass}-warning` : '')
                 button.textContent = this.warning ? 'Anki ⚠' : 'Anki'
                 button.title = this.title
                 button.setAttribute('aria-label', this.title)
-                // Нажатие перемещает курсор к исходному ID. Документ не получает транзакции изменения.
                 button.onmousedown = event => { if (event.button === 0) event.preventDefault() }
                 button.onclick = event => {
                     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
@@ -179,8 +170,6 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
                             while (node) {
                                 if (literalNode.test(node.name) || htmlAttributeNode.test(node.name)) { literal = true; break }
                                 if (htmlContextNode.test(node.name) && (node.from < from || node.to > to)) {
-                                    // HTMLBlock/HTMLTag может начинаться выше видимой строки. Разрешаем лишь
-                                    // собственный комментарий ID с пробельной оболочкой, а не атрибут или внешний HTML.
                                     const length = node.to - node.from
                                     if (!marker.comment || length > marker.text.length + 256 || length < marker.text.length ||
                                         contextCharacters + length > maximumCharacters) { literal = true; break }
@@ -226,13 +215,12 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
         }, [`.${badgeClass}.${badgeClass}-warning`]: {
             color: 'var(--text-warning)', borderColor: 'var(--text-warning)',
         } })
-        plugin.registerEditorExtension([cmState.Prec.highest(extension), theme])
+        plugin.registerEditorExtension([Prec.highest(extension), theme])
         views.set(plugin, editors)
         effects.set(plugin, refresh)
         registered.add(plugin)
         plugin.register(() => { views.delete(plugin); effects.delete(plugin); registered.delete(plugin) })
     } catch (error) {
-        // Необязательное оформление не должно блокировать запуск плагина или менять исходный Markdown.
         console.warn('[Rudonium Anki Toolkit] Сворачивание ID недоступно', error)
     }
 }

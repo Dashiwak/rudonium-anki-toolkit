@@ -1,9 +1,9 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as fs from 'fs'
+import * as nodePath from 'path'
 import { Modal, Notice, TFile, TFolder } from 'obsidian'
 import type { App, FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
@@ -107,7 +107,6 @@ function discover(plugin: MyPlugin, scope: Scope, t: UiText) {
             }
         }
     }
-    // Кеш уже содержит ссылки из других частей хранилища, в том числе из заметок вне выбранной области.
     for (const [note, targets] of Object.entries(links)) {
         if (/\.md$/i.test(note)) for (const path of Object.keys(targets)) candidates.get(path)?.references.push(note)
     }
@@ -171,8 +170,7 @@ interface BackupWriter {
 
 function desktopAdapter(app: App, t: UiText): FileSystemAdapter {
     const adapter = app.vault.adapter as Partial<FileSystemAdapter>
-    if (typeof adapter.getBasePath !== 'function' || typeof app.vault.modifyBinary !== 'function' ||
-        typeof require !== 'function') {
+    if (typeof adapter.getBasePath !== 'function' || typeof app.vault.modifyBinary !== 'function') {
         throw new Error(t('Optimizing original images requires desktop Obsidian and a local vault.', 'Для оптимизации исходных изображений нужны настольный Obsidian и локальное хранилище.'))
     }
     return adapter as FileSystemAdapter
@@ -180,8 +178,6 @@ function desktopAdapter(app: App, t: UiText): FileSystemAdapter {
 
 async function openBackup(app: App, t: UiText): Promise<BackupWriter> {
     const adapter = desktopAdapter(app, t)
-    const fs: typeof import('fs') = require('fs')
-    const nodePath: typeof import('path') = require('path')
     const vaultRoot = await fs.promises.realpath(adapter.getBasePath())
     const parent = nodePath.dirname(vaultRoot)
     if (parent === vaultRoot) throw new Error(t('The vault needs a parent folder for its image backups.', 'Для резервных копий изображений нужна папка уровнем выше хранилища.'))
@@ -242,7 +238,6 @@ async function applyImages(plugin: MyPlugin, preview: Preview, selected: readonl
                 checkActive(signal, t)
                 backup ??= await openBackup(app, t)
                 await backup.write(path, original, row.sourceHash)
-                // Резервное копирование может занять время. Повторно проверяем содержимое перед изменением исходного файла.
                 if (!current(app, row, row.stamp, pathRevision) ||
                     await imageHash(await vault.readBinary(file)) !== row.sourceHash ||
                     !current(app, row, row.stamp, pathRevision)) throw new Error(staleImage(t))
@@ -445,7 +440,6 @@ class LocalImageModal extends Modal {
     private confirm(preview: Preview, selected: readonly PreviewRow[]): void {
         const { t } = this
         if (!selected.length) return
-        // На время подтверждения скрываем исходное окно. При возврате сохраняются выбор и прокрутка.
         const review = Array.from(this.contentEl.children) as HTMLElement[]
         const previousHidden = review.map(element => element.hidden)
         for (const element of review) element.hidden = true

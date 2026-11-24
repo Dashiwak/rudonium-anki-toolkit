@@ -1,9 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
 import type { App, FileSystemAdapter, TFile } from 'obsidian'
 import { rudoniumPluginId } from './plugin-identity'
 import type { ImageOptimizationSettings } from './image-optimizer'
@@ -40,10 +41,7 @@ const staleImage = 'The original image changed before replacement. Preview the e
 
 async function desktopFiles(app: App): Promise<DesktopFiles | undefined> {
     const adapter = app.vault.adapter as Partial<FileSystemAdapter>
-    if (typeof adapter.getBasePath !== 'function' || typeof require !== 'function') return undefined
-    const fs: typeof import('fs') = require('fs')
-    const path: typeof import('path') = require('path')
-    const crypto: typeof import('crypto') = require('crypto')
+    if (typeof adapter.getBasePath !== 'function') return undefined
     return { fs, path, crypto, root: await fs.promises.realpath(adapter.getBasePath()) }
 }
 
@@ -124,7 +122,6 @@ function checkedReceipt(value: unknown, path: string): StoredReceipt {
     return record as StoredReceipt
 }
 
-/** Отправку считаем подтверждённой, когда файл изображения на диске совпадает с подготовленными байтами. */
 export async function readImageReplacement(app: App, path: string, currentSourceHash: string): Promise<ImageReplacementReceipt | undefined> {
     const files = await desktopFiles(app)
     if (!files) return undefined
@@ -212,7 +209,6 @@ function hasImageFormat(path: string, buffer: ArrayBuffer): boolean {
     return /\.png$/i.test(path) && [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte)
 }
 
-/** Заменяет файл одной файловой операцией и сохраняет сведения для безопасного повторения. */
 export async function prepareImageReplacement(app: App, file: TFile, original: ArrayBuffer, output: ArrayBuffer,
     settings: ImageOptimizationSettings, expectedSource: string, expectedOutput: string,
     dimensions?: ImageReplacementDimensions, stillAllowed?: () => boolean | Promise<boolean>,
@@ -248,7 +244,6 @@ export async function prepareImageReplacement(app: App, file: TFile, original: A
         }
         await writeReceipt(files, app, receipt)
         if (stillAllowed && !await stillAllowed()) throw new Error('Export stopped before replacing the original image.')
-        // Проверка профиля может ждать AnkiConnect. Проверяем локальные байты после ответа.
         if (!await current()) throw new Error(staleImage)
         if (shouldStop?.()) throw new Error('Export stopped before replacing the original image.')
         await files.fs.promises.rename(staged, target)

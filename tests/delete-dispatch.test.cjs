@@ -8,13 +8,13 @@ const noop = () => {}
 const hash = s => createHash('md5').update(s).digest('hex')
 const marker = { 'Delete Note Line': 'Retire.?' }
 const input = '## Cards\n- A :: B\nRetire.?\n<!--ID: 7 -->\n- Keep :: This\nID: 8\n- C :: D\nRetire.?\nID: 9\n'
-const allNames = ['archived-card', 'markdown-pipeline', 'deletion-source', 'bidirectional-blocks', 'bidirectional-markdown', 'linked-bullets', 'page-card',
+const allNames = ['suspend-label', 'archived-card', 'markdown-pipeline', 'deletion-source', 'bidirectional-blocks', 'bidirectional-markdown', 'linked-bullets', 'page-card',
     'card-format-presets', 'export-recovery', 'anki-id-marker', 'duplicate-markers', 'id-marker-literals', 'anki', 'export-plan', 'export-batch', 'anki-transport']
 async function fixture(text = input, options = {}) {
     const vaultFile = { path: 'cards.md', text }
     const h = { active: 'personal', present: new Set([7,8,9]), writes: [], backups: [], trash: [], ...options }
     const check = async profile => { if (h.active !== profile) throw Error('Anki profile switched'); return profile }
-    const readSnapshot = ids => new Map(ids.filter(id => h.present.has(id)).map(id => [id, { modelName: 'Basic', noteId: id, cards:[id+100], tags:[], fields:{} }]))
+    const readSnapshot = ids => new Map(ids.filter(id => h.present.has(id)).map(id => [id, { modelName: 'Basic', noteId: id, cards:[id+100], tags:[], fields:{Front:{value:"Question " + id}} }]))
     const call = async (action, params) => {
         assert.equal(action, 'multi')
         return params.actions.map(request => {
@@ -34,9 +34,9 @@ async function fixture(text = input, options = {}) {
         getAbstractFileByPath: path => !h.trash.length && path === vaultFile.path ? vaultFile : null,
         trash: async (f,system) => h.trash.push([f.path,system]),
     } }
-    const Manager = managerType({ ...api, ...modules['anki-id-marker'], ...modules['duplicate-markers'], ...modules['deletion-source'], ...modules['export-plan'], ...modules['export-batch'], AnkiConnect: {invoke: call},
+    const Manager = managerType({ ...api, ...modules['anki-id-marker'], ...modules['suspend-label'], ...modules['duplicate-markers'], ...modules['deletion-source'], ...modules['export-plan'], ...modules['export-batch'], AnkiConnect: {invoke: call},
         AnkiProfileError: class extends Error {}, readReviewedNoteSnapshots: async ids => readSnapshot(ids),
-        snapshotKey: n => JSON.stringify([n.noteId,n.modelName]), snapshotFields: () => [],
+        snapshotKey: n => JSON.stringify([n.noteId,n.modelName]), snapshotFields: note => Object.entries(note.fields).map(([name, field]) => [name, field.value]),
         matchesReviewedAnkiEvidence: (n,e) => n && JSON.stringify([n.noteId,n.modelName]) === e.snapshot,
         recoverySlotLines: () => [], planMedia: async () => [], applyMedia: async () => new Set(), plannedMediaAliases: () => new Map(),
         verifyExistingNoteFieldWrites: noop, readFilteredAnkiDecks: async () => new Map(), conflictingDeckDirective: noop,
@@ -45,19 +45,25 @@ async function fixture(text = input, options = {}) {
     })
     h.run = async selected => {
         const plan = explicitDeletes(vaultFile.text, marker, { Basic: '@page' })
-        if (!plan) return
+        if (!plan && !h.spacing) return
         const m = Object.assign(new Manager(), { app, files: [vaultFile], data: { id_date: h.dates === true, custom_regexps: { Basic: '@page' } },
             diagnosticSyntax: marker, ankiProfile:'personal', checkAnkiProfile: () => check('personal'),
-            afterDeleteMode: h.mode ?? (h.clean !== false ? 'remove' : h.archiveLabel ? 'mark' : 'keep'),
+            onSyncChange:h.onSyncChange, afterDeleteMode: h.mode ?? (h.clean !== false ? 'remove' : h.archiveLabel ? 'mark' : 'keep'),
             trashDeletedPages: h.trashPages ?? true, deletedArchiveLabel: h.archiveLabel,
             deletionOwnership: async () => { if (h.duplicate) throw Error('duplicate owner') },
             beforeDeletion: async () => { if (h.failBackup) throw Error('backup failed'); h.backups.push(vaultFile.text) },
             prepareExistingUpdates:noop, importErrors:[], getRecovery: async () => ({ get: noop, records: () => [] }),
             ownFiles: [{ path: vaultFile.path, target_deck:'deck', global_tags:'', original_file:vaultFile.text, file:vaultFile.text,
-                all_notes_to_add:[], id_indexes:[], inline_id_indexes:[], regex_id_indexes:[], notes_to_delete:plan.directives.map(d => d.id), notes_to_edit: (h.dateIds ?? []).map(identifier => ({ identifier, note: { fields: {}, tags: [] } })), note_ids:[], formatter:{detectedMedia:new Set()} }],
+                all_notes_to_add:[], id_indexes:[], inline_id_indexes:[], regex_id_indexes:[], notes_to_delete:(plan?.directives ?? []).map(d => d.id), notes_to_edit: (h.dateIds ?? []).map(identifier => ({ identifier, note: { fields: {}, tags: [] } })), note_ids:[], formatter:{detectedMedia:new Set()} }],
         })
-        m.deleteEffects.set(m.ownFiles[0], new Map(plan.directives.map(d => [d.id,
+        m.deleteEffects.set(m.ownFiles[0], new Map((plan?.directives ?? []).map(d => [d.id,
             modules['deletion-source'].localDeleteEffect(d,m.afterDeleteMode,m.trashDeletedPages)])))
+        if (h.spacing) {
+            const file = m.ownFiles[0]
+            const note = { modelName: 'Basic', fields: { Front: 'Казематы' }, tags: [] }
+            file.notes_to_edit = [{ identifier: 8, note }]
+            file.separatorRepairs = new Map([[note, modules['card-format-presets'].separatorRepair(h.spacing, true)]])
+        }
         if (selected) {
             await m.reviewDeletions(m.ownFiles, true)
             if (h.dates) m.reviewDateMarkers(m.ownFiles[0], modules['anki-id-marker'].formatLocalIdDate(new Date()), true)
@@ -187,10 +193,13 @@ for (const mode of ['strike','hidden']) {
 
 test('one-way preview writes only the selected date or DELETE and preserves other IDs', async () => {
     const initial = input.replace('ID: 8','ID: 8!? | 2024-02-29 #keep').replace('ID: 9','ID: 9?!')
-    const h = await fixture(initial, { dates:true, dateIds:[8], clean:false })
+    const rows = []
+    const h = await fixture(initial, { dates:true, dateIds:[8], clean:false, onSyncChange:row=>rows.push(row) })
     await h.run([8])
     assert.equal(h.file.text, initial.replace('8!? | 2024-02-29','8 | 2024-02-29!?'))
     assert.deepEqual(h.writes,[])
+    assert.deepEqual(rows.map(row=>[row.noteId,row.action,row.direction]),[[8,'id-date','local']])
+    assert.ok(rows[0].fields[0].after.includes('2024-02-29'))
     await h.run([9])
     assert.deepEqual(h.writes,[[9]])
     assert.ok(h.file.text.includes('- C :: D\nID: 9?!\n'))
@@ -224,4 +233,36 @@ test('a DELETE word at the end of the public answer is ordinary text above a sig
     assert.deepEqual(h.writes,[])
     assert.ok(h.present.has(7))
     assert.equal(h.file.text,source)
+})
+
+test('export history records verified deletions and distinguishes later local cleanup from repeating a deletion', async () => {
+    const rows = []
+    const h = await fixture(input, {failProcess:true, onSyncChange:row => rows.push(row)})
+    await h.run()
+    assert.deepEqual(rows.map(row => [row.action,row.direction,row.noteId]), [['delete','to-anki',7],['delete','to-anki',9]])
+    assert.deepEqual(JSON.parse(JSON.stringify(rows[0].fields)), [{name:'Front',before:'Question 7'}])
+    h.failProcess = false
+    await h.run()
+    assert.deepEqual(rows.slice(2).map(row => [row.action,row.direction,row.noteId]), [['cleanup','local',7],['cleanup','local',9]])
+    assert.equal(h.writes.length,1)
+})
+
+test('one-way dispatch writes and logs the verified spacing correction only after the Markdown write succeeds', async () => {
+    const line = '- Казематы:: Сводчатые помещения :: R'
+    const input = '## Карточки\r\n' + line + '\r\n<!--ID: 8-->\r\n'
+    const rows = []
+    const h = await fixture(input, { spacing: line, failProcess: true, onSyncChange: row => rows.push(row) })
+    const failed = await h.run()
+    assert.ok(failed.retryPaths.has(h.file.path))
+    assert.equal(h.file.text, input)
+    assert.deepEqual(rows, [])
+    h.failProcess = false
+    await h.run()
+    const after = line.replace('ы::', 'ы ::')
+    assert.equal(h.file.text, input.replace(line, after))
+    assert.deepEqual(rows.map(({ action, direction, fields, noteId }) => [action, direction, noteId, fields]),
+        [['normalize', 'local', 8, [{ name: 'Markdown', before: line, after }]]])
+    await h.run()
+    assert.equal(rows.length, 1)
+    assert.deepEqual(h.writes, [])
 })

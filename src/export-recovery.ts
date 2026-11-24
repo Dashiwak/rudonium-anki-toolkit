@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Md5 } from 'ts-md5'
 import { isDefiniteAddNoteRejection } from './anki-transport'
@@ -47,12 +45,10 @@ interface RecoverySnapshot {
 
 const recoveryTagPrefix = 'ota-recovery::'
 
-/** Служебные теги исключаются из обычного сравнения и переноса тегов. */
 export function isRecoveryTag(tag: string): boolean {
     return /^ota-recovery::[a-f0-9]{32}-[1-9][0-9]*$/i.test(tag)
 }
 
-/** Токен журнала и исходный порядок добавления определяют один и тот же тег после перезапуска. */
 export function recoveryTag(plan: RecoveryPlan, index: number): string | undefined {
     if (plan.tagVersion !== 1 || !isHash(plan.token) ||
         !Number.isSafeInteger(index) || index < 0 || index >= plan.signatures.length) return
@@ -132,7 +128,6 @@ function cleanupTagsDistinct(entries: Iterable<RecoveryEntry>, cleanup: readonly
         !cleanup.some(item => tokens.has(item.tag.slice(recoveryTagPrefix.length, recoveryTagPrefix.length + 32)))
 }
 
-/** Старые записи журнала сохраняем. Они не подтверждают, в какой коллекции находятся указанные ID. */
 export function pendingRecoveryProfileProblem(entry: RecoveryEntry, profile: string | undefined): string | undefined {
     if (entry.ankiProfile === undefined) {
         return 'This pending Anki note creation predates profile verification. Its Anki profile is unknown. ' +
@@ -176,7 +171,6 @@ function uniqueTokens(entries: Iterable<RecoveryEntry>): boolean {
 
 const markerPrefix = '<!-- Obsidian-to-Anki pending '
 
-/** Отдельный комментарий сохраняется вместе с Markdown-файлом при переименовании вне Obsidian. */
 export function addRecoveryMarker(text: string, token: string): string {
     const line = text.includes('\r\n') ? '\r\n' : '\n'
     return `${text}${line}${line}${markerPrefix}${token} -->${line}`
@@ -195,7 +189,6 @@ export function readRecoveryMarker(text: string): { token: string; clean: string
     return { token: marker[1], clean: text.slice(0, index) + separator + suffix }
 }
 
-/** При проверке принадлежности учитываем незавершённые комментарии, чтобы ручную копию не приняли за оригинал. */
 export function* recoveryMarkerTokens(text: string): Iterable<string> {
     if (!text.includes(markerPrefix)) return
     for (const marker of text.matchAll(/<!-- Obsidian-to-Anki pending ([a-f0-9]{32})/g)) yield marker[1]
@@ -213,13 +206,11 @@ export function hasRecoveredLinks(entry: RecoveryEntry, confirmedLinkedIds: read
     return entry.slots.every(slot => slot === null || (isId(slot) && counts.get(slot) === 1))
 }
 
-/** Подтверждение позиции записи в пакете без сохранения текста полей в файлах восстановления. */
 export function noteRecoverySignature(note: { fields: Record<string, string>; deckName: string; modelName: string }): string {
     const fields = Object.keys(note.fields).sort().map(name => [name, note.fields[name]])
     return Md5.hashStr(JSON.stringify([note.modelName, note.deckName, fields])) as string
 }
 
-/** Позицию в пакете закрывает только корректный ответ или известный отказ до создания записи. */
 export function readRecoverySlots(response: unknown, expectedLength: number,
     definitelyUnsent?: (response: unknown) => boolean): RecoverySlot[] {
     if (!isObject(response) || response.error !== null || !Array.isArray(response.result) ||
@@ -238,7 +229,6 @@ export function readRecoverySlots(response: unknown, expectedLength: number,
     return slots.map(slot => isId(slot) && counts.get(slot) !== 1 ? 'unknown' : slot)
 }
 
-/** Журнал предварительной записи блокирует повторный addNote после сбоя Vault.process или перезапуска, пока не проверен результат. */
 export class ExportRecovery {
     private readonly storage: RecoveryStorage
     private readonly basePath: string
@@ -325,14 +315,12 @@ export class ExportRecovery {
         const bySourceHash = new Map<string, RecoveryEntry>()
         const byToken = new Map<string, RecoveryEntry>()
         for (const entry of this.entries.values()) {
-            // Для одинаковых исходников в одном пакете сохраняем первую подходящую запись журнала.
             if (!bySourceHash.has(entry.sourceHash)) bySourceHash.set(entry.sourceHash, entry)
             if (entry.token !== undefined) byToken.set(entry.token, entry)
         }
         return this.lookupIndexes = { bySourceHash, byToken }
     }
 
-    /** При переносе операции обновляем её путь, а подтверждённые позиции созданных записей сохраняем. */
     relocate(token: string, previous: string, path: string, profile: string): Promise<void> {
         return this.update(next => {
             const entry = next.get(previous)
@@ -349,8 +337,6 @@ export class ExportRecovery {
             if (plans.length && !isProfile(profile)) throw new Error('Cannot journal new Anki notes without a verified profile.')
             for (const plan of plans) {
                 if (!isPlan(plan) || next.has(plan.path)) throw new Error(`Cannot start a new creation while ${plan.path} has a pending export.`)
-                // При первой попытке в том же проходе может встретиться другой файл с таким же содержимым.
-                // Незавершённому исходнику с тем же содержимым из прошлого прохода мог достаться новый путь.
                 if (this.get(plan.path, plan.sourceHash)) throw new Error(`An identical Markdown source already has a pending export for ${plan.path}.`)
                 next.set(plan.path, { ...plan, ankiProfile: profile, signatures: [...plan.signatures],
                     slotLines: plan.slotLines && [...plan.slotLines],
@@ -424,7 +410,6 @@ export class ExportRecovery {
         })
     }
 
-    /** Учитываем завершённое вручную восстановление известной записи после правки окружающего Markdown. */
     settleLinked(path: string, confirmedLinkedIds: readonly number[], profile: string): Promise<void> {
         return this.update((next, cleanup) => {
             const entry = next.get(path)
@@ -457,8 +442,6 @@ export class ExportRecovery {
             const text = JSON.stringify({ version: 1, revision, entries: Array.from(next.values()),
                 ...(cleanup.size ? { cleanup: Array.from(cleanup.values()) } : {}) })
             try {
-                // Сохраняем последнюю проверенную копию и пишем в другую. Нечитаемая копия
-                // блокирует создание после перезапуска, поскольку может содержать более свежие ID.
                 await this.storage.write(path, text)
                 if (await this.storage.read(path) !== text) throw new Error('readback mismatch')
             } catch {
@@ -468,7 +451,6 @@ export class ExportRecovery {
             this.entries = next
             this.cleanup = cleanup
             this.revision = revision
-            // Обновляем состояние поиска только после чтения и проверки сохранённого журнала.
             this.lookupIndexes = undefined
         })
         this.writes = operation.catch(() => {})

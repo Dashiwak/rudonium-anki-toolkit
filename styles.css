@@ -31,15 +31,26 @@
 .rudonium-settings-group-body .anki-note-type-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-block: .6rem; }
 .rudonium-settings-group-body .anki-note-type-refresh:empty { display: none; }
 
-/* Use a common inset for the help link, headings, labels, controls and About.
-   Check for the About section because Obsidian can reuse the tab container. */
-.rudonium-settings-pane:has(> .rudonium-settings-about) {
+.rudonium-settings-pane {
   --rudonium-setting-inset: var(--size-4-4, 16px);
   text-align: start;
 
-  & > a:first-child {
-    display: inline-block;
-    margin-inline-start: var(--rudonium-setting-inset);
+  & .rudonium-settings-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--size-4-2, 8px);
+    padding-inline: var(--rudonium-setting-inset);
+  }
+
+  & .rudonium-section-controls {
+    display: inline-flex;
+    gap: var(--size-2-1, 2px);
+  }
+
+  & .rudonium-section-controls button:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 1px;
   }
 
   & .setting-item {
@@ -72,7 +83,7 @@
   }
 
   & .setting-item-control:empty,
-  & .setting-item-info:has(> .setting-item-name:empty):has(> .setting-item-description:empty) {
+  & .setting-item-info:empty {
     display: none;
   }
 
@@ -811,7 +822,15 @@ button.rudonium-hidden,
   max-height: calc(100vh - 1rem);
 }
 .rudonium-archived-card-body {
-  text-decoration: line-through;
+  text-decoration-line: line-through;
   text-decoration-color: var(--text-muted);
 }
-.rudonium-archived-card-body .rudonium-archived-card-status { display: inline-block; text-decoration: none; }
+.rudonium-archived-card-body .rudonium-archived-card-status { display: inline-block; text-decoration-line: none; }
+
+.rudonium-history-filters {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--size-4-2);
+    margin-block: var(--size-4-3);
+}

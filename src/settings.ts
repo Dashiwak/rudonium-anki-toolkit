@@ -1,9 +1,9 @@
 import { uiDiagnostic, uiFor } from './interface-language'
-import { bindSyntaxEdit, installCardLifecycleSettings } from './card-lifecycle-settings'
-import { createSettingsGroup, finalizeSettingsLayout, renderSettingsGroup } from './settings-layout'
+import { bindSyntaxEdit, installCardLifecycleSettings, isLifecycleSyntax } from './card-lifecycle-settings'
+import { createSettingsGroup, finalizeSettingsLayout, saveSettingsLayout, renderSettingsGroup } from './settings-layout'
 import { installSettingsHelp, installInterfaceLanguage, installProjectInfo, legacySettingLabel, legacySettingDescription } from './interface-settings-ui'
 import { installNoteTypeRules } from './note-type-rule-ui'
-import { installFolderTagSettings } from './settings-search'
+import { installFolderTagSettings, installIgnoredFilesSetting } from './settings-search'
 import { installNoteTypeRefresh } from './note-type-refresh'
 import { clearFastScanCache, previewVaultExport, withFastScanReadLock } from './fast-scan'
 import { installIdMarkerSettings } from './id-tools-settings-ui'
@@ -72,11 +72,9 @@ export class SettingsTab extends PluginSettingTab {
     setup_syntax(): void {
         const plugin = this.rudonium
         const t = uiFor(plugin.settings)
-        const syntax = this.containerEl.createEl('details', { cls: 'anki-settings-disclosure' })
-        syntax.createEl('summary', { text: t('Syntax Settings', 'Синтаксис карточек') })
-        const body = syntax.createDiv()
+        const body = createSettingsGroup(this.containerEl, plugin, 'syntax', t('Syntax Settings', 'Синтаксис карточек'))
         for (const key of Object.keys(plugin.settings.Syntax)) {
-            if (key === 'Suspend Line' || key === 'Suspend Line Aliases') continue
+            if (isLifecycleSyntax(key)) continue
             new Setting(body).setName(legacySettingLabel(key, t))
                 .addText(text => bindSyntaxEdit(text, plugin, key))
         }
@@ -92,8 +90,7 @@ export class SettingsTab extends PluginSettingTab {
         defaults['CurlyCloze - Highlights to Clozes'] ??= false
         defaults['Add Obsidian Tags'] ??= false
         defaults['Add Date to Anki IDs'] ??= false
-        new Setting(this.containerEl).setName(t('Defaults', 'Параметры по умолчанию')).setHeading()
-        const body = this.containerEl.createDiv()
+        const body = createSettingsGroup(this.containerEl, plugin, 'defaults', t('Defaults', 'Параметры по умолчанию'))
         installDefaultDeckSetting(body, plugin)
         for (const [key, value] of Object.entries(defaults)) {
             if (key === 'Deck' || key === 'Regex') continue
@@ -117,14 +114,19 @@ export class SettingsTab extends PluginSettingTab {
         }
     }
 
-	setup_workflows(modeContainer: HTMLElement) {
-        const {containerEl} = this
+    setup_connection(): void {
+        const { containerEl } = this
         const plugin = this.rudonium
         const t = uiFor(plugin.settings)
-        new Setting(containerEl).setName(t('Additional tools', 'Дополнительные инструменты')).setHeading()
         const connectionBody = createSettingsGroup(containerEl, plugin, 'connection', t('Anki Connection', 'Подключение к Anki'))
         installFirstRunSetting(connectionBody, plugin, task => withFastScanReadLock(plugin, task), () => this.setup_display())
         installPageMigrationSetting(connectionBody, plugin)
+    }
+
+    setup_workflows(): void {
+        const { containerEl } = this
+        const plugin = this.rudonium
+        const t = uiFor(plugin.settings)
         const profileBody = createSettingsGroup(containerEl, plugin, 'profiles-and-routing', t('Profiles and Deck Assignments', 'Профили и назначения колод'))
         installAnkiProfileSettings(profileBody, plugin)
         installSyncProfileSettings(profileBody, plugin)
@@ -142,7 +144,6 @@ export class SettingsTab extends PluginSettingTab {
                 "Сверьте одну колоду и проверьте дубликаты ID. Можно запустить экспорт выбранных папок перед сверкой."))
             .addButton(button => button.setButtonText(t("Check Default Deck", "Проверить колоду по умолчанию")).onClick(() => startSyncAudit(plugin)))
             .addButton(button => button.setButtonText(t("Choose Deck", "Выбрать колоду")).onClick(() => openSyncAuditDeckPicker(plugin)))
-        installBidirectionalSettings(modeContainer, plugin)
         renderSettingsGroup(containerEl, plugin, 'archives-transfer', t('Archives, Backup and Transfer', 'Архивы, резервные копии и перенос'), body => installZipImportSettings(body, plugin))
         renderSettingsGroup(containerEl, plugin, 'image-optimization', t('Image Optimization', 'Оптимизация изображений'), body => installImageOptimizationSettings(body, plugin))
         installIdMarkerSettings(containerEl, plugin, {
@@ -156,8 +157,7 @@ export class SettingsTab extends PluginSettingTab {
     setup_buttons(): void {
         const { containerEl, rudonium } = this
         const t = uiFor(rudonium.settings)
-        new Setting(containerEl).setName(t('Actions', 'Обслуживание')).setHeading()
-        const body = containerEl.createDiv()
+        const body = createSettingsGroup(containerEl, rudonium, 'actions', t('Actions', 'Обслуживание'))
         installNoteTypeRefresh(containerEl, body, rudonium, () => this.setup_display())
         // Both cache changes wait for the active scan to finish.
         const clear = async (kind: 'media' | 'files'): Promise<void> => {
@@ -180,19 +180,30 @@ export class SettingsTab extends PluginSettingTab {
 
     setup_display(): void {
         const { containerEl, rudonium } = this
+        saveSettingsLayout(containerEl, rudonium)
         containerEl.empty()
         installSettingsHelp(containerEl, rudonium)
-        const modeContainer = containerEl.createDiv()
+        this.setup_connection()
+        installBidirectionalSettings(containerEl, rudonium)
         installNoteTypeRules(containerEl, rudonium)
         installFolderTagSettings(containerEl, rudonium, 'FOLDER_TAGS')
         this.setup_syntax()
         this.setup_defaults()
         this.setup_buttons()
-        this.setup_workflows(modeContainer)
+        installIgnoredFilesSetting(containerEl, rudonium)
+        this.setup_workflows()
         installCardLifecycleSettings(containerEl, rudonium)
-        installInterfaceLanguage(containerEl, rudonium, () => this.setup_display())
-        installProjectInfo(containerEl, rudonium, RUDONIUM_BUILD_VERSION)
+        const t = uiFor(rudonium.settings)
+        const info = createSettingsGroup(containerEl, rudonium, 'plugin-info', t('Interface and plugin information', 'Интерфейс и сведения о плагине'))
+        installInterfaceLanguage(info, rudonium, () => this.setup_display(), containerEl)
+        installProjectInfo(info, rudonium, RUDONIUM_BUILD_VERSION)
         finalizeSettingsLayout(containerEl, rudonium)
+    }
+
+    hide(): void {
+        saveSettingsLayout(this.containerEl, this.rudonium)
+        this.containerEl.classList.remove('rudonium-settings-pane')
+        super.hide()
     }
 
     display(): void {

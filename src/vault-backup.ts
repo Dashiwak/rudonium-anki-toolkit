@@ -1,9 +1,9 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as path from 'path'
+import { promises as fs } from 'fs'
 import { Notice } from 'obsidian'
 import type { FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
@@ -52,7 +52,6 @@ interface SavedBackup {
     manifest: BackupManifest
 }
 
-/** Метаданные общей копии: сам Obsidian.zip подходит и для восстановления, и для переноса. */
 export interface SavedVaultBackup {
     path: string
     name: string
@@ -81,7 +80,6 @@ function selectedBackupScope(plugin: MyPlugin): BackupScope | undefined {
     } : undefined
 }
 
-/** Папки-предки нужны для прохода к выбранному корню; исключения действуют на всё поддерево. */
 function includedInBackup(scope: BackupScope, relative: string, directory: boolean): boolean {
     const candidate = relative.normalize('NFC')
     if (candidate.split('/').some(part => part.startsWith('.') || part === '__MACOSX') ||
@@ -121,11 +119,9 @@ export function readBackupSettings(raw: unknown): BackupSettings {
 
 function desktop(plugin: MyPlugin) {
     const adapter = plugin.app.vault.adapter as Partial<FileSystemAdapter>
-    if (typeof require !== 'function' || typeof adapter.getBasePath !== 'function') {
+    if (typeof adapter.getBasePath !== 'function') {
         throw new Error('Vault Backup requires desktop Obsidian and a local vault.')
     }
-    const fs = (require('fs') as typeof import('fs')).promises
-    const path: typeof import('path') = require('path')
     return { fs, path, base: adapter.getBasePath() }
 }
 
@@ -145,7 +141,6 @@ async function destination(plugin: MyPlugin, settings: BackupSettings, create: b
     if (!path.isAbsolute(configured)) throw new Error('Set the backup folder to an absolute path outside the vault.')
     const folder = path.resolve(configured)
     if (isIn(path, root, folder)) throw new Error('Choose a backup folder outside the vault.')
-    // Перед mkdir проверяем ближайшего существующего предка. Точка подключения может вести обратно в хранилище.
     for (let probe = folder;; probe = path.dirname(probe)) {
         try {
             const parent = await fs.realpath(probe)
@@ -209,7 +204,6 @@ function checkedManifest(raw: unknown): BackupManifest | undefined {
     return value as BackupManifest
 }
 
-/** Читается только ограниченный обычный файл, а не произвольная ссылка или растущий поток. */
 async function readManifest(fs: typeof import('fs').promises, file: string): Promise<BackupManifest> {
     const initial = await fs.lstat(file)
     if (!initial.isFile() || initial.size <= 0 || initial.size > maxManifestBytes) {
@@ -253,7 +247,6 @@ function savedBackupMetadata(archive: string, name: string, manifest: BackupMani
     }
 }
 
-/** Соседний манифест необязателен для внешнего ZIP. Он не заменяет проверку CRC при импорте. */
 export async function inspectVaultBackupSource(plugin: MyPlugin, archive: string): Promise<SavedVaultBackup | undefined> {
     const { fs, path } = desktop(plugin)
     const t = uiFor(plugin.settings)
@@ -286,7 +279,6 @@ async function* matchingBackups(loc: Awaited<ReturnType<typeof destination>>,
         if (missing(error)) return []
         throw error
     })
-    // Имена снимков начинаются с времени UTC. Для экспорта по расписанию сперва проверяем самые свежие копии.
     entries.sort((a, b) => b.name.localeCompare(a.name))
     for (const entry of entries) {
         if (!entry.isDirectory() || !entry.name.startsWith(backupPrefix)) continue
@@ -303,7 +295,6 @@ async function* matchingBackups(loc: Awaited<ReturnType<typeof destination>>,
             }
             yield { path: archive, name: `${new Date(manifest.completedAt).toLocaleString()} · ${entry.name}`, manifest }
         } catch {
-            // Незавершённая или повреждённая копия не должна откладывать создание следующей.
         }
     }
 }
@@ -351,7 +342,6 @@ async function createSnapshot(loc: Awaited<ReturnType<typeof destination>>, prof
     }
 }
 
-/** Вызывается под действующей блокировкой экспорта или синхронизации перед фактической записью. */
 export async function ensureScheduledBackup(plugin: MyPlugin, expectedProfile?: string): Promise<BackupCheck> {
     const settings = readBackupSettings(plugin.settings.VAULT_BACKUP)
     if (!settings.enabled) return { created: false }

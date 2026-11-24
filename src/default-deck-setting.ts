@@ -5,7 +5,6 @@ import { AnkiProfileError, expectedAnkiProfile, profileProblemText, requireExpec
 import { uiFor } from './interface-language'
 import { readSyncAuditDeckNames } from './sync-audit'
 
-/** В списке сохраняем точные имена Anki, в том числе двойные двоеточия у подколод. */
 export function installDefaultDeckSetting(parent: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
     const title = t('Default deck', 'Колода по умолчанию')

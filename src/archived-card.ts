@@ -32,14 +32,11 @@ const projectionStart = '<del data-rudonium="RUDONIUM-ARCHIVE:'
 const statusLine = /^\*\*[^\r\n]+\*\*[ \t]*$/u
 const broken = () => new Error('Check the archive boundaries and the retained Anki ID in this file. / Проверьте границы архивного блока и сохранённый ID Anki в этом файле.')
 
-// Маска с теми же смещениями для всех читателей. В памяти держим только последний исходный файл.
 let previous: { text: string; ranges: ArchiveRange[]; active?: string } | undefined
 
 const commentEntities: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '-': '&#45;', '%': '&#37;' }
 const originalCharacters: Readonly<Record<string, string>> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&#45;': '-', '&#37;': '%' }
 
-// Внутри настоящего HTML-комментария виден текст в исходном режиме; вложенный ID и "-->"
-// экранируются. Префикс у каждой строки сохраняет в том числе пустые строки исходной карточки.
 function packSource(source: string): string {
     const escaped = source.replace(/[&<>]|-{2,}|%{2,}/gu, group => commentEntities[group[0]].repeat(group.length))
     return '| ' + escaped.replace(/\n/gu, '\n| ')
@@ -190,7 +187,6 @@ function readRanges(text: string): ParsedRange[] {
                 const hasStatus = statusLine.test(lastLine) && text.slice(lastStart, from).trimEnd() === lastLine.trimEnd()
                 const statusStart = hasStatus ? lastStart : from
                 let bodyEnd = statusStart
-                // Строка статуса отделена от исходника пустой строкой для Reading View.
                 for (let i = 0; i < (hasStatus ? 2 : 1) && bodyEnd > open.bodyStart && text[bodyEnd - 1] === '\n'; i++) {
                     bodyEnd--; if (text[bodyEnd - 1] === '\r') bodyEnd--
                 }
@@ -208,7 +204,6 @@ function readRanges(text: string): ParsedRange[] {
                     open.ownerStart = from
                 }
             }
-            // Незакрытый обычный комментарий защищает примеры маркеров на следующих строках.
             const fragments = /<!--|-->|%%/gu
             for (const part of line.matchAll(fragments)) {
                 if (comment) { if (part[0] === comment) comment = '' }

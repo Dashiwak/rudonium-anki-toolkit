@@ -15,7 +15,7 @@ let router, pages, tags, presets, markers, markdown;
 
 test("restore an orphaned page with a separate page tag, named fields and private notes in each ID layout", () => {
     const text = "# Question\n#anki-page\nAnswer\n<!--anki-fields-->\nOrigin: Source\nLine two\n<!--rudonium-answer-end-->\nPersonal";
-    const candidate = router.inspectMigrationFile(file, text, automatic);
+    const candidate = router.inspectMigrationFile(file, text, {...automatic,source:"rudonium"});
     assert.equal(candidate.source, "rudonium");
     assert.equal(candidate.status, "candidate");
     for (const location of ["heading", "yaml", "after-answer"]) {
@@ -65,7 +65,7 @@ function yaml(lines, value, body) {
     return "---\r\n" + lines + "---\r\n" + body;
 }
 
-test("linked pages from four sources retain their ID, route, tags and editable offsets on a second scan", () => {
+test("linked pages from three foreign sources retain their ID, route, tags and editable offsets on a second scan", () => {
     const front = "Which city?";
     const back = "Vienna";
     const samples = [
@@ -73,8 +73,6 @@ test("linked pages from four sources retain their ID, route, tags and editable o
         { source: "flashcards", model: "Obsidian-basic", text: front + "::" + back + " ^" + id },
         { source: "deck-to-anki", model: "ob-deck-basic", text: yaml("deckType: card\r\ndeckID: " + id + "\r\n",
             { deckType: "card", deckID: id }, front + "\r\n---\r\n" + back) },
-        { source: "obsidian-to-anki", model: "Basic", text: "START\nBasic\nFront: " + front + "\nBack: " + back +
-            "\n<!--ID: " + id + " | 2026-11-19-->\nEND" },
     ];
     const deck = 'Cities::"Central" <Europe>';
     for (const { source, model, text } of samples) {
@@ -99,7 +97,6 @@ test("linked pages from four sources retain their ID, route, tags and editable o
         assert.deepEqual(router.inspectMigrationFile(file, migrated, automatic), { source: "rudonium", status: "already", id });
         if (source === "deck-to-anki") assert.deepEqual(page.fieldPair, ["ob-deck-front", "ob-deck-back"]);
         if (source === "flashcards") assert.match(migrated, /#anki-page \^1700000000123/u);
-        if (source === "obsidian-to-anki") assert.match(migrated, /<!--ID: 1700000000123 \| 2026-11-19-->/u);
     }
 });
 
@@ -131,8 +128,6 @@ test("mixed sources, scheduling data and invalid marked pages stay outside the c
     const reviewed = [
         mixed,
         "Q::A <!--SR:!2026-11-23,5,250-->",
-        "START\nBasic (and reversed card)\nFront: Q\nBack: A\nEND",
-        "START\nBasic\nFront: Q\nBack: A\nEND\n\nAdditional note outside the card.",
         "# Broken #anki-page\nID: invalid\nAnswer",
         "# Broken #anki-page\nID: 12\n<!--rudonium-page-route: [\"Basic\"]-->\nAnswer",
         "# Broken #anki-page\nID: 12\nAnswer\nID: 13",
@@ -149,7 +144,7 @@ test("mixed sources, scheduling data and invalid marked pages stay outside the c
     assert.equal(router.inspectMigrationFile(file, "# My notebook\n\nText.", automatic), undefined);
     assert.equal(router.inspectMigrationFile(file, mixed, { ...automatic, source: "flashcards" }).status, "review");
     const twoIds = yaml("noteId: 42\r\n", { noteId: 42 }, "START\nBasic\nFront: Q\nBack: A\n<!--ID: 37-->\nEND");
-    assert.match(router.inspectMigrationFile(file, twoIds, { ...automatic, source: "obsidian-to-anki" }).reason, /another source ID/iu);
+    assert.equal(router.inspectMigrationFile(file, twoIds, { ...automatic, source: "yanki" }).status, "already");
     const foreign = "---\nnoteId: 42\ndeckID: 11\nflashcards: { q-123: { nid: 11 } }\n---\nQ::A ^" + id;
     assert.deepEqual(router.foreignMigrationIds(foreign), [42, 11, id]);
 });
@@ -172,7 +167,7 @@ test("recovering a native page keeps the original heading, route, tag overrides,
         '<!--rudonium-page-route: ["Original","Cities"]-->' + end;
     const body = end + "Vienna" + end + end + "  Second paragraph." + end;
     const source = header + metadata + body;
-    const candidate = router.inspectMigrationFile(file, source, automatic);
+    const candidate = router.inspectMigrationFile(file, source, {...automatic,source:"rudonium"});
     assert.equal(candidate.source, "rudonium");
     assert.equal(candidate.status, "candidate");
     assert.equal(candidate.recoverOnly, true);
@@ -183,7 +178,7 @@ test("recovering a native page keeps the original heading, route, tag overrides,
     const restored = router.renderMigrationPage(source, { ...candidate, id, preservedTags: ["Europe"] }, "Fallback", true, "heading");
     assert.equal(restored, header + "<!--ID: " + id + "-->" + end + metadata + body);
     assert.deepEqual(router.inspectMigrationFile(file, restored, automatic), {source:"rudonium", status:"already", id});
-    assert.equal(router.inspectMigrationFile(file, header + body, automatic).needsLink, false);
+    assert.equal(router.inspectMigrationFile(file, header + body, automatic).status, "already");
     assert.equal(router.inspectMigrationFile(file, header + "ID: damaged" + end + body, automatic).status, "review");
     assert.equal(router.inspectMigrationFile(file, header + metadata + metadata + body, automatic).status, "review");
     assert.equal(router.inspectMigrationFile(file, header + '<!-- anki-note-id: 123 -->' + end + body, automatic).status, "review");
@@ -257,24 +252,15 @@ test("a Flashcards v2 page keeps its anchor, aliases, formatting and verified no
     assert.deepEqual([page.front,page.back,page.id], ["Which city?","Vienna",id]);
 });
 
-test("migration preserves an author's annotation after a legacy HTML marker when YAML or a footer is preferred", () => {
-    const annotated = "<!--ID: " + id + " | 2026-11-19--> ^keep-anchor";
-    const text = ["START", "Basic", "Front: Which city?", "Back: Vienna", annotated, "END"].join("\r\n");
-    const item = router.inspectMigrationFile(file, text, automatic);
-    assert.equal(item.status, "candidate", item.reason);
-    for (const preferred of ["yaml", "after-answer"]) {
-        const result = router.renderMigrationPage(text,item,"Basic",true,preferred);
-        assert.ok(result.includes("# Which city? #anki-page\r\n" + annotated + "\r\n"));
-        assert.doesNotMatch(result, /^(?:rudonium-id|anki-page-ID):| @page-->/mu);
-        assert.deepEqual(router.inspectMigrationFile(file,result,automatic), {source:"rudonium",status:"already",id});
+test("block and inline cards are protected in Auto and explicit foreign source modes", () => {
+    for (const source of ["auto", "flashcards", "anki-exporter", "yanki"]) {
+        for (const text of ["START\nBasic\nFront: Q\nBack: A\nEND", "Prose STARTI [Basic] Q ENDI in a sentence",
+            "БЛОК\r\nBasic\r\nQ\r\nBack: A\r\nГОТОВО"]) {
+            const syntax = text.startsWith("БЛОК") ? {"Begin Note":"БЛОК","End Note":"ГОТОВО"} : {};
+            assert.equal(router.inspectMigrationFile(file,text,{...automatic,source,syntax}).status, "already");
+        }
+        assert.equal(router.inspectMigrationFile(file, "# My Q #anki-page\nAnswer", {...automatic,source}).status, "already");
     }
-});
-
-test("reserved page answer boundaries in a foreign answer cannot discard original Markdown during migration", () => {
-    const input = ["START", "Basic", "Front: Which city?", "Back: Vienna", "<!--rudonium-answer-end-->", "another paragraph", "END"].join("\n");
-    const item = router.inspectMigrationFile(file, input, automatic);
-    assert.equal(item.status, "candidate", item.reason);
-    assert.throws(() => router.renderMigrationPage(input,item,"Basic",true,"yaml"));
 });
 
 test("a native suspended page with a custom control and saved route is already linked in all three ID locations", () => {
@@ -298,13 +284,13 @@ test("a signed footer with a missing page heading holds back an apparent foreign
 });
 
 test("new migrated links default to YAML and native recovery preserves footer-private annotations", () => {
-    const original = "START\nBasic\nFront: Q\nBack: A\nID: " + id + "\nEND";
+    const original = "Q::A ^" + id;
     const candidate = router.inspectMigrationFile(file,original,automatic);
     const linked = router.renderMigrationPage(original,candidate,"Basic");
     assert.equal(pages.readPageCard(linked,{Basic:"@page"}).idLocation,"yaml");
     const local = "<!--rudonium-answer-end-->\n<!-- anki-bidirectional-tags: private example -->\n";
     const source = "# Q #anki-page\nA\n" + local;
-    const unlinked = router.inspectMigrationFile(file,source,automatic);
+    const unlinked = router.inspectMigrationFile(file,source,{...automatic,source:"rudonium"});
     assert.equal(unlinked.status,"candidate",unlinked.reason);
     assert.equal(unlinked.back,"A");
     const result = router.renderMigrationPage(source,{...unlinked,id},"Basic",true,"after-answer");
@@ -317,7 +303,7 @@ test("missing IDs on imported suspended pages are recovered without placing the 
     const eol = "\r\n", syntax = {"Suspend Line":"PAUSE"};
     const route = '<!--rudonium-page-route: ["Other","Foreign"]-->';
     const text = ["# Q #anki-page","PAUSE_2",route,"","A",""].join(eol);
-    const item = router.inspectMigrationFile(file,text,{...automatic,syntax});
+    const item = router.inspectMigrationFile(file,text,{...automatic,syntax,source:"rudonium"});
     assert.equal(item.status,"candidate",item.reason);
     assert.equal(item.back,"A");
     assert.equal(router.renderMigrationPage(text,item,"Basic",true,"yaml",syntax),"# Q #anki-page"+eol+eol+"A"+eol);

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export const pendingAnkiWriteMessage = 'AnkiConnect is still processing a previous write. Check Anki and retry after the connection settles.'
 
@@ -19,7 +17,6 @@ export function hasPendingAnkiWrite(scope: object): boolean {
     return pendingWrites.has(scope)
 }
 
-/** Ограничивает время ожидания и игнорирует запоздалые ответы. */
 export function withAnkiDeadline<T>(operation: () => Promise<T>, description: string,
     timeoutMs = 30_000, signal?: AbortSignal): Promise<T> {
     const cancellation = () => new DOMException(`${description} cancelled.`, 'AbortError')
@@ -29,12 +26,12 @@ export function withAnkiDeadline<T>(operation: () => Promise<T>, description: st
             cleanup()
             reject(cancellation())
         }
-        const timer = setTimeout(() => {
+        const timer = window.setTimeout(() => {
             cleanup()
             reject(new DOMException(`${description} did not respond within ${timeoutMs / 1000} seconds.`, 'TimeoutError'))
         }, timeoutMs)
         function cleanup(): void {
-            clearTimeout(timer)
+            window.clearTimeout(timer)
             signal?.removeEventListener('abort', abort)
         }
         signal?.addEventListener('abort', abort, { once: true })
@@ -51,7 +48,6 @@ export function withAnkiDeadline<T>(operation: () => Promise<T>, description: st
     })
 }
 
-/** Запрет записи действует до завершения запроса, даже после истечения времени ожидания вызывающего кода. */
 export function withAnkiWriteDeadline<T>(scope: object, operation: () => Promise<T>, description: string,
     timeoutMs = 60_000): Promise<T> {
     if (hasPendingAnkiWrite(scope)) return Promise.reject(new AnkiWritePendingError())
@@ -68,7 +64,6 @@ export function isDuplicateFirstFieldErrorMessage(error: string): boolean {
     return /^cannot create note because it is (?:a )?duplicate[.!]?$/i.test(error.trim())
 }
 
-/** AnkiConnect возвращает эти ошибки addNote до создания записи. */
 export function isDefiniteAddNoteRejection(error: unknown): boolean {
     return typeof error === 'string' && (isDuplicateFirstFieldErrorMessage(error) ||
         /^(?:cannot create note because it is empty[.!]?|(?:model|deck) was not found:\s*.+)$/i.test(error.trim()))

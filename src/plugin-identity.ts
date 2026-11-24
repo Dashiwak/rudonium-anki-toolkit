@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Rudonium Anki Toolkit разрабатывает команда из нескольких человек. Контакт проекта — dashiwak.
 import type { App } from 'obsidian'
 
 export const rudoniumPluginId = 'rudonium-anki-toolkit'
@@ -7,7 +6,6 @@ export const supportUrl = 'https://gitflic.ru/project/dashiwak/rudonium-anki-too
 export const previousRudoniumId = 'rupos-anki-toolkit'
 export const upstreamPluginId = 'obsidian-to-anki-plugin'
 
-// Этот запрос к уже загруженному реестру не читает хранилище и не вызывает AnkiConnect.
 export function hasActiveLegacyPlugin(app: App): boolean {
     const registry = (app as App & { plugins?: {
         enabledPlugins?: ReadonlySet<string>

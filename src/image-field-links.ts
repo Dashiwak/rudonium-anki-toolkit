@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 const htmlTag = /<!--[\s\S]*?(?:-->|$)|<\/?([a-z][a-z0-9:-]*)(?=[\s/>])(?:[^<>"']|"[^"]*"|'[^']*')*>/gi
 const attribute = /(\s+)([^\s<>=/"']+)(?:(\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s<>="'`]+)))?/g
@@ -25,12 +23,11 @@ function decodeHtml(value: string): string {
 }
 
 export function encodeAnkiMediaFilename(filename: string): string | undefined {
-    if (!filename || filename === '.' || filename === '..' || /[/\\:\u0000-\u001f\u007f]/u.test(filename)) return undefined
+    if (!filename || filename === '.' || filename === '..' || /[/\\:\p{Cc}]/u.test(filename)) return undefined
     try {
         return encodeURIComponent(filename).replace(/[!'()*]/g, character =>
             '%' + character.charCodeAt(0).toString(16).toUpperCase())
     } catch {
-        // Имя файла с некорректным Unicode пропускаем, чтобы не вставлять его в поле.
         return undefined
     }
 }
@@ -40,7 +37,6 @@ function sourceKey(filename: string): string | undefined {
     return filename.normalize('NFC').toLowerCase()
 }
 
-/** Возвращает нормализованные локальные имена медиа из уже отформатированных полей. */
 export function imageFieldMediaKeys(fields: Readonly<Record<string, string>>): ReadonlySet<string> {
     const keys = new Set<string>()
     const add = (value: string) => {
@@ -83,7 +79,6 @@ export function imageFieldMediaKeys(fields: Readonly<Record<string, string>>): R
     return keys
 }
 
-/** Меняет ссылки на медиа только по подтверждённым соответствиям. Сохраняет остальные байты поля. */
 export function rewriteImageFields(fields: Record<string, string>, aliases: ReadonlyMap<string, string>): void {
     if (!aliases.size) return
     const normalized = new Map<string, string | null>()

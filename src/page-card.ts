@@ -6,7 +6,7 @@ export { pageHeading }
 import { isBidirectionalFieldName } from './bidirectional-fields'
 import { readDelimitedRule } from './delimited-rule'
 import { activeCardMarkdown } from './archived-card'
-import { currentCardExpression, cardFormatPresets, hasLinkedAnswerSlot, linkedCardPattern, knowledgeBulletExpression, pageCardExpression } from './card-format-presets'
+import { currentCardExpression, cardFormatPresets, hasLinkedAnswerSlot, linkedCardPattern, knowledgeMatchAllowed, knowledgeBulletExpression, pageCardExpression } from './card-format-presets'
 import type { PageSharedFields } from './page-named-fields'
 import { readSuspendLine } from './suspend-label'
 import { looksLikeAnkiIdMarker, pageFooterId, pageFooterMarker, parseAnkiIdMarker } from './anki-id-marker'
@@ -67,7 +67,7 @@ export function needsLinkedPageLayout(names: readonly string[]): boolean {
 export interface LinkedPageRoute { model: string; deck: string }
 const routePrefix = '<!--rudonium-page-route: '
 function validRouteName(value: unknown): value is string {
-    return typeof value === 'string' && value.trim() === value && !!value && !/[\u0000-\u001f\u007f]/u.test(value)
+    return typeof value === 'string' && value.trim() === value && !!value && !/\p{Cc}/u.test(value)
 }
 export function linkedPageRouteMarker(route: LinkedPageRoute): string {
     if (!validRouteName(route.model) || !validRouteName(route.deck)) throw new Error('Invalid Anki model or deck name.')
@@ -326,8 +326,6 @@ export function presetReaders(expressions: Readonly<Record<string, string>>, mod
         const knowledge = expression === knowledgeBulletExpression
         const wizard = readDelimitedRule(expression)
         const literals = wizard ? undefined : literalLayout(expression)
-        // Языки и R остаются в Markdown. Двусторонний режим изменяет вопрос и ответ,
-        // для которых даже при пропуске любой необязательной группы известны точные границы.
         const count = knowledge ? 2 : wizard?.count ?? (literals?.length ?? 1) - 1
         if (count < 2) continue
         const names = models ? models[model]?.slice(0, count) :
@@ -410,6 +408,7 @@ export function findPresetBlocks(text: string, readers: readonly PresetReader[],
             const contentEnd = endOf(limit - 1)
             if (contentEnd - start > (reader.layout?.multiline ? 65536 : 16384)) continue
             const body = text.slice(start, contentEnd)
+            if (reader.format === 'knowledge' && !knowledgeMatchAllowed(body, true)) continue
             let spans: [number, number][] | undefined
             if (reader.literals) spans = literalSpans(body, reader.literals)
             else {
@@ -420,7 +419,7 @@ export function findPresetBlocks(text: string, readers: readonly PresetReader[],
             if (!spans || spans.length < names.length || !spans.slice(0, names.length).every((span, index) => span && (span[0] < span[1] || index === 1 && hasLinkedAnswerSlot(reader.format)))) continue
             const fields = new Map(names.map((name, i) => {
                 let [from, to] = spans![i]
-                if (from === to && reader.format === 'remnote' && body.startsWith('::', from) &&
+                if (from === to && hasLinkedAnswerSlot(reader.format) && body.startsWith('::', from) &&
                     /[ \t]/u.test(body[from - 1])) {
                     // Keep the conventional space in front of the next separator when refilling the answer.
                     from--

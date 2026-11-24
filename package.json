@@ -1,6 +1,6 @@
 {
   "name": "rudonium-anki-toolkit",
-  "version": "0.10.13",
+  "version": "0.11.3",
   "description": "This is an Anki integration plugin! Designed for efficient bulk exporting.",
   "main": "main.js",
   "scripts": {
@@ -37,14 +37,14 @@
     "typescript": "^5.2.2",
     "wdio-chromedriver-service": "^8.1.1",
     "wdio-docker-service": "^3.2.1",
-    "wdio-wait-for": "^3.0.7"
+    "wdio-wait-for": "^3.0.7",
+    "webdriver": "^8.5.5"
   },
   "dependencies": {
     "byte-base64": "^1.1.0",
     "multimatch": "^7.0.0",
     "showdown": "^2.1.0",
-    "ts-md5": "^1.2.7",
-    "webdriver": "^8.5.5"
+    "ts-md5": "^1.2.7"
   },
   "bugs": {
     "url": "https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue"

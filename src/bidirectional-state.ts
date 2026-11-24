@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Md5 } from 'ts-md5'
 import { isProtectedAnkiTag } from './anki-study-state'
@@ -125,7 +123,6 @@ export function sameSyncExtras(left?: Readonly<Record<string, string>>, right?: 
         normalizedText(left![name]) === normalizedText(right[name]))
 }
 
-/** Совпадающие значения считаем согласованными. Для первого расхождения общей версии ещё нет. */
 export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue, anki: SyncValue,
     choices: SyncChoices = {}, extraDirections?: ReadonlyMap<string, BidirectionalFieldDirection>,
     fieldBases?: ReadonlyMap<string, string | null>, pairBases?: PairBases, initialTagBase?: readonly string[]):
@@ -167,14 +164,12 @@ export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue
     for (const key of Array.from(keys).sort()) {
         const local = localTags.get(key)
         const remote = remoteTags.get(key)
-        // Для одного тега стороны либо согласны, либо одна сторона отклоняется от сохранённого состояния.
         const selected = localTags.has(key) === previousTags.has(key) ? remote : local
         if (selected !== undefined) tags.push(selected)
     }
     return { value: { ...common, tags }, conflicts }
 }
 
-/** Запись может прерваться между обновлением полей и тегов. Продолжаем только со значениями, объяснимыми незавершённой операцией. */
 export function matchesPendingSyncValue(current: SyncValue, before: SyncValue, target: SyncValue): boolean {
     for (const field of ['front', 'back'] as const) {
         const value = normalizedText(current[field])
@@ -284,7 +279,6 @@ async function readDisk(storage: SyncStorage, basePath: string): Promise<SyncDis
     return [first, second, staged]
 }
 
-/** Подготовленная версия может восстановить копию, которую она должна была заменить, если предыдущая копия доступна. */
 function selectSnapshot(disk: SyncDisk, basePath: string, profile: string): { saved?: SyncSnapshot; seal: boolean } {
     const parse = (index: number) => {
         const text = disk[index]
@@ -390,7 +384,6 @@ function applyRows(records: Map<number, SyncRecord>, rows: Iterable<readonly [nu
     }
 }
 
-/** Хранит контрольные точки отдельно для каждого хранилища и профиля. План записи переживает перезапуск. */
 export class BidirectionalState {
     private readonly records: Map<number, SyncRecord>
     private revision: number
@@ -494,8 +487,6 @@ export class BidirectionalState {
         const version = this.format === 4 || rows.length >= journalMinRecords || rows.some(([, r]) => r.sourceSuffixes || r.pending?.sourceSuffixes) ? 4 :
             this.format === 3 || rows.some(([, r]) => r.suspension || r.deletionSource) ? 3 :
             this.format === 2 || rows.some(([, r]) => hasExtraFields(r)) ? 2 : 1
-        // Сначала подтверждаем пустой исходный снимок. Тогда сбой при резервировании первого
-        // журнала оставляет подлинный снимок, с которого можно автоматически повторить операцию.
         if (version === 4 && this.revision === 0) await this.saveSnapshot(new Map())
         const revision = this.revision + 1
         if (!isId(revision)) throw new Error('Invalid bidirectional sync checkpoint revision.')
@@ -505,7 +496,6 @@ export class BidirectionalState {
         const slot = revision % 2
         let journal: Journal | undefined
         if (version === 4) {
-            // Резервируем другой слот перед переключением снимка. Старый снимок и его журнал ещё доступны.
             const head = makeDelta(checksum, 0, '', [])
             const primary = JSON.stringify(head)
             const staged = this.journal ? this.journal.staged : await readOptional(this.storage, this.basePath + '.journal.staged')

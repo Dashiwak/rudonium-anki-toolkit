@@ -9,10 +9,12 @@ export interface PluginSettings {
     PAGE_MODEL?: string
     PAGE_ID_LOCATION?: "heading" | "yaml" | "after-answer"
     AUDIT_READ_ONLY?: boolean
+    SYNC_CHANGE_HISTORY?: boolean
     BIDIRECTIONAL_SYNC?: boolean
     BIDIRECTIONAL_PREVIEW?: boolean
     BIDIRECTIONAL_CONFLICT_POLICY?: "latest" | "skip"
     SKIP_SYNC_ERRORS?: boolean
+    LEGACY_IGNORED_FILE_GLOBS?: string[]
     SYNC_FOLDER_PROFILES?: import("../sync-profiles").SyncFolderProfile[]
     ACTIVE_SYNC_FOLDER_PROFILE?: string
     EFFECTIVE_EXPORT_RULES?: import("../export-rules").ExportRule[]

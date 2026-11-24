@@ -34,21 +34,60 @@ function metadataExpression(localeSeparator: string, linked = false): string {
     const body = linked ? remPrefix + '(' + remValue + '|)' : remBody
     return body + String.raw`(?:[ \t]*::[ \t]*(?:R|[FB]=[a-z]{2,3}${localeSeparator}[A-Z]{2}\.?))*` + end
 }
-// Проектный формат хранит R и языки в трёх независимых необязательных захватах.
 export const knowledgeBulletExpression = String.raw`^- (?=\S)((?:(?!::)[^\r\n])+?)[ \t]+::[ \t]+(?=\S)((?:(?!::)[^\r\n])+?)(?:[ \t]+::[ \t]+(R))?(?:[ \t]+::[ \t]+F=([a-z]{2,3}_[A-Z]{2}))?(?:[ \t]+::[ \t]+B=([a-z]{2,3}_[A-Z]{2}))?[ \t]*\r?$`
 
-// Obsidian может сохранить подчёркивание в языковом коде как Markdown-escape.
 const knowledgeMarkdownExpression = knowledgeBulletExpression.replace(/\}_\[/gu, String.raw`}\\?_[`)
 // Only the pass that requires a verified ID accepts an empty second slot.
 const knowledgeBack = String.raw`::[ \t]+(?=\S)((?:(?!::)[^\r\n])+?)`
 const linkedKnowledge = knowledgeMarkdownExpression.replace(knowledgeBack,
     () => String.raw`::(?=[ \t]|\r?$)[ \t]*((?=\S)(?:(?!::)[^\r\n])+?|)`)
 const knowledgeBullet = new RegExp(linkedKnowledge)
+const strictKnowledge = new RegExp(knowledgeMarkdownExpression)
+const flexKnowledge = knowledgeMarkdownExpression.replaceAll('[ \\t]+::[ \\t]+', '[ \\t]*::(?!:)[ \\t]*')
+const flexLinkedKnowledge = linkedKnowledge.replaceAll('[ \\t]+::[ \\t]+', '[ \\t]*::(?!:)[ \\t]*')
+    .replace('[ \\t]+::(?=[ \\t]|\\r?$)', '[ \\t]*::(?!:)')
+const legacyKnowledgeBullet = knowledgeBulletExpression.replace('^- ', '^[-] ')
+
+export function isKnowledgeRule(expression: string): boolean {
+    return expression === knowledgeBulletExpression || expression === legacyKnowledgeBullet
+}
+
+export interface SeparatorRepair {
+    before: string
+    after: string
+    offsets: number[]
+}
+
+export function separatorRepair(line: string, linked: boolean): SeparatorRepair | undefined {
+    if (!line.startsWith('- ') || !line.includes('::') || line.length > 16384 ||
+        /:::|[\x60<>\[\]{}$]|%%|:\/\/|\\(?!_)|\r|\n/u.test(line)) return
+    const offsets: number[] = []
+    let joins = 0
+    for (const match of line.matchAll(/::/gu)) {
+        if (++joins > 4) return
+        const at = match.index!
+        const left = line[at - 1], right = line[at + 2]
+        if (!left || !right) return
+        const addLeft = !/[ \t]/u.test(left), addRight = !/[ \t]/u.test(right)
+        if (addLeft && addRight && /[A-Za-z0-9_]/u.test(left) && /[A-Za-z0-9_]/u.test(right)) return
+        if (addLeft) offsets.push(at)
+        if (addRight) offsets.push(at + 2)
+    }
+    if (!offsets.length) return
+    let after = line
+    for (let i = offsets.length - 1; i >= 0; --i) after = after.slice(0, offsets[i]) + ' ' + after.slice(offsets[i])
+    if (!strictKnowledge.test(after) || !linked && !/[ \t]+::[ \t]+(?:R|[FB]=[a-z]{2,3}\\?_[A-Z]{2})[ \t]*$/u.test(after)) return
+    return { before: line, after, offsets }
+}
+
+export function knowledgeMatchAllowed(line: string, linked: boolean): boolean {
+    return (linked ? knowledgeBullet : strictKnowledge).test(line) || !!separatorRepair(line, linked)
+}
 export function isKnowledgeBullet(text: string, start: number): boolean {
     if (!text.startsWith('- ', start)) return false
     const lf = text.indexOf('\n', start)
     const end = lf < 0 ? text.length : lf
-    return end - start <= 16384 && knowledgeBullet.test(text.slice(start, end))
+    return end - start <= 16384 && knowledgeMatchAllowed(text.slice(start, end).replace(/\r$/u, ''), true)
 }
 
 const previousRemNoteExpression = metadataExpression('_')
@@ -62,7 +101,7 @@ export function isRemNoteBullet(text: string, start: number): boolean {
 }
 
 export function linkedCardPattern(expression: string): string {
-    if (expression === knowledgeBulletExpression) return linkedKnowledge
+    if (isKnowledgeRule(expression)) return flexLinkedKnowledge
     const current = currentCardExpression(expression)
     return current === remNoteExpression ? linkedRemNote : current
 }
@@ -76,7 +115,6 @@ export function currentCardExpression(expression: string): string {
     return expression === legacyRemNoteExpression || expression === previousRemNoteExpression ? remNoteExpression : expression
 }
 
-/** Маркеры языка остаются в Markdown, даже если модель содержит только два поля. */
 export function applyRemNoteMetadata(expression: string, matched: string, fields: Record<string, string>, names: readonly string[]): string[] {
     if (currentCardExpression(expression) !== remNoteExpression) return []
     const lineEnd = matched.search(/[\r\n]/)
@@ -126,10 +164,9 @@ export const namedCardExpressions: ReadonlySet<string> = new Set(cardFormatPrese
 
 export const tableCardExpression = cardFormatPresets.find(preset => preset.id === 'table')!.expression
 
-/** Одна пустая строка после таблицы отделяет маркер Anki от ячеек Markdown. */
 export function cardRegexpWithSuffix(expression: string, tags: string, id: string): string {
     const gap = expression === tableCardExpression && (tags || id) ? String.raw`(?:\r?\n[ \t]*(?=\r?$))?` : ''
-    const pattern = id ? linkedCardPattern(expression) : expression === knowledgeBulletExpression ? knowledgeMarkdownExpression : currentCardExpression(expression)
+    const pattern = id ? linkedCardPattern(expression) : isKnowledgeRule(expression) ? flexKnowledge : currentCardExpression(expression)
     return pattern + gap + tags + id
 }
 

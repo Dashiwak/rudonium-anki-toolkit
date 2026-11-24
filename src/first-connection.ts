@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Setting } from 'obsidian'
 import type MyPlugin from '../main'
@@ -11,6 +9,7 @@ import { readAnkiDeckKind } from './anki-study-state'
 import { buildBasicCardVariants, readCardTemplateVariants } from './card-preview-render'
 import { openCardPreview } from './card-preview-ui'
 import { installModalLayout } from './modal-layout'
+import { rememberGroup, saveSettingsLayout } from './settings-layout'
 import { readNoteTypeSchema } from './note-type-refresh'
 import { auditRead } from './sync-audit'
 import { uiDiagnostic, uiFor } from './interface-language'
@@ -128,6 +127,7 @@ class FirstConnectionModal extends Modal {
         this.render()
     }
     onClose(): void {
+        saveSettingsLayout(this.contentEl, this.plugin)
         this.closed = true
         this.controller?.abort()
         if (running.get(this.plugin) === this) running.delete(this.plugin)
@@ -202,7 +202,7 @@ class FirstConnectionModal extends Modal {
         const { t } = this
         const values = this.exampleValues(choice)
         const fields = connection.fields[choice.model].map((name, index) => {
-            const text = this.contentEl.ownerDocument.createElement('span')
+            const text = this.contentEl.ownerDocument.createDocumentFragment().createSpan()
             text.textContent = values[index] ?? ''
             return { name, html: text.innerHTML }
         })
@@ -223,13 +223,31 @@ class FirstConnectionModal extends Modal {
 
     private render(): void {
         const { t, contentEl, connection, choice, busy } = this
+        saveSettingsLayout(contentEl, this.plugin)
         contentEl.empty()
         if (this.message) contentEl.createEl('p', { text: this.message, attr: { role: 'status', 'aria-live': 'polite' } })
         if (this.failed) contentEl.createEl('a', { text: t('Help on GitFlic', 'Помощь на GitFlic'), attr: { href: supportUrl } })
         if (!connection || !choice) {
             contentEl.createEl('p', { text: t('Open your profile in desktop Anki with AnkiConnect enabled.',
                 'Откройте нужный профиль в настольной Anki с включённым AnkiConnect.') })
-            contentEl.createEl('a', { text: t('Install AnkiConnect', 'Установка AnkiConnect'),
+            const guide = contentEl.createEl('details')
+            rememberGroup(guide, this.plugin, 'quick-start-connection-help', this.firstRun || this.failed)
+            guide.createEl('summary', { text: t('Set up AnkiConnect', 'Как настроить AnkiConnect') })
+            const steps = guide.createEl('ol')
+            steps.createEl('li', { text: t(
+                'In desktop Anki, open Tools → Add-ons → Get Add-ons. Enter 2055492159 and restart Anki.',
+                'В настольной Anki откройте «Инструменты → Дополнения → Загрузить дополнения». Введите 2055492159 и перезапустите Anki.') })
+            const cors = steps.createEl('li', { text: t(
+                'Under Tools → Add-ons, select AnkiConnect and open Config. Add "app://obsidian.md" to webCorsOriginList, keeping the existing entries. Example list after editing',
+                'В разделе «Инструменты → Дополнения» выберите AnkiConnect и откройте «Настройки» (Config). Добавьте "app://obsidian.md" в список webCorsOriginList, сохранив прежние адреса. Пример списка после правки') })
+            cors.createEl('pre', { text: '["http://localhost", "app://obsidian.md"]' })
+            steps.createEl('li', { text: t(
+                'Save the configuration, restart Anki and leave your collection open. In this window, choose Check Connection.',
+                'Сохраните настройки, перезапустите Anki и оставьте коллекцию открытой. В этом окне нажмите «Проверить соединение».') })
+            guide.createEl('p', { text: t(
+                'Rudonium connects on this computer at 127.0.0.1:8765. It supports the default AnkiConnect setup with apiKey set to null.',
+                'Rudonium подключается к Anki на этом компьютере по адресу 127.0.0.1:8765. Поддерживается стандартная конфигурация AnkiConnect со значением null у apiKey.') })
+            guide.createEl('a', { text: t('AnkiConnect on AnkiWeb', 'AnkiConnect на AnkiWeb'),
                 attr: { href: 'https://ankiweb.net/shared/info/2055492159' } })
             const actions = contentEl.createDiv({ cls: 'modal-button-container' })
             const check = actions.createEl('button', {
@@ -325,6 +343,7 @@ class FirstConnectionModal extends Modal {
         }
         refreshCard()
         const options = form.createEl('details')
+        rememberGroup(options, this.plugin, 'quick-start-more-options')
         options.createEl('summary', { text: t('More options', 'Дополнительные настройки') })
         new Setting(options).setName(t('Require this profile before writing', 'Проверять этот профиль перед записью'))
             .addToggle(control => control.setValue(choice.lock).onChange(lock => { choice.lock = lock }))
@@ -334,6 +353,9 @@ class FirstConnectionModal extends Modal {
             if (!signal.aborted) await this.preview(connection, { ...choice }, signal)
         })
         options.createEl('button', { text: t('Check connection again', 'Проверить соединение снова') }).onclick = () => void this.act(signal => this.connect(signal))
+        if (this.firstRun) form.createEl('p', { text: t(
+            'For your first card, save this setup and write a card using the example format in a Markdown note. Put the cursor in the card and run Preview Current Card. Confirm the export and keep the ID that appears next to the card.',
+            'Сохраните настройки и запишите первую карточку по образцу в заметку Markdown. Поставьте курсор в карточку и выполните команду «Предпросмотр текущей карточки». Подтвердите экспорт и сохраните ID, который появится рядом с карточкой.') })
         const actions = form.createDiv({ cls: 'modal-button-container' })
         if (this.firstRun) actions.createEl('button', { text: t('Migrate existing card files', 'Перенести существующие карточки') }).onclick =
             () => { this.migrating = true; this.render() }
@@ -369,7 +391,6 @@ function open(plugin: MyPlugin, t: UiText, save: Save, firstRun = false, suggest
 
 type SetupLock = (task: () => Promise<void>) => Promise<void>
 
-/** Чистая установка может открыть мастер без подключения к Anki. Сканирование останавливается при выгрузке. */
 export function registerSetupCommand(plugin: MyPlugin, withLock: SetupLock, stopped: () => boolean): void {
     plugin.addCommand({ id: 'ankiconnect-first-run', name: uiFor(plugin.settings)('Quick Start', 'Быстрый старт'),
         callback: () => openSetup(plugin, withLock) })
@@ -405,7 +426,6 @@ function openSetup(plugin: MyPlugin, withLock: SetupLock, redraw?: () => void): 
             JSON.stringify(previousFields[choice.model]) !== JSON.stringify(connection.fields[choice.model]))) {
             throw new Error(t('Refresh note types in settings and reopen Quick Start.', 'Обновите типы записей в настройках и заново откройте быстрый старт.'))
         }
-        // До первого подключения список типов пуст. Публикуем проверенную схему вместе с выбором пользователя.
         const expressions = settings.CUSTOM_REGEXPS
         const previousDeck = settings.Defaults.Deck
         const previousProfile = settings.EXPECTED_ANKI_PROFILE

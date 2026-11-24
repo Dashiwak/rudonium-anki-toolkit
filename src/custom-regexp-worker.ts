@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export interface CustomRegexpPattern {
     source: string
@@ -35,7 +33,6 @@ const maxResultCharacters = 16 * 1024 * 1024
 const maxPatternLength = 64 * 1024
 const maxPatterns = 512
 
-// Этот код выполняется только в рабочем потоке. Пользовательское выражение не исполняется в потоке редактора.
 const workerProgram = String.raw`
 function execute(message, send) {
     const { text, patterns, maxMatchCount, maxResultCharacters } = message;
@@ -75,7 +72,7 @@ self.addEventListener('message', event => execute(event.data, answer => self.pos
 `
 
 let port: WorkerPort | undefined
-let idleTimer: ReturnType<typeof setTimeout> | undefined
+let idleTimer: number | undefined
 let queue: Promise<void> = Promise.resolve()
 
 export function customRegexpKey({ source, flags }: CustomRegexpPattern): string {
@@ -83,12 +80,10 @@ export function customRegexpKey({ source, flags }: CustomRegexpPattern): string 
 }
 
 function workerPort(): WorkerPort {
-    // В Electron поток интерфейса может запрещать создание рабочих потоков из Blob. Поток Node также изолирован.
     if (typeof require === 'function') {
         try {
             const threads = require('worker_threads') as typeof import('worker_threads')
             const worker = new threads.Worker(nodeWorkerProgram, { eval: true })
-            // Обрабатываем ошибку простаивающего рабочего потока, чтобы EventEmitter не счёл её необработанной.
             worker.on('error', () => {})
             worker.unref()
             return {
@@ -101,7 +96,6 @@ function workerPort(): WorkerPort {
                 stop: () => { void worker.terminate().catch(() => undefined) },
             }
         } catch {
-            // Пробуем интерфейс рабочих потоков, доступный из процесса интерфейса.
         }
     }
     if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL.createObjectURL !== 'function') {
@@ -138,13 +132,11 @@ function forget(worker: WorkerPort): void {
 }
 
 function releaseIdle(worker: WorkerPort): void {
-    if (idleTimer !== undefined) clearTimeout(idleTimer)
-    idleTimer = setTimeout(() => {
+    if (idleTimer !== undefined) window.clearTimeout(idleTimer)
+    idleTimer = window.setTimeout(() => {
         idleTimer = undefined
         if (port === worker) forget(worker)
     }, idleDeadlineMs)
-    const nodeTimer = idleTimer as ReturnType<typeof setTimeout> & { unref?: () => void }
-    nodeTimer.unref?.()
 }
 
 function cancelled(options: CustomRegexpOptions): boolean {
@@ -168,7 +160,6 @@ function decodeGroups(text: string, patterns: readonly CustomRegexpPattern[], gr
             const match = result.values as RegExpMatchArray
             match.index = result.index
             match.input = text
-            // Сохраняем нулевой прототип объекта именованных групп, возвращаемого RegExp.prototype.exec.
             if (result.groups) match.groups = Object.assign(Object.create(null), result.groups)
             return match
         })
@@ -180,7 +171,7 @@ function runWorker(text: string, patterns: readonly CustomRegexpPattern[], optio
     Promise<ReadonlyMap<string, readonly RegExpMatchArray[]>> {
     if (cancelled(options)) return Promise.reject(abortError())
     if (idleTimer !== undefined) {
-        clearTimeout(idleTimer)
+        window.clearTimeout(idleTimer)
         idleTimer = undefined
     }
     const worker = port ??= workerPort()
@@ -188,14 +179,14 @@ function runWorker(text: string, patterns: readonly CustomRegexpPattern[], optio
         let label: string | undefined
         let done = false
         let unlisten = () => {}
-        let poll: ReturnType<typeof setInterval> | undefined
+        let poll: number | undefined
         const deadline = options.timeoutMs ?? defaultDeadlineMs
-        const timer = setTimeout(() => failure(`exceeded the ${deadline} ms limit for this file`, true), deadline)
+        const timer = window.setTimeout(() => failure(`exceeded the ${deadline} ms limit for this file`, true), deadline)
         const finish = () => {
             if (done) return false
             done = true
-            clearTimeout(timer)
-            if (poll !== undefined) clearInterval(poll)
+            window.clearTimeout(timer)
+            if (poll !== undefined) window.clearInterval(poll)
             options.signal?.removeEventListener('abort', abort)
             unlisten()
             return true
@@ -230,7 +221,7 @@ function runWorker(text: string, patterns: readonly CustomRegexpPattern[], optio
                 }
             }, error => failure(error, true))
             options.signal?.addEventListener('abort', abort, { once: true })
-            if (options.shouldStop) poll = setInterval(() => { if (cancelled(options)) abort() }, 30)
+            if (options.shouldStop) poll = window.setInterval(() => { if (cancelled(options)) abort() }, 30)
             if (cancelled(options)) { abort(); return }
             worker.send({ text, patterns, maxMatchCount, maxResultCharacters })
         } catch (error) {
@@ -239,7 +230,6 @@ function runWorker(text: string, patterns: readonly CustomRegexpPattern[], optio
     })
 }
 
-/** Один переиспользуемый рабочий поток обрабатывает ограниченное число совпадений регулярных выражений вне потока редактора. */
 export async function matchCustomRegexps(text: string, patterns: Iterable<CustomRegexpPattern>,
     options: CustomRegexpOptions = {}): Promise<ReadonlyMap<string, readonly RegExpMatchArray[]>> {
     const unique = new Map<string, CustomRegexpPattern>()

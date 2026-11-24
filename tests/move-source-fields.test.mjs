@@ -407,7 +407,7 @@ test('pure inbound checks the live file, values and profile on both sides of its
             assert.equal(h.host.calls.slice(lastAnkiRead).filter(c=>c.action==='notesInfo').length,1)
             assert.ok(h.host.calls.slice(lastAnkiRead).some(c=>c.action==='getActiveProfile'))
         }
-        if (fault !== 'profile-after') assert.match(result,fault==='none'? /Confirmed 1 of 1/ : /Confirmed 0 of 1/)
+        if (fault !== 'profile-after') assert.match(result,fault==='none'? /Updated 1 note\./ : /Could not confirm changes to 1 note\./)
         assert.equal(h.host.calls.some(c=>c.action==='updateNoteFields'),false)
     }
 })

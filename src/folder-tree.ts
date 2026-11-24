@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { TFolder } from 'obsidian'
 import type { Vault } from 'obsidian'
@@ -32,6 +30,8 @@ interface FolderTreeOptions<Action extends RowAction> {
     searchLabel?: string
     initiallyVisible?: readonly string[]
     viewState?: { expanded: Set<string>; query: string }
+    onBranchToggle?: (expanded: ReadonlySet<string>) => void
+    pickSearchResults?: boolean
     onExactMatch?: (path: string) => void
     renderAction: (row: HTMLElement, label: HTMLElement, entry: FolderTreeEntry) => Action | undefined
 }
@@ -94,7 +94,6 @@ interface RenderedRow<Action extends RowAction> {
     action?: Action
 }
 
-/** Штатные списки и кнопки позволяют независимо раскрывать ветки и выполнять действия для папки. */
 export function createFolderTree<Action extends RowAction>(parent: HTMLElement, options: FolderTreeOptions<Action>) {
     const { entries, t } = options
     const { roots, nodes } = makeTree(entries)
@@ -116,6 +115,7 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
     let disabled = false
     let query = ''
     let exactMatch: string | undefined
+    let singleMatch: string | undefined
     let filtered: Set<string> | undefined
     let matchCount = 0
     let limit = pageSize
@@ -188,8 +188,11 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
                     if (query) {
                         if (open) searchCollapsed.add(node.path)
                         else searchCollapsed.delete(node.path)
-                    } else if (open) expanded.delete(node.path)
-                    else expanded.add(node.path)
+                    } else {
+                        if (open) expanded.delete(node.path)
+                        else expanded.add(node.path)
+                        options.onBranchToggle?.(expanded)
+                    }
                     render()
                     focusRow(node.path, true)
                 }
@@ -202,15 +205,35 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
             } else row.createSpan({ attr: { 'aria-hidden': 'true' } })
             const label = row.createDiv({ title: node.path })
             label.classList.add('rudonium-wrap-anywhere')
-            label.createSpan({ text: node.name })
+            const name = (options.pickSearchResults && query.includes('/') ? node.path : node.name).normalize('NFC')
+            const at = options.pickSearchResults && query ? name.toLowerCase().indexOf(query) : -1
+            if (at < 0) label.createSpan({ text: node.name })
+            else {
+                label.createSpan({ text: name.slice(0, at) })
+                label.createEl('mark', { text: name.slice(at, at + query.length) })
+                label.createSpan({ text: name.slice(at + query.length) })
+            }
             const action = node.entry && options.renderAction(row, label, node.entry)
             if (action) action.disabled = disabled
+            const focusTarget: HTMLElement | undefined = action
+            if (focusTarget && options.pickSearchResults) focusTarget.addEventListener('keydown', event => {
+                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+                const choices = [...rendered].filter(([path, entry]) => entry.action && nodes.get(path)!.key.includes(query))
+                const index = choices.findIndex(([path]) => path === node.path)
+                const target = choices[index + (event.key === 'ArrowDown' ? 1 : -1)]
+                if (target) {
+                    event.preventDefault()
+                    focusRow(target[0])
+                } else if (event.key === 'ArrowUp' && index === 0) {
+                    event.preventDefault()
+                    search.focus()
+                }
+            })
             rendered.set(node.path, { item, row, toggle, action })
         }
 
         viewport.hidden = rendered.size === 0
         nextPage = takeRows(pageSize)
-        // Кнопка существует только при наличии строк следующей страницы — независимо от темы Obsidian.
         if (nextPage.length) {
             if (!more) {
                 more = pager.createEl('button', { attr: { type: 'button' } })
@@ -239,10 +262,12 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
         filtered = query ? new Set<string>() : undefined
         matchCount = 0
         exactMatch = undefined
+        singleMatch = undefined
         if (filtered) {
             for (const node of nodes.values()) {
                 if (!node.entry || !node.key.includes(query)) continue
                 matchCount++
+                if (options.pickSearchResults) singleMatch = matchCount === 1 ? node.path : undefined
                 if (searchKey(node.path) === query) exactMatch = exactMatch === undefined ? node.path : ''
                 for (let ancestor: FolderNode | undefined = node; ancestor && !filtered.has(ancestor.path); ancestor = ancestor.parent) {
                     filtered.add(ancestor.path)
@@ -264,12 +289,15 @@ export function createFolderTree<Action extends RowAction>(parent: HTMLElement, 
             return
         }
         if (!rendered.size) return
+        const suggested = exactMatch || singleMatch
         if (event.key === 'ArrowDown') {
             event.preventDefault()
-            focusRow()
-        } else if (event.key === 'Enter' && exactMatch && options.onExactMatch) {
+            const firstMatch = options.pickSearchResults && query
+                ? [...rendered.keys()].find(path => nodes.get(path)!.key.includes(query) && rendered.get(path)?.action) : undefined
+            focusRow(firstMatch)
+        } else if (event.key === 'Enter' && suggested && options.onExactMatch) {
             event.preventDefault()
-            options.onExactMatch(exactMatch)
+            options.onExactMatch(suggested)
         }
     }
     search.value = options.viewState?.query ?? ''

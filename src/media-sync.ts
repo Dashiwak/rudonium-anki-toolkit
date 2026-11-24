@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { TFile, TFolder } from 'obsidian'
 import type { App } from 'obsidian'
@@ -122,9 +120,7 @@ export function imageAliases(index: MediaIndex, profile: string): ReadonlyMap<st
         else if (record.image) optimized.push(record)
         else addRecord(record)
     }
-    // Если сохранены оба подтверждения, оптимизированное вложение заменяет обычную отправленную копию.
     optimized.forEach(addRecord)
-    // Явно подтверждённая ссылка с отдельным именем имеет приоритет для этой заметки.
     namespaced.forEach(addRecord)
     return byNote
 }
@@ -210,7 +206,6 @@ export function loadMediaIndex(index: MediaIndex, data: unknown): void {
         const key = entry.namespaced ? namespaceKey(entry.path, entry.sourceFilename, entry.ankiProfile)
             : entry.image ? imageKey(entry.sourceFilename, entry.image.profile) : mediaKey(entry.filename)
         if (ambiguous.has(key)) continue
-        // При повреждённом индексе порядок записей не определяет принадлежность имени файла.
         if (index.has(key)) {
             index.delete(key)
             ambiguous.add(key)
@@ -282,7 +277,6 @@ function mergeSourceReferences(previous: MediaRecord | undefined, notes: Readonl
     references: MediaReference[]): MediaReference[] | undefined {
     const merged = (previous?.sourceReferences ?? []).filter(({ note }) => !notes.has(note))
     for (const reference of references) {
-        // Созданные форматтером ссылки обычно уже используют имя файла. Сохраняем только дополнительные соответствия.
         if (localMediaName(reference.link) !== reference.link) merged.push(reference)
     }
     return merged.length ? merged : undefined
@@ -291,7 +285,6 @@ function mergeSourceReferences(previous: MediaRecord | undefined, notes: Readonl
 function encode(bytes: ArrayBuffer): string {
     const array = new Uint8Array(bytes)
     const parts: string[] = []
-    // Размер всех частей, кроме последней, кратен трём байтам.
     const step = 12 * 1024
     for (let offset = 0; offset < array.length; offset += step) {
         parts.push(btoa(String.fromCharCode(...array.subarray(offset, offset + step))))
@@ -333,7 +326,6 @@ function isMediaReadResponse(value: unknown): value is { result: unknown; error:
     return typeof value === 'object' && value !== null && 'result' in value && 'error' in value
 }
 
-/** Проверяет содержимое в закреплённом профиле непосредственно перед перезаписью файла. */
 async function confirmMediaOverwrite(filename: string, expectedDigest: string, profile: string,
     checkProfile: () => Promise<string | undefined>): Promise<void> {
     const requests = [
@@ -343,7 +335,6 @@ async function confirmMediaOverwrite(filename: string, expectedDigest: string, p
     ]
     let response: unknown
     try {
-        // Один пакет запросов чтения сокращает промежуток между проверкой коллекции и файла.
         response = await withAnkiDeadline(() => AnkiConnect.invoke('multi', { actions: requests }), 'Verify Anki attachment before replacing it')
     } catch (error) {
         if (!unsupportedAction(error)) throw error
@@ -358,7 +349,6 @@ async function confirmMediaOverwrite(filename: string, expectedDigest: string, p
     }
     const [before, media, after] = response
     if (before.result !== profile || after.result !== profile) {
-        // Перед остановкой пакета даём вызывающему коду зарегистрировать подтверждённое несоответствие профиля.
         await checkProfile()
         const reported = before.result !== profile ? before.result : after.result
         if (typeof reported !== 'string' || !reported.trim()) throw new AnkiProfileError('unavailable', profile)
@@ -384,7 +374,6 @@ function filenamePattern(filename: string): string {
     }).join('')
 }
 
-/** Точный запрос может совпасть без учёта регистра. По возможности уточняем фактическое написание имени на диске. */
 async function existingMediaFilename(filename: string, expected: string): Promise<string | undefined> {
     const key = mediaKey(filename)
     const candidates = new Set<string>()
@@ -394,7 +383,6 @@ async function existingMediaFilename(filename: string, expected: string): Promis
         try {
             names = await withAnkiDeadline(() => AnkiConnect.invoke('getMediaFilesNames', { pattern }), 'Verify Anki attachment filename')
         } catch (error) {
-            // При работе со старым AnkiConnect сохраняем существующие ссылки.
             if (error instanceof Error && /unsupported action|unknown action/i.test(error.message)) return undefined
             throw error
         }
@@ -467,7 +455,6 @@ async function planNamespaceAlias(app: App, attachment: TFile, sourceFilename: s
     const local = await digest(bytes)
     const extension = /\.[a-z0-9]{1,12}$/iu.exec(sourceFilename)?.[0].toLowerCase()
     if (!extension) throw new Error('An unambiguous attachment filename could not be prepared.')
-    // Хеш зависит от исходного пути и байтов. Устаревшая копия остаётся в Anki для других карточек.
     const filename = `rupos-media-${await digest(new TextEncoder().encode(JSON.stringify([path, local])).buffer)}${extension}`
     const remote = await remoteDigest(filename)
     if (remote !== null && remote !== local) throw new Error('Anki has a different file at the proposed attachment name.')
@@ -489,7 +476,6 @@ async function planNamespaceAlias(app: App, attachment: TFile, sourceFilename: s
         remoteBefore: remote, remoteNames, sourceGuard: local, profileGuard: profile, confirmAlias: !previous }
 }
 
-/** Вычисляет хеш байтов, которые отправит экспорт. Отличающаяся копия отмечается как конфликт для проверки. */
 export async function planMedia(app: App, references: readonly MediaReference[], index: MediaIndex,
     report: (path: string, error: string) => void, settings?: ImageOptimizationSettings,
     showReplacementReferences = false, pinnedProfile?: string,
@@ -527,7 +513,6 @@ export async function planMedia(app: App, references: readonly MediaReference[],
         const managedKey = profile ? imageKey(sourceFilename, profile) : undefined
         const managed = managedKey ? index.get(managedKey) : undefined
         const saved = index.get(key)
-        // Разрешаем замену только по подтверждению, которое относится к этой коллекции.
         const previous = saved?.ankiProfile === pinnedProfile ? saved : undefined
         const destinationProfile = pinnedProfile ?? profile
         const occupiedPaths = new Set([previous?.path, managed?.path].filter((path): path is string =>
@@ -547,7 +532,6 @@ export async function planMedia(app: App, references: readonly MediaReference[],
             if (!notes.size) continue
             const aliasKey = destinationProfile && namespaceKey(path, sourceFilename, destinationProfile)
             const priorAlias = aliasKey ? index.get(aliasKey) : undefined
-            // После выбора части карточек второй источник из предпросмотра может не попасть в этот пакет.
             const reviewedSource = typeof allowNewAliases !== 'boolean' && allowNewAliases.has(path)
             let filename = previous?.filename ?? group.filename
             try {
@@ -600,8 +584,6 @@ export async function planMedia(app: App, references: readonly MediaReference[],
                         continue
                     }
                 }
-                // Anki может нормализовать имена при сохранении медиа. Под запрошенным
-                // именем и известным ему соответствием уже могут лежать разные файлы.
                 const remoteCopies = await readRemoteCopies(new Set([filename, group.filename, mediaKey(group.filename)]))
                 let remote: string | null = null
                 for (const [name, hash] of remoteCopies) {
@@ -661,7 +643,6 @@ export async function planMedia(app: App, references: readonly MediaReference[],
                 if (!canonicalConfirmed && remote !== null && (mediaKey(sourceFilename) !== sourceFilename ||
                     encodeAnkiMediaFilename(sourceFilename) !== sourceFilename || filename !== sourceFilename)) {
                     const matches = Array.from(remoteCopies).filter(([, hash]) => hash !== null)
-                    // Если поиск по другому написанию завершился ошибкой, Anki различает эти имена.
                     const confirmedName = matches.length === 1 && remoteCopies.size > 1 ? matches[0][0]
                         : await existingMediaFilename(filename, remote)
                     if (confirmedName) {
@@ -708,7 +689,7 @@ export async function applyMedia(app: App, plans: readonly MediaPlan[], index: M
     report: (path: string, error: string) => void, confirmed = new Set<string>(), shouldStop?: () => boolean,
     onReady?: (plan: MediaPlan) => void, backedUpProfile?: string,
     checkAnkiProfile?: (confirmCommitted?: boolean) => Promise<string>,
-    onWriteRequest?: (answered: boolean) => void): Promise<Set<string>> {
+    onWriteRequest?: (answered: boolean) => void, onUploaded?: (plan: MediaPlan, filename: string) => void): Promise<Set<string>> {
     const sent = new Set<string>()
     for (const plan of plans) {
         const { record, notes, upload, remoteBefore, remoteNames } = plan
@@ -751,7 +732,6 @@ export async function applyMedia(app: App, plans: readonly MediaPlan[], index: M
                 for (const [filename, expectedRemote] of remoteNames) {
                     const actualRemote = await remoteDigest(filename)
                     if ((record.image || record.namespaced) && filename === record.filename && expectedRemote === null && actualRemote === record.digest) {
-                        // Другой исходник в этом пакете дал такие же оптимизированные байты.
                         needsUpload = false
                     } else if (actualRemote !== expectedRemote) {
                         throw new Error('The Anki copy changed before export.')
@@ -778,7 +758,6 @@ export async function applyMedia(app: App, plans: readonly MediaPlan[], index: M
                 record.stamp = stamp(file)
             }
             if (needsUpload && outgoing) {
-                // При отправке нового файла сохраняем файл, созданный после предварительной проверки.
                 const data = encode(outgoing)
                 const confirmedProfile = await checkProfile()
                 if (remoteBefore !== null) {
@@ -805,6 +784,7 @@ export async function applyMedia(app: App, plans: readonly MediaPlan[], index: M
                 confirmedFilename = filename
                 canonicalConfirmed = true
                 for (const path of notes) sent.add(path)
+                onUploaded?.(plan, filename)
             }
             if (copyPath) {
                 const copy = outgoing ?? await readAnkiMediaBytes(confirmedFilename)

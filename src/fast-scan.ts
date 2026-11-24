@@ -1,14 +1,9 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-/**
- * Управляет быстрым экспортом из Obsidian в Anki. Начните с scanVaultFast внизу файла.
- * Этот модуль выбирает файлы, передаёт их FileManager и сохраняет результат проверки.
- * Формат карточек разбирает штатный AllFile, а AnkiConnect передаёт команды настольному Anki.
- */
+import { recordSyncChanges, syncHistoryEnabled, syncHistoryLimit } from './sync-change-history'
+import type { SyncHistoryChange } from './sync-change-history'
 import { generatedRuleGuard } from './delimited-rule'
 import { afterDeleteMode } from './deletion-policy'
 import { registerRecordReview } from './obsidian-navigation'
@@ -59,6 +54,7 @@ import { sendExportBatches } from './export-batch'
 import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from './anki-transport'
 import { OneWayHistory } from './oneway-history'
 import { ExportOperationJournal, operationJournalPath } from './export-operation-journal'
+import { checkedCount, skippedFiles, SyncOutcome } from './sync-outcome'
 import { showExportOperationJournal } from './export-operation-journal-ui'
 import { oneWayFieldChoice } from './export-plan'
 import { forgetConfirmedAnkiDeletions, hasPendingBidirectionalWrite, pendingBidirectionalWriteMessage, previewBidirectionalSync, runBidirectionalSync } from './bidirectional-sync'
@@ -67,11 +63,6 @@ import { indexVaultIds } from './vault-id-index'
 
 export { isSyncAuditReportPath } from './sync-profiles'
 
-/**
- * Одна строка индекса. Ключом служит путь файла внутри хранилища.
- * mtime — время изменения, ctime — время создания по данным Obsidian,
- * size — размер в байтах. Снимок получает хеш после успешной проверки.
- */
 type Entry = [mtime: number, ctime: number, size: number, hash: string | null, hasSuspension?: true]
 type IdEntry = [mtime: number, ctime: number, size: number, ids: number[]]
 
@@ -82,11 +73,6 @@ function routingSettingsKey(settings: MyPlugin['settings']): string {
         settings.FOLDER_DECKS, settings.FOLDER_DEFAULT_DECKS])
 }
 
-/**
- * Снимок кандидата на момент отбора. Obsidian может поменять поля объекта TFile
- * во время асинхронной работы, поэтому отдельно храним исходный путь и метаданные.
- * revision — номер последнего события для этого пути, если такое событие было.
- */
 interface Candidate {
     file: TFile
     path: string
@@ -99,11 +85,9 @@ export function openOneWayHistory(plugin: MyPlugin, profile: string): Promise<On
     return OneWayHistory.open(plugin.app.vault.adapter, `${index.slice(0, index.lastIndexOf('/') + 1)}one-way-history.json`, profile)
 }
 
-/** Состояние экземпляра плагина в памяти, общее для экспорта и команд проверки. */
 interface ScanState {
     refreshInitialSchema?: () => Promise<unknown>
     openAudit?: (deck?: string, repair?: ExportRepairTarget) => void
-    // Имя хранилища, настройки и схема полей, при которых собран индекс.
     context: string | null
     entries: Map<string, Entry>
     idsByPath: Map<string, IdEntry>
@@ -112,7 +96,6 @@ interface ScanState {
     mediaIndex: MediaIndex
     mediaRevisions: Map<string, number>
     recovery?: ExportRecovery
-    // События хранилища обнаруживают правки даже при неизменных времени файла и размере.
     modified: Map<string, number>
     pathRevisions: Map<string, number>
     cacheEpoch: number
@@ -122,58 +105,39 @@ interface ScanState {
     revision: number
     scopeRevision: number
     lastScopePath?: string
-    // Признак, что чтение индекса с диска уже было выполнено в этом сеансе.
     loaded: boolean
-    // По этим обещаниям сканирование и сброс видят, когда завершится текущая работа.
     running: Promise<void> | null
     resetting: Promise<void> | null
-    // Признаки изменений, которые ещё нужно записать в два отдельных файла.
     saveData: boolean
     saveIndex: boolean
 }
 
-// Версия формата индекса. Она нужна для совместимости сохранённых данных.
-// Пересчитываем принадлежность полей карточек с регулярными выражениями и
-// проверяем ранее сохранённые страницы с командами при первом экспорте после обновления.
 const indexVersion = 13
 const idIndexVersion = 5
-// Ограничиваем объём работы одного FileManager и размер одного запроса поиска ID.
 const filesPerBatch = 512
 const idsPerQuery = 500
 const checkpointInterval = 8
 const sourceBufferBytes = 64 * 1024 * 1024
-// Ключом служит объект плагина. Состояние и очередь записей отдельны для каждого экземпляра.
 const states = new WeakMap<MyPlugin, ScanState>()
 const dataWrites = new WeakMap<MyPlugin, Promise<void>>()
 const cachePreviews = new WeakMap<CacheOptimizationPlan, {
     plugin: MyPlugin; vaultRevision: number; cacheRevision: number; paths: readonly string[]; skipped: number;
 }>()
 
-/** Настройки аудита и архивов не меняют разметку карточек или кеш экспорта. */
-export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW' | 'BIDIRECTIONAL_CONFLICT_POLICY'> {
-    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, BIDIRECTIONAL_CONFLICT_POLICY, ...scanSettings } = settings
+export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW' | 'BIDIRECTIONAL_CONFLICT_POLICY' | 'SYNC_CHANGE_HISTORY'> {
+    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, BIDIRECTIONAL_CONFLICT_POLICY, SYNC_CHANGE_HISTORY, ...scanSettings } = settings
     return scanSettings
 }
 
-/**
- * Ставит запись data.json в очередь. Обычное сохранение настроек, сканирование и сброс
- * могут запросить запись почти одновременно. Следующая запись ждёт предыдущую.
- * Если предыдущая запись завершилась ошибкой, следующие всё равно могут выполниться.
- */
 export function savePluginDataInOrder(plugin: MyPlugin, save: () => Promise<void>): Promise<void> {
     const previous = dataWrites.get(plugin)
     const current = (previous?.catch(() => {}) ?? Promise.resolve()).then(save)
     dataWrites.set(plugin, current)
     return current.finally(() => {
-        // Удаляем только свою запись очереди, если за ней ещё никто не встал.
         if (dataWrites.get(plugin) === current) dataWrites.delete(plugin)
     })
 }
 
-/**
- * Один раз создаёт состояние, подписывается на события Obsidian и добавляет команду
- * Scan Vault (full). Обычная команда Scan Vault уже есть в основном классе плагина.
- */
 export function registerFastScan(plugin: MyPlugin, openAudit?: (deck?: string, repair?: ExportRepairTarget) => void,
     refreshInitialSchema?: () => Promise<unknown>): void {
     const existing = states.get(plugin)
@@ -223,21 +187,17 @@ export function registerFastScan(plugin: MyPlugin, openAudit?: (deck?: string, r
         if (!isOptimizedImageCopyPath(path)) markModified(state, path, folderTreeChanged)
     }
     plugin.registerEvent(vault.on('modify', file => { mark(file.path) }))
-    // Редактор меняется сразу, тогда как Vault.modify может прийти после автосохранения.
     plugin.registerEvent(plugin.app.workspace.on('editor-change', (_editor, info) => {
         if (info.file) {
             state.editorModified.add(info.file.path)
             mark(info.file.path)
         }
     }))
-    // При запуске Obsidian сообщает create и для старых файлов. Подписка после загрузки
-    // интерфейса позволяет использовать уже сохранённый индекс при следующей проверке.
     plugin.app.workspace.onLayoutReady(() => {
         plugin.registerEvent(vault.on('create', file => { mark(file.path) }))
     })
     plugin.registerEvent(vault.on('delete', file => { mark(file.path, file instanceof TFolder) }))
     plugin.registerEvent(vault.on('rename', (file, oldPath) => {
-        // Старый путь может ещё быть в индексе. Новый путь также требует проверки.
         mark(oldPath, file instanceof TFolder)
         mark(file.path, file instanceof TFolder)
     }))
@@ -296,7 +256,6 @@ export function registerFastScan(plugin: MyPlugin, openAudit?: (deck?: string, r
     })
 }
 
-/** Дубликаты проверяются по всему хранилищу, в том числе в исключённых папках. */
 export function openDuplicateIdReview(plugin: MyPlugin, initialId?: number): void {
     registerFastScan(plugin)
     const state = states.get(plugin)!
@@ -323,9 +282,8 @@ function markModified(state: ScanState, path: string, folderTreeChanged = false)
     }
 }
 
-/** Сохраняет открытые заметки и собирает снимки редактора для проверки прочитанного текста. */
 async function saveOpenEdits(plugin: MyPlugin, state: ScanState, inScope: (path: string) => boolean,
-    errors: string[], checkCleanActive: boolean, applyingPreview = false): Promise<{ pending: Set<string>; expected: Map<string, string> }> {
+    errors: string[], checkCleanActive: boolean, applyingPreview = false, activePathToVerify?: string): Promise<{ pending: Set<string>; expected: Map<string, string> }> {
     const pending = new Set<string>()
     const expected = new Map<string, string>()
     const views = new Map<string, MarkdownView[]>()
@@ -366,7 +324,6 @@ async function saveOpenEdits(plugin: MyPlugin, state: ScanState, inScope: (path:
             pending.add(path)
         }
     }
-    // Пока сохранялась одна вкладка, пользователь мог продолжить редактировать другую.
     for (const path of included) {
         if (pending.has(path)) continue
         const open = views.get(path)!.filter(view => view.file?.path === path)
@@ -376,13 +333,10 @@ async function saveOpenEdits(plugin: MyPlugin, state: ScanState, inScope: (path:
         })) {
             errors.push(`${path}: the editor has unsaved changes`)
             pending.add(path)
-        } else if (state.editorModified.has(path) && !expected.has(path) && open.length === 1) {
-            // При автосохранении view.data может обновиться до завершения записи на диск.
+        } else if ((state.editorModified.has(path) || path === activePathToVerify) && !expected.has(path) && open.length === 1) {
             expected.set(path, open[0].getViewData())
         }
     }
-    // Даже если редактор и Vault пропустили событие, чистый активный буфер
-    // может содержать сохранённую правку той же длины при тех же метаданных.
     const active = checkCleanActive ? plugin.app.workspace.getActiveViewOfType(MarkdownView) : null
     const activePath = active?.file?.path
     if (active && activePath && included.includes(activePath) && !pending.has(activePath) &&
@@ -400,12 +354,21 @@ async function saveOpenEdits(plugin: MyPlugin, state: ScanState, inScope: (path:
     return { pending, expected }
 }
 
+export async function saveBidirectionalEditors(plugin: MyPlugin, includes: (path: string) => boolean): Promise<Map<string, string>> {
+    const errors: string[] = []
+    const state = states.get(plugin)
+    if (!state) throw new Error('The sync state is unavailable.')
+    const { expected } = await saveOpenEdits(plugin, state, includes, errors, false, false, plugin.app.workspace.getActiveFile?.()?.path)
+    if (errors.length) throw new Error(errors[0])
+    return expected
+}
+
+
 function previousPluginMessage(t: UiText): string {
     return t('Disable the previous Anki export plugin in Community plugins and retry.',
         'Отключите предыдущий плагин экспорта в Anki в разделе «Сторонние плагины» и повторите операцию.')
 }
 
-/** Даёт аудиту согласованный проход без одновременного экспорта или сброса индекса. */
 export async function withFastScanReadLock<T>(
     plugin: MyPlugin, read: (currentRevision: () => number, pathRevision: (path: string) => number,
         metadataRevision: () => number) => Promise<T>,
@@ -429,7 +392,6 @@ export async function withFastScanReadLock<T>(
     }
 }
 
-/** Ждём освобождения блокировки перед открытием аудита после экспорта. */
 export async function waitForFastScanIdle(plugin: MyPlugin): Promise<void> {
     const state = states.get(plugin)
     let pending = state?.resetting ?? state?.running
@@ -439,7 +401,6 @@ export async function waitForFastScanIdle(plugin: MyPlugin): Promise<void> {
     }
 }
 
-/** Возвращает путь к отдельному индексу рядом с data.json, учитывая папку конфигурации Obsidian. */
 function indexPath(plugin: MyPlugin): string {
     const { app, manifest } = plugin
     const directory = manifest.dir ?? `${app.vault.configDir}/plugins/${manifest.id}`
@@ -464,7 +425,6 @@ function reportRetry(plugin: MyPlugin, paths: ReadonlySet<string>, profileSignat
             return
         }
     }
-    // Повторяем сохранённый отчёт по свежему Markdown. Для нового удаления нужен отдельный предпросмотр.
     void scanVaultFast(plugin, false, false, paths, new Map(), undefined, undefined, ankiProfile)
 }
 
@@ -531,7 +491,6 @@ async function showPendingCreations(plugin: MyPlugin): Promise<void> {
                             try { location.clean = readRecoveryMarker(text)?.clean } catch { /* неоднозначный маркер */ }
                         }
                     } catch {
-                        // Нечитаемый файл не может подтвердить наличие своего маркера.
                     }
                 }))
             }
@@ -655,7 +614,6 @@ function cleanRecoveryTags(plugin: MyPlugin): Promise<number> {
                         await checkProfile()
                         return undefined
                     }, { scope: plugin.app })
-                // Ответ может потеряться даже после удаления тега в Anki. Перед завершением проверяем результат.
                 tags = await confirmedCleanupTags(batch, checkProfile)
             }
             const confirmed = batch.filter(item => tags.has(item.noteId) && !tags.get(item.noteId)!.has(item.tag))
@@ -676,17 +634,12 @@ async function exportRecovery(plugin: MyPlugin, state: ScanState): Promise<Expor
     return state.recovery
 }
 
-/**
- * При первом сканировании читает fast-scan-index.json и принимает только записи
- * ожидаемой формы. При ошибке чтения сканирование может построить индекс заново.
- */
 async function loadIndex(plugin: MyPlugin, state: ScanState): Promise<void> {
     const { adapter } = plugin.app.vault
     const path = indexPath(plugin)
     try {
         if (await adapter.exists(path)) {
             const saved = JSON.parse(await adapter.read(path))
-            // Очистка хешей файлов сохраняет подтверждения отправки медиа.
             if (Number.isInteger(saved?.version) && saved.version >= 6 && saved.version <= indexVersion) loadMediaIndex(state.mediaIndex, saved.media)
             if (typeof saved.context === 'string' && Array.isArray(saved.entries)) {
                 if (saved.version === indexVersion) {
@@ -722,7 +675,6 @@ async function loadIndex(plugin: MyPlugin, state: ScanState): Promise<void> {
     state.loaded = true
 }
 
-/** Аудит использует только подтверждённые имена файлов текущей активной коллекции. Вызывать под блокировкой сканирования. */
 export async function cachedImageAliases(plugin: MyPlugin, pinnedProfile?: string | null): Promise<ReadonlyMap<string, ReadonlyMap<string, string>>> {
     const state = states.get(plugin)!
     if (!state.loaded) await loadIndex(plugin, state)
@@ -731,11 +683,6 @@ export async function cachedImageAliases(plugin: MyPlugin, pinnedProfile?: strin
     return profile ? imageAliases(state.mediaIndex, profile) : new Map()
 }
 
-/**
- * Записывает только изменившиеся данные. В data.json хранятся настройки, MD5 и кеш
- * медиа. В fast-scan-index.json лежит индекс метаданных для быстрого прохода.
- * Сохраняем data.json первым, чтобы индекс опирался на уже записанные хеши.
- */
 function serializeIndex(state: Pick<ScanState, 'context' | 'entries' | 'idsByPath' | 'mediaIndex'>): string {
     return JSON.stringify({
         version: indexVersion,
@@ -840,8 +787,6 @@ export function applyCacheOptimization(plugin: MyPlugin, preview: CacheOptimizat
         let attemptedIndex = false
         let attemptedHashes = false
         try {
-            // Удаляем только записи о заведомо отсутствующих путях. Если запись прервётся между файлами,
-            // оставшийся MD5 без соответствующей записи индекса не позволит сканированию пропустить файл.
             if (changesIndex) {
                 attemptedIndex = true
                 await adapter.write(path, next.serializedAfter)
@@ -883,11 +828,6 @@ export function applyCacheOptimization(plugin: MyPlugin, preview: CacheOptimizat
     })
 }
 
-/**
- * Обработчик кнопок Clear в настройках. files очищает MD5 и индекс метаданных,
- * media очищает список ранее отправленных вложений. Оба действия локальны.
- * Если сканирование ещё идёт, сброс ждёт его завершения, а затем сохраняет результат.
- */
 export function clearFastScanCache(plugin: MyPlugin, kind: 'files' | 'media'): Promise<void> {
     const t = uiFor(plugin.settings)
     registerFastScan(plugin)
@@ -915,7 +855,6 @@ export function clearFastScanCache(plugin: MyPlugin, kind: 'files' | 'media'): P
                 state.saveIndex = true
             } else {
                 plugin.added_media = []
-                // Храним подтверждённые хеши, чтобы не принять отличающийся файл в Anki за отправленный нами.
                 for (const { path } of state.mediaIndex.values()) markModified(state, path)
             }
             state.saveData = true
@@ -928,14 +867,12 @@ export function clearFastScanCache(plugin: MyPlugin, kind: 'files' | 'media'): P
                 'Не удалось сохранить сброс кеша. Подробности — в консоли разработчика.'))
         }
     })()
-    // Пока сброс ждёт или сохраняет данные, Scan Vault видит его и не запускает новый проход.
     state.resetting = reset
     return reset.finally(() => {
         if (state.resetting === reset) state.resetting = null
     })
 }
 
-/** Сверяет три значения, которые Obsidian знает без чтения текста файла. */
 function sameStat(file: TFile, stamp: Entry | IdEntry): boolean {
     const stat = file.stat
     return stat.mtime === stamp[0] && stat.ctime === stamp[1] && stat.size === stamp[2]
@@ -949,7 +886,6 @@ function clearIdOwners(state: ScanState): void {
 
 function updateIdOwners(state: ScanState, path: string, next?: IdEntry): void {
     const previous = state.idsByPath.get(path)
-    // Обычная правка текста не меняет владельцев ID. Обновляем только снимок файла.
     const before = previous?.[3] ?? []
     const after = next?.[3] ?? []
     if (before.length === after.length && before.every((id, index) => id === after[index])) {
@@ -989,8 +925,6 @@ async function indexNoteIds(plugin: MyPlugin, state: ScanState, files: readonly 
             refresh.push(file)
         }
     }
-    // Пути в списке Obsidian уникальны. Если все старые записи встретились,
-    // удалённых и перенесённых за пределы экспорта путей в индексе нет.
     if (knownPaths < state.idsByPath.size) {
         const scope = new Set<string>()
         for (const { path } of files) if (state.idsByPath.has(path)) scope.add(path)
@@ -1021,7 +955,6 @@ async function indexNoteIds(plugin: MyPlugin, state: ScanState, files: readonly 
                 }
                 updateIdOwners(state, path, [stamp[0], stamp[1], stamp[2], findIdMarkers(text, plugin.settings.Syntax).map(marker => marker.id)])
                 state.saveIndex = true
-                // V8 может хранить строки в UTF-16. Учитываем размер кодовых единиц и накладные расходы словаря.
                 const cost = 2 * text.length + 128
                 if (candidates.has(path) && buffered + cost <= bufferLimit) {
                     preloaded.set(path, text)
@@ -1049,7 +982,6 @@ async function indexNoteIds(plugin: MyPlugin, state: ScanState, files: readonly 
     return { preloaded, duplicates, conflictingPaths, reads }
 }
 
-/** При выборе профиля папок проверяем принадлежность ID во всём хранилище, сохраняя текст только выбранных файлов. */
 async function indexProfileNoteIds(plugin: MyPlugin, state: ScanState, files: readonly TFile[],
     selected: ReadonlySet<string>, contentPaths: ReadonlySet<string>, force: boolean, shouldStop?: () => boolean,
     recordSelectedIds = false, card?: CursorCardTarget) {
@@ -1097,7 +1029,6 @@ async function indexProfileNoteIds(plugin: MyPlugin, state: ScanState, files: re
     }
 }
 
-/** Запоминает состояние файла перед работой, которая может занять время. */
 function snapshot(file: TFile, state: ScanState): Candidate {
     const { mtime, ctime, size } = file.stat
     return {
@@ -1108,13 +1039,11 @@ function snapshot(file: TFile, state: ScanState): Candidate {
     }
 }
 
-/** Отклоняем снимок, если файл переместился, его метаданные изменились или Obsidian сообщила о правке. */
 function stillCurrent(candidate: Candidate, state: ScanState): boolean {
     const { file, path, stamp, revision } = candidate
     return file.path === path && revision === state.modified.get(path) && sameStat(file, stamp)
 }
 
-/** Вносит проверенный снимок в индекс и снимает отметку о правке этого пути. */
 function remember(candidate: Candidate, hash: string, state: ScanState): void {
     if (!stillCurrent(candidate, state)) return
     candidate.stamp[3] = hash
@@ -1124,10 +1053,6 @@ function remember(candidate: Candidate, hash: string, state: ScanState): void {
     state.saveIndex = true
 }
 
-/**
- * Обновляет словарь хешей, который сохраняется в штатном data.json.
- * undefined удаляет хеш. Изменившийся словарь будет записан при следующем flush.
- */
 function setHash(plugin: MyPlugin, state: ScanState, path: string, hash: string | undefined): void {
     const old = Object.prototype.hasOwnProperty.call(plugin.file_hashes, path)
         ? plugin.file_hashes[path]
@@ -1180,20 +1105,20 @@ async function checkAuditPreviewScope(plugin: MyPlugin, scope: AuditedExportPrev
     }
 }
 
-// У чистой установки нет схемы. Читаем её только по команде синхронизации.
-async function prepareInitialSchema(plugin: MyPlugin): Promise<boolean> {
+export async function prepareInitialSchema(plugin: MyPlugin, onFailure?: (reason: string) => Promise<void>): Promise<boolean> {
     if (plugin.note_types?.length && Object.prototype.hasOwnProperty.call(plugin.fields_dict, plugin.note_types[0])) return true
     const refresh = states.get(plugin)?.refreshInitialSchema
     if (!refresh || Object.keys(plugin.fields_dict ?? {}).length) return true
     try { await refresh(); return true }
     catch (error) {
         const t = uiFor(plugin.settings)
-        new Notice(t('Could not load note types from Anki. ', 'Не удалось загрузить типы записей из Anki. ') + String(error))
+        const reason = t('Could not load note types from Anki. ', 'Не удалось загрузить типы записей из Anki. ') + String(error)
+        new Notice(reason)
+        await onFailure?.(reason)
         return false
     }
 }
 
-/** Строит тот же план экспорта без сохранения файлов, хешей и записей Anki. */
 export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedExportPreview,
     requestedPaths?: ReadonlySet<string>, card?: CursorCardTarget): Promise<void> {
     const t = uiFor(plugin.settings)
@@ -1201,8 +1126,6 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
         if (cursorConfiguration(plugin) !== card.configuration) throw staleCursorCard()
         requestedPaths = new Set([card.path])
     }
-    if (!await prepareInitialSchema(plugin)) return
-    // Новая карточка сначала получает свой первый ID штатным журналируемым экспортом.
     if (plugin.settings.BIDIRECTIONAL_SYNC === true && !(card && card.id === undefined)) {
         if (auditScope) new Notice(t('Use the bidirectional preview to resolve these differences.',
             'Откройте двусторонний предпросмотр для разрешения этих расхождений.'))
@@ -1210,6 +1133,7 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
         else return previewBidirectionalSync(plugin, requestedPaths ? { paths: requestedPaths } : undefined)
         return
     }
+    if (!await prepareInitialSchema(plugin)) return
     if (hasPendingBidirectionalWrite(plugin.app)) {
         new Notice(t(pendingBidirectionalWriteMessage, 'Дождитесь завершения предыдущей операции двусторонней синхронизации.'))
         return
@@ -1251,7 +1175,6 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
             const local: ScanState = { ...state, idsByPath: new Map(), idOwners: new Map(), duplicateIds: new Set() }
             const configuration = getConfiguration()
             const [settings, fields] = JSON.parse(configuration)
-            // При поиске дубликатов учитываем сохранённые ID из изменённых вкладок без их записи на диск.
             const profileOwnership = profileId || card
                 ? await indexProfileNoteIds(plugin, state, allFiles, paths, paths, false, undefined, false, card)
                 : undefined
@@ -1367,7 +1290,6 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
                     return
                 }
             } catch {
-                // Сохранённый профиль больше не подходит.
             }
             new Notice(t('Files or settings changed. Run the export preview again.',
                 'Файлы или настройки изменились. Запустите предпросмотр экспорта заново.'))
@@ -1381,13 +1303,6 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
     }
 }
 
-/**
- * Обычный проход использует индекс. Полный проход заново проверяет файлы
- * выбранного профиля или всего хранилища.
- *
- * Порядок действий: выбрать кандидатов по метаданным, прочитать их в FileManager,
- * обработать YAML-теги и карточки, затем сохранить результат успешной проверки.
- */
 interface ExportControl {
     signal?: AbortSignal
     onProgress?: (progress: ExportProgress) => void
@@ -1422,7 +1337,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
     }
     try { await requireSettledZipImport(plugin) }
     catch (error) { new Notice(String(error)); return 'stopped' }
-    if (!await prepareInitialSchema(plugin)) return 'failed'
     if (previewProfile !== undefined && isAnkiProfileLockEnabled(plugin) && previewProfile !== expectedAnkiProfile(plugin)) {
         const error = new AnkiProfileError('changed', previewProfile, expectedAnkiProfile(plugin))
         if (control?.onProfileBlocked) control.onProfileBlocked(error)
@@ -1447,6 +1361,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         return runBidirectionalSync(plugin, { currentFile: current && currentPath ? { file: current, path: currentPath } : undefined,
             paths: onlyPaths, force, scheduled: scan === 'scheduled' })
     }
+    if (!await prepareInitialSchema(plugin)) return 'failed'
     if (hasPendingBidirectionalWrite(plugin.app)) {
         new Notice(t(pendingBidirectionalWriteMessage, 'Дождитесь завершения предыдущей операции двусторонней синхронизации.'))
         return 'busy'
@@ -1462,15 +1377,12 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         return 'busy'
     }
     dismissMissingCardReview(plugin.app)
-    // Сброс кеша может дождаться этого обещания. Завершаем его в finally даже при ошибке.
     let finishScan!: () => void
     state.running = new Promise<void>(resolve => { finishScan = resolve })
 
     const started = performance.now()
     const expectedPreviewHashes = control?.expectedPreviewHashes
     const applyingPreview = expectedPreviewHashes !== undefined
-    // Счётчики выводятся в консоль Obsidian. reads включает проверку после записи ID,
-    // deferred считает файлы, чьё состояние изменилось в ходе сканирования.
     const counts = { files: 0, candidates: 0, reads: 0, parses: 0, exportFiles: 0, idLookups: 0,
         cachedIds: 0, cachedIdRequests: 0, deferred: 0 }
     const errors: string[] = []
@@ -1491,14 +1403,26 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
     const intendedProfile = previewProfile ?? expectedAnkiProfile(plugin)
     let ankiProfile: string | undefined
     let history: OneWayHistory | undefined
+    const logMode = plugin.settings.BIDIRECTIONAL_SYNC === true ? 'two-way' : 'one-way'
+    const changeLog: SyncHistoryChange[] = []
+    let loggedChanges = false
+    const appendChange = (row: Omit<SyncHistoryChange, 'mode' | 'profile'>) => {
+        changeLog.push({ ...row, mode: logMode, profile: ankiProfile ?? intendedProfile })
+        if (changeLog.length > syncHistoryLimit * 2) changeLog.splice(0, changeLog.length - syncHistoryLimit)
+    }
+    const flushChanges = async () => {
+        if (changeLog.length) await recordSyncChanges(plugin, changeLog.splice(0))
+    }
     let operationJournal: ExportOperationJournal | undefined
     let submittedRequests = 0
     let answeredRequests = 0
+    const changes = new SyncOutcome()
+    let markdownChanged = false
     let recognizedCards = 0
     let recoveredCreations = 0
     let outcome: ExportRunReport['outcome'] = 'completed'
     let stopRequested = false
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let timer: number | undefined
     let progressView: ReturnType<typeof openExportProgress> | undefined
     let progress: ExportProgress = { total: 0, confirmed: 0, pending: 0, stage: t('Checking changed files', 'Проверяем изменённые файлы') }
     let deletionBackup: Promise<string> | undefined
@@ -1507,7 +1431,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         ? () => backup ? backup.then(result => ({ ...result, created: false })) : (backup = ensureScheduledBackup(plugin, ankiProfile))
         : undefined
     const shouldStop = () => stopRequested || control?.signal?.aborted === true
-    const notifyIssues = (allowSkip: boolean) => showExportIssues(plugin, errors, counts.deferred, counts.exportFiles,
+    const notifyIssues = (allowSkip: boolean) => showExportIssues(plugin, errors, counts.deferred, changes.message(t),
         detectedDuplicates, attemptedPaths, cardIssuesByPath, decksByPath, allowSkip, ankiProfile, profileSignature)
     const showProgress = (stage: string) => {
         const confirmed = confirmedPaths.size
@@ -1533,7 +1457,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
 
         const vault = plugin.app.vault
         const selection = resolveSyncScope(plugin)
-        const { allFiles, files: scopeFiles, contains: inScope, label, profileId, signature } = selection
+        const { allFiles, files: scopeFiles, label, profileId, signature } = selection
         if (control?.scopeSignature !== undefined && control.scopeSignature !== signature) {
             throw new Error('The sync profile changed. Start the audit again.')
         }
@@ -1543,7 +1467,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 'Выбранный Markdown-файл перемещён или удалён. Повторите команду.'))
             return 'stopped'
         }
-        if (current && !inScope(current.path)) {
+        if (current && !selection.contains(current.path)) {
             const reason = selection.excludes(current.path) ? 'is excluded by' : 'is outside'
             new Notice(t(`Export to Anki: the current note ${reason} "${label}".`,
                 `Текущая заметка не входит в область экспорта «${label}».`))
@@ -1558,23 +1482,19 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 `Выбранные файлы вне области «${label}» или были удалены.`))
             return 'failed'
         }
-        // При автоматическом выборе активная коллекция входит в ключ кеша даже при повторном проходе.
         if (!profileLockEnabled && files.length) {
             if (shouldStop()) return 'stopped'
             ankiProfile = await requireExpectedAnkiProfile(plugin, previewProfile, control?.signal)
         }
         counts.files = files.length
         const { pending, expected } = await saveOpenEdits(plugin, state,
-            path => current ? path === current.path : inScope(path) && (!onlyPaths || onlyPaths.has(path)),
+            path => current ? path === current.path : selection.contains(path) && (!onlyPaths || onlyPaths.has(path)),
             errors, !currentOnly && !force && !applyingPreview && !cursorRecovery, applyingPreview || !!cursorRecovery)
         counts.deferred += pending.size
         for (const path of pending) attemptedPaths.add(path)
 
-        // Внешний редактор или облачное хранилище могут опередить события Obsidian.
-        // Для активной заметки сверяем сохранённые байты перед быстрым пропуском.
-        // Остальные файлы продолжают использовать индекс и события Vault.
         const activeFile = plugin.app.workspace.getActiveFile?.()
-        if (activeFile && !force && !currentOnly && !onlyPaths && inScope(activeFile.path) &&
+        if (activeFile && !force && !currentOnly && !onlyPaths && selection.contains(activeFile.path) &&
             !isSyncAuditReportPath(activeFile.path) && !pending.has(activeFile.path) && !state.modified.has(activeFile.path)) {
             const path = activeFile.path
             const entry = state.entries.get(path)
@@ -1588,13 +1508,11 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             }
         }
 
-        // При включении даты заново проверяем связи, затем снова используем тёплый индекс.
         const { ['Add Date to Anki IDs']: addDateToIds, ...exportDefaults } = plugin.settings.Defaults
         const { VAULT_BACKUP: backupSettings, REQUIRE_ANKI_PROFILE: lockSetting, EXPECTED_ANKI_PROFILE: savedProfile,
             BIDIRECTIONAL_FIELDS: additionalBidirectionalFields,
             ...scanSettings } = scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings))
         const exportSettings = { ...scanSettings, Defaults: addDateToIds ? { ...exportDefaults, ['Add Date to Anki IDs']: true } : exportDefaults }
-        // Тот же текст может дать другой экспорт после смены колод, тегов или схемы полей.
         const context = !profileLockEnabled && !files.length && state.context !== null ? state.context
             : JSON.stringify([vault.getName(), exportSettings, plugin.fields_dict, ankiProfile ?? intendedProfile])
         const routingKey = routingSettingsKey(plugin.settings)
@@ -1617,7 +1535,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 throw new Error(staleRoutingMessage)
             }
         }
-        // При смене настроек или версии индекса уже экспортированные заметки сверяются повторно.
         const reprocess = state.context !== context
         const candidates: Candidate[] = []
         const fullExport = new Set<string>()
@@ -1632,7 +1549,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             attemptedPaths.add(candidate.path)
             candidates.push(candidate)
         }
-        // В адресном проходе выбранные файлы проверяются целиком в любом случае.
         const mediaChanges = currentOnly || onlyPaths ? undefined :
             changedMediaNotes(plugin.app, state.mediaIndex, state.pathRevisions, state.mediaRevisions,
                 plugin.settings.IMAGE_OPTIMIZATION?.enabled === true && plugin.settings.IMAGE_OPTIMIZATION.checkChanges === true)
@@ -1644,7 +1560,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             }
             if (pending.has(path)) continue
             const entry = reprocess ? undefined : state.entries.get(path)
-            // Пропускаем чтение с диска, только когда совпадают подтверждённый хеш и текущие метаданные файла.
             if (
                 !force && !currentOnly && !onlyPaths && !applyingPreview && !mediaChanges?.has(path) && entry && !state.modified.has(path) && sameStat(file, entry) &&
                 plugin.file_hashes[path] === entry[3]
@@ -1671,8 +1586,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         }
         const selectedRevision = state.scopeRevision
         if (warmIds.size && !shouldStop()) {
-            // Удаление в Anki не меняет метаданные Markdown. Проверяем проиндексированные ID
-            // в закреплённой коллекции и читаем неизменённый исходник только при отсутствии ID.
             ankiProfile ??= await requireExpectedAnkiProfile(plugin, previewProfile, control?.signal)
             const verificationErrors: string[] = []
             counts.cachedIds = warmIds.size
@@ -1721,11 +1634,9 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             if (verifyOnly.has(path) || suspendOnly.has(path)) continue
             const entry = state.entries.get(path)
             if (state.entries.delete(path)) state.saveIndex = true
-            // Используем MD5 только вместе с подтверждением из текущего индекса.
             if (currentOnly || !entry || entry[3] !== plugin.file_hashes[path]) setHash(plugin, state, path, undefined)
         }
 
-        // Убираем только исчезнувшие пути. Переключение профиля сохраняет кеш других папок.
         if (!currentOnly && !onlyPaths && (state.entries.size > counts.files - candidates.length || state.modified.size > candidates.length)) {
             const live = new Set(allFiles.map(file => file.path))
             for (const path of state.entries.keys()) {
@@ -1767,23 +1678,25 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             throw new Error('Could not verify Anki ID ownership across the vault. Resolve the listed file errors and run the scan again.')
         }
 
-        // Обычный повторный проход читает только проиндексированные ID из Anki, без чтения Markdown.
         if (candidates.length === 0) {
             reportRun = attemptedPaths.size > 0 || errors.length > 0
             if (state.saveData || state.saveIndex) await flush(plugin, state)
             if (errors.length) notifyIssues(!shouldStop())
             else if (!shouldStop()) {
-                const outside = activeFile && !inScope(activeFile.path)
+                const outside = activeFile && !selection.contains(activeFile.path)
                 new Notice(outside ? t(`The active note is outside the export scope “${label}”.`,
                     `Активная заметка вне области экспорта «${label}».`)
-                    : t(`No new Markdown changes in “${label}” (${counts.files} files).`,
-                        `В области «${label}» нет новых изменений Markdown. Файлов: ${counts.files}.`))
+                    : [checkedCount(counts.files, 'file', t), t('No changes.', 'Изменений нет.')].join('\n'))
             }
+            if (syncHistoryEnabled(plugin) && !reportRun && !shouldStop()) appendChange({
+                action: 'check', direction: 'none', path: currentPath ?? scope,
+                detail: [checkedCount(counts.files, 'file', t), t('No changes.', 'Изменений нет.')].join(' '),
+            })
             return shouldStop() ? 'stopped' : errors.length || reportRun ? 'failed' : 'completed'
         }
         reportRun = true
         if (typeof document !== 'undefined' && (!control || applyingPreview)) {
-            timer = setTimeout(() => {
+            timer = window.setTimeout(() => {
                 progressView = openExportProgress(plugin.app, progress, () => { stopRequested = true }, t)
             }, 400)
         }
@@ -1796,7 +1709,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             counts.reads += checked.reads
             return { ...checked, revision, complete: state.scopeRevision === revision }
         }
-        // Перед записью проверяем принадлежность ID в выбранной области экспорта.
         let ownership = profileOwnership ?? await inspectWholeVaultOwnership(scopeFiles, paths,
             current ? new Set([current.path]) : force || onlyPaths ? paths : new Set())
         let ownershipRevision = ownership.revision
@@ -1810,8 +1722,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             for (const id of ownership.conflictingPaths.get(path) ?? []) detectedDuplicates.add(id)
         }
 
-        // Используем снимок настроек на весь проход. Пустой список ID говорит settingToData,
-        // что запрашивать все записи коллекции сейчас не требуется.
         const [, settings, fields] = JSON.parse(context)
         settings.Defaults['Add Date to Anki IDs'] = addDateToIds ?? false
         const data = await settingToData(plugin.app, settings, fields, [])
@@ -1855,6 +1765,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 plugin.file_hashes, plugin.added_media,
             )
             manager.mediaIndex = state.mediaIndex
+            manager.onConfirmedNote = (action, id) => changes.record(action, id)
             manager.duplicatePreflight = duplicatePreflight
             manager.imageOptimization = readImageOptimization(settings.IMAGE_OPTIMIZATION)
             manager.getRecovery = () => exportRecovery(plugin, state)
@@ -1864,12 +1775,16 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             manager.cursorCard = cursor
             manager.cursorRecovery = cursorRecovery
             manager.suspendOnly = suspendOnly
-            manager.applySuspension = (expectedCards, targets, guard) => applySuspendCards(plugin, ankiProfile!, expectedCards, targets, async () => {
+            manager.applySuspension = (expectedCards, targets, guard, verified, unconfirmed) => applySuspendCards(plugin, ankiProfile!, expectedCards, targets, async () => {
                 if (!ownership.complete || pending.size) throw new Error('Cannot verify the current Markdown owners of the Anki IDs. Save the pending files and retry.')
                 await guard()
-            }, manager.onWriteRequest)
+            }, manager.onWriteRequest, verified, unconfirmed)
             manager.previewSelection = control?.previewSelection
             manager.oneWayHistory = history
+            if (syncHistoryEnabled(plugin)) manager.onSyncChange = row => {
+                loggedChanges = true
+                appendChange(row)
+            }
             manager.operationJournal = operationJournal
             manager.deletedArchiveLabel = uiFor(settings)('Deleted from Anki', 'Удалено из Anki')
             manager.afterDeleteMode = afterDeleteMode(settings)
@@ -1900,7 +1815,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             manager.diagnosticSyntax = settings.Syntax
             manager.checkAnkiProfile = async confirmCommitted => {
                 const profile = await requireExpectedAnkiProfile(plugin, ankiProfile, confirmCommitted ? undefined : control?.signal)
-                // Уже подтверждённые операции нужно отразить в Markdown и журнале.
                 if (!confirmCommitted) {
                     requireCurrentRouting()
                     if (cursor) checkCursorEditors(plugin, cursor)
@@ -1917,8 +1831,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             const lookupsBefore = counts.idLookups
             manager.stopAfterPacket = shouldStop
             try {
-                // FileManager вызовет эту функцию для текстов, которые дошли до проверки ID.
-                // Поиск nid:… проверяет только ID из этих текстов, а Set убирает повторы.
                 await manager.initialiseFiles(contents => findExistingIds(contents, () => { counts.idLookups++ }),
                     expected, { textByPath: ownership.preloaded, fullExport, duplicates: ownership.duplicates,
                     conflictingPaths: ownership.conflictingPaths, expectedPreviewHashes })
@@ -1952,8 +1864,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             }
             for (const [path, issues] of manager.cardIssues) cardIssuesByPath.set(path, issues)
 
-            // Это файлы с прежним хешем либо файлы, для которых уже установлено,
-            // что экспорт не нужен. Индекс можно обновить сразу, сверив снимок.
             for (const [path, hash] of manager.checkedHashes) {
                 const candidate = byPath.get(path)
                 if (!candidate || !stillCurrent(candidate, state) || control?.omittedPreviewPaths?.has(path)) continue
@@ -1969,8 +1879,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             if (initialisationFailed) { failed = true; break }
 
             errors.push(...manager.retryMessages)
-            // Отложим файлы, изменившиеся во время чтения Markdown или сверки с Anki.
-            // Пары note и file берутся по одному индексу из списков FileManager.
             const badFields = await checkFields(manager.ownFiles)
             const ready = manager.ownFiles.flatMap((note, index) => {
                 const schemaError = badFields.get(note.path)
@@ -1992,7 +1900,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 return [{ note, file: manager.files[index], candidate }]
             })
             if (ready.length === 0) continue
-            // Запись выданного Anki ID требует API безопасного обновления файла.
             if (typeof vault.process !== 'function') {
                 errors.push('Update desktop Obsidian to use the Vault.process API.')
                 failed = true
@@ -2002,6 +1909,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             manager.files = ready.map(item => item.file)
             const editorChanged = new Set<string>()
             manager.onMarkdownWriteVerified = (path, pendingMarker) => {
+                if (!pendingMarker) markdownChanged = true
                 const candidate = byPath.get(path)
                 if (!candidate) return
                 for (const { view } of plugin.app.workspace.getLeavesOfType('markdown')) {
@@ -2012,7 +1920,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                     }
                 }
                 if (pendingMarker) Object.assign(candidate, snapshot(candidate.file, state))
-                // Сохранённый Markdown прочитан и подтверждён. Учитываем только одно ожидаемое событие этой записи.
                 if (state.scopeRevision === ownershipRevision + 1 && state.lastScopePath === path) {
                     ownershipRevision = state.scopeRevision
                 }
@@ -2023,7 +1930,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             }
             manager.stopAfterPacket = () => shouldStop() || ownershipChanged() || routingChanged()
 
-            // Сбрасываем кеш подтверждений перед записью, чтобы при частичном сбое повторная проверка прочитала актуальные данные.
             for (const { candidate } of ready) if (!suspendOnly.has(candidate.path)) setHash(plugin, state, candidate.path, undefined)
             const priorReads = manager.readCount
             try {
@@ -2055,6 +1961,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 failed = true
                 break
             } finally {
+                await flushChanges()
                 counts.reads += manager.readCount - priorReads
                 recoveredCreations += manager.recoveredCreations
                 for (const [path, issues] of manager.cardIssues) cardIssuesByPath.set(path, issues)
@@ -2067,13 +1974,11 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 errors.push(blockedProfile.message)
             }
 
-            // Сохраняем сведения о вложениях, которые FileManager считает отправленными.
             const media = Array.from(manager.added_media_set)
             if (media.length !== plugin.added_media.length) {
                 plugin.added_media = media
                 state.saveData = true
             }
-            // При ошибке оставляем файлы пакета без новых хешей для повторной проверки.
             if (manager.importErrors.length > 0) {
                 errors.push(...manager.importErrors)
                 if (blockedProfile) break
@@ -2090,8 +1995,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 if (manager.retryPaths.has(candidate.path)) continue
                 let verified = candidate
                 if (note.file !== note.original_file) {
-                    // Повторное чтение нужно, когда сам импорт изменил Markdown, например
-                    // записал новый ID. Убедимся, что на диске именно ожидаемый текст.
                     if (file.path !== candidate.path) {
                         counts.deferred++
                         continue
@@ -2117,12 +2020,10 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                     updateIdOwners(state, candidate.path, [stamp[0], stamp[1], stamp[2], findIdMarkers(note.file, settings.Syntax).map(marker => marker.id)])
                 }
                 if ((cursor || cursorRecovery) && candidate.path === (cursor?.path ?? cursorRecovery?.path) && !manager.retryPaths.has(candidate.path)) {
-                    // Завершён выбор одной карточки. Полный хеш и индекс всех медиа файла остаются неподтверждёнными.
                     confirmedPaths.add(candidate.path)
                     continue
                 }
                 if (control?.omittedPreviewPaths?.has(candidate.path) || manager.previewSuppressed.has(candidate.path)) {
-                    // Выбранные изменения подтверждены. Остальные карточки по-прежнему требуют полного прохода.
                     if (control?.previewSelection) confirmedPaths.add(candidate.path)
                     continue
                 }
@@ -2146,17 +2047,15 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         if (!blockedProfile) {
             if (errors.length > 0 || counts.deferred > 0 || detectedDuplicates.size) notifyIssues(!failed && !shouldStop())
             else if (!shouldStop()) {
-                if (recoveredCreations > 0) new Notice(t(`Export to Anki: recovered ${recoveredCreations} existing Anki IDs.`,
-                    `Восстановлено существующих ID Anki: ${recoveredCreations}.`))
-                else if (counts.exportFiles > 0) new Notice(t(`Export to Anki: ${counts.exportFiles} files submitted to Anki.`,
-                    `В Anki отправлено файлов: ${counts.exportFiles}.`))
+                const summary = changes.message(t)
+                if (summary) new Notice(summary)
+                else if (counts.exportFiles || markdownChanged) new Notice(t('Export finished.', 'Экспорт завершён.'))
                 else if (counts.candidates === 1 && counts.parses && !recognizedCards) {
                     const path = candidates[0].path
                     new Notice(t(`Checked ${path}. No cards matched. Check the format in Note type rules.`,
                         `Проверен файл ${path}. Карточки не распознаны. Проверьте формат в настройках типа записи.`))
                 }
-                else new Notice(t(`Checked ${counts.candidates} Markdown file(s). No card changes to send.`,
-                    `Проверено файлов Markdown: ${counts.candidates}. Изменений карточек для отправки нет.`))
+                else new Notice([checkedCount(counts.files, 'file', t), t('No changes.', 'Изменений нет.')].join('\n'))
             }
         }
     } catch (error) {
@@ -2169,7 +2068,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             notifyIssues(false)
         }
     } finally {
-        if (timer !== undefined) clearTimeout(timer)
+        if (timer !== undefined) window.clearTimeout(timer)
         progressView?.close()
         const stopped = shouldStop()
         const pending = attemptedPaths.size - confirmedPaths.size
@@ -2205,6 +2104,25 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                     warnings: idDateWarnings.size ? [...idDateWarnings] : undefined,
                     messages: Array.from(new Set(errors.filter(message => !attemptedPaths.has(message.split(': ', 1)[0])))),
                 }
+                if (syncHistoryEnabled(plugin)) {
+                    for (const file of files) {
+                        if (file.cardIssues?.length) {
+                            for (const issue of file.cardIssues) appendChange({
+                                action: issue.code === 'unconfirmed-response' ? 'unknown' : 'skip',
+                                direction: 'to-anki', path: file.path, noteId: issue.id, detail: issue.message,
+                            })
+                        }
+                        const other = file.errors.filter(message => !file.cardIssues?.some(issue => issue.message === message))
+                        if (other.length) appendChange({ action: 'error', direction: 'to-anki',
+                            path: file.path, detail: other.join('\n') })
+                    }
+                    const message = report.messages?.join('\n')
+                    if (message || (!files.length && (outcome !== 'completed' || !loggedChanges))) {
+                        appendChange({ action: outcome === 'completed' ? 'check' : 'error', direction: 'none',
+                            path: currentPath ?? scope, detail: message || (outcome === 'completed'
+                                ? t('No changes.', 'Изменений нет.') : t('Export interrupted.', 'Экспорт прерван.')) })
+                    }
+                }
                 await plugin.app.vault.adapter.write(lastReportPath(plugin), JSON.stringify(report))
                 showProgress(stopped || blockedProfile ? t('Stopped', 'Остановлено')
                     : report.outcome === 'failed' ? t('Finished with errors', 'Завершено с ошибками') : t('Completed', 'Завершено'))
@@ -2212,6 +2130,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         } catch (error) {
             console.warn('[Export to Anki] Could not save the export report', error)
         }
+        await flushChanges()
         state.running = null
         finishScan()
         if (idDateWarnings.size) new Notice(t(
@@ -2248,7 +2167,7 @@ function exportIssues(errors: readonly string[], paths: ReadonlySet<string>): Ma
     return issues
 }
 
-function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred: number, submitted: number,
+function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred: number, summary: string,
     duplicates: ReadonlySet<number>, attemptedPaths: ReadonlySet<string>, cardIssues: ReadonlyMap<string, readonly ExportCardIssue[]>,
     decksByPath: ReadonlyMap<string, string>, allowSkip: boolean, profile?: string, scopeSignature?: string): void {
     const messages = Array.from(new Set(errors))
@@ -2268,8 +2187,6 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
         const card = { path, issue, deck: decksByPath.get(path) }
         if (issue.code === 'missing-id' && issue.id !== undefined) missing.push(card)
         if (issue.code === 'duplicate-first-field') rejected.push(card)
-        // Эти причины фиксируются после исключения карточки или файла из записи.
-        // Неопределённый ответ после создания записи требует отдельного разбора.
         const message = `${path}: ${issue.message}`
         if (issue.code === 'unconfirmed-response') unconfirmedCreations.add(message)
         else recoverable.add(message)
@@ -2301,7 +2218,6 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
         return singleAuditDeck(Array.from(state?.idOwners.get(id)?.keys() ?? [], deckFor))
     }))
 
-    const summary = submitted ? t(`${submitted} file(s) submitted to Anki.`, `В Anki отправлено файлов: ${submitted}.`) : undefined
     const show = (detail: string, deck?: string, duplicate?: number, reviewPath?: string) => {
         showExportIssueNotice(
             [t('Export to Anki', 'Экспорт в Anki'), summary, detail].filter(Boolean).join('\n'), t,
@@ -2327,7 +2243,7 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
         }
         if (grouped.length || duplicates.size) {
             const detail = skippedPaths.size
-                ? t(`Files skipped because of sync issues: ${skippedPaths.size}.`, `Пропущено проблемных файлов: ${skippedPaths.size}.`)
+                ? skippedFiles(skippedPaths.size, t)
                 : t(`Duplicate Anki IDs skipped: ${duplicates.size}.`, `Пропущено дубликатов ID Anki: ${duplicates.size}.`)
             show(`${detail}\n${t('Obsidian and Anki may be out of sync.', 'Данные в Obsidian и Anki могут различаться.')}`,
                 deckForMessages(grouped))
@@ -2384,21 +2300,13 @@ function showExportIssueNotice(message: string, t: ReturnType<typeof uiFor>, aud
         new Notice(message, 9000)
         return
     }
-    const fragment = document.createDocumentFragment()
-    const description = document.createElement('div')
-    description.textContent = message
-    description.classList.add('rudonium-pre-line')
-    fragment.append(description)
-    const actions = document.createElement('div')
-    actions.classList.add('rudonium-notice-actions')
-    fragment.append(actions)
+    const fragment = createFragment()
+    fragment.createDiv({ text: message, cls: 'rudonium-pre-line' })
+    const actions = fragment.createDiv({ cls: 'rudonium-notice-actions' })
     const notice = new Notice(fragment, 15000)
     const action = (label: string, run: () => void, primary = false) => {
-        const button = document.createElement('button')
-        button.type = 'button'
-        button.textContent = label
-        if (primary) button.className = 'mod-cta'
-        actions.append(button)
+        const button = actions.createEl('button', { text: label, attr: { type: 'button' } })
+        if (primary) button.classList.add('mod-cta')
         button.onclick = event => { event.stopPropagation(); notice.hide(); run() }
     }
     if (previewFile) action(t('Preview file export', 'Предпросмотр экспорта файла'), previewFile, true)

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { MarkdownView, Modal, Notice, TFile, TFolder } from 'obsidian'
 import { openObsidianFile } from './obsidian-navigation'
@@ -72,7 +70,6 @@ function dirtyMarkdownPaths(app: App): Set<string> {
     return dirty
 }
 
-/** Сопоставляет сохранённый Markdown с подтверждённым экспортом без предположений на основе времени файла. */
 export async function checkCloudFolder(app: App, folder: string, options: CloudFolderOptions,
     signal?: AbortSignal, onProgress?: Progress): Promise<CloudFolderResult> {
     if (signal?.aborted) throw cancelled()
@@ -150,7 +147,6 @@ export async function checkCloudFolder(app: App, folder: string, options: CloudF
 
 function folderChoices(app: App): string[] {
     const folders = new Set([''])
-    // Obsidian предоставляет дерево хранилища. Пути папок также можно получить из путей файлов Markdown.
     const root = app.vault.getRoot?.()
     if (root) {
         const queue = [root]

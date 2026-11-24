@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { hasPageYamlIdText, mayHavePageTag, pageControlStart, pageHeading, pageTextSpan, pageYamlId, yamlBounds } from './page-frontmatter'
 import { findPageAnswerBoundary, maskIdMarkerHtmlLiterals, pageAnswerEnd, signedPageIdLines } from './id-marker-literals'
@@ -14,7 +12,6 @@ export function markedPageAnswerBoundary(text: string): number | undefined {
     return marked ? findPageAnswerBoundary(text, marked.start + marked.heading[0].length) : undefined
 }
 
-/** Числовая связь с Anki не зависит от даты и способа её оформления. */
 export interface ParsedAnkiIdMarker {
     id: number
     digits: string
@@ -63,7 +60,6 @@ function markerDate(tail: string): { from: number; to: number; value: string } |
     if (legacy && validDate(legacy[2])) return { from: legacy[1].trimEnd().length, to: legacy[0].length, value: legacy[2] }
 }
 
-/** Распознаём число целиком. Дробное число или экспонента не могут служить ссылкой. */
 export function parseAnkiIdMarker(raw: string): ParsedAnkiIdMarker | undefined {
     if (/[\r\n]/u.test(raw) || raw.includes("\0")) return
     const from = raw.length - raw.trimStart().length
@@ -122,14 +118,12 @@ export function formatLocalIdDate(date: Date): string {
         String(date.getDate()).padStart(2, '0')].join('-')
 }
 
-/** Изменяем только участок от конца числа до даты; остальной текст и оболочка остаются на месте. */
 export function idDatePatch(row: string, id: number, date: string, offset = 0): { start: number; end: number; text: string } | undefined {
     const marker = parseAnkiIdMarker(row)
     if (!marker || marker.id !== id) return
     const innerEnd = marker.comment ? marker.to - 3 : row.length
     const tail = row.slice(marker.idTo, innerEnd)
     const slot = markerDate(tail)
-    // После HTML-комментария могла остаться дата старой записи. Переносим только явно отделённую дату.
     const outside = marker.comment && !slot ? markerDate(row.slice(marker.to)) : undefined
     const value = slot?.value ?? outside?.value ?? date
     const prefix = ' | ' + value
@@ -180,7 +174,6 @@ export function dateLinkedMarkers(text: string, markers: readonly { id: number; 
     return parts.join('')
 }
 
-/** Границы служебных строк проверяются даже у некорректного числа, чтобы не создать новую карточку вместо старой. */
 export function looksLikeAnkiIdMarker(raw: string): boolean {
     return /^[ \t]*(?:<!--[ \t]*)?ID[ \t]*:/u.test(raw)
 }
@@ -192,19 +185,15 @@ export function ankiIdDateWarning(marker: ParsedAnkiIdMarker, line: number): Ank
         russianMessage: `Связь по ID Anki ${marker.id} сохранена. ${marker.warning === 'missing-date' ? 'После разделителя отсутствует дата' : 'Дата записана некорректно'}; используйте ГГГГ-ММ-ДД.` }
 }
 
-/** Один захват числа сохраняет совместимость с порядком полей штатного RegexNote. */
 export const ankiIdRegexpSource = String.raw`[ \t]*(?:<!--[ \t]*)?ID:[ \t]*(\d+)(?!\d|[.,]\d|[eE][+-]?\d)[^\r\n]*`
 
-/** Обновляет только известный слот ID; пользовательские захваты полей не переставляются. */
 export function compatibleAnkiIdRegexp(pattern: RegExp, stopBefore?: string): RegExp {
-    // В однострочном формате метаданные не должны поглотить следующую карточку на той же строке.
     const stop = stopBefore?.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
     const marker = stop ? ankiIdRegexpSource.replace(/\[\^\\r\\n\]\*/gu, () => `(?:(?!${stop})[^\\r\\n])*`) : ankiIdRegexpSource
     const source = pattern.source.replace(/ID: \(\\d\+\)(?:\.\*)?/gu, () => marker)
     return source === pattern.source ? pattern : new RegExp(source, pattern.flags)
 }
 
-/** Кандидаты для штатного разбора: принадлежность карточке затем проверяет сам парсер. */
 export function ankiIdNumberTokens(content: string): number[] {
     const boundary = markedPageAnswerBoundary(content)
     const ids = new Set<number>()
@@ -221,7 +210,6 @@ export function ankiIdNumberTokens(content: string): number[] {
     return [...ids]
 }
 
-/** Проверяет исходный хвост пользовательского шаблона до создания или изменения записи. */
 export function assertCustomAnkiIdMatch(content: string, match: RegExpMatchArray, hasId: boolean): AnkiIdDateWarning | undefined {
     const start = match.index ?? 0
     let markerOffset: number | undefined
@@ -237,7 +225,6 @@ export function assertCustomAnkiIdMatch(content: string, match: RegExpMatchArray
             if (!parsed.warning) return
             const at = start + (markerOffset ?? 0)
             const lineStart = Math.max(content.lastIndexOf('\n', at - 1), content.lastIndexOf('\r', at - 1)) + 1
-            // Отдельные строки уже проверены общим сборщиком. Здесь добавляем только пользовательский inline-хвост.
             if (!content.slice(lineStart, at).trim()) return
             const line = (content.slice(0, at).match(/\r\n?|\n/gu)?.length ?? 0) + 1
             return ankiIdDateWarning(parsed, line)
@@ -263,7 +250,6 @@ export function copyMatchForRegexNote(match: RegExpMatchArray): RegExpMatchArray
     return Object.assign(copy, { index: match.index, input: match.input, groups: match.groups })
 }
 
-/** Отдаём карточку парсеру после проверки диапазона и исходного захвата ID. */
 export function* checkedCustomAnkiMatches(matches: Iterable<RegExpMatchArray>, content: string, hasId: boolean,
     warnings: AnkiIdDateWarning[], excluded: (start: number, end: number) => boolean): IterableIterator<RegExpMatchArray> {
     for (const match of matches) {

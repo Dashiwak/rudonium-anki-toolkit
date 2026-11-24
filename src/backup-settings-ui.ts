@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting } from 'obsidian'
 import type { ToggleComponent } from 'obsidian'
@@ -161,7 +159,6 @@ class VaultRestoreModal extends Modal {
     }
 }
 
-/** Общая библиотека открывает тот же ZIP для переноса или для восстановления в новую папку. */
 export function openVaultBackups(plugin: MyPlugin, actions: BackupSettingsActions = {}): void {
     const active = backupDialogs.get(plugin)
     if (active) { active.modalEl.focus(); return }

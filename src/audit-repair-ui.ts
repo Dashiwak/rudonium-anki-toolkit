@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Notice, setIcon } from 'obsidian'
 import type MyPlugin from '../main'
@@ -44,7 +42,6 @@ function actionDescription(action: AuditRepairAction, t: UiText): string {
     }
 }
 
-/** Убираем разметку до декодирования сущностей, чтобы предпросмотр не загружал ресурсы из Anki. */
 function fieldText(value: string): string {
     const source = value.replace(/<!--[^]*?-->/g, '')
         .replace(/<(script|style|template)\b[^>]*>[^]*?<\/\1\s*>/gi, '')
@@ -180,7 +177,6 @@ class AuditRepairModal extends ReviewModal {
         const source = row.source
         if (!only?.eligible || !source) return undefined
         const sourceNames = Object.keys(source.fields)
-        // Подставляем единственный вариант автоматически только при совпадении всех полей.
         return sourceNames.length && source.modelName === only.modelName && sourceNames.length === Object.keys(only.fields).length &&
             sourceNames.every(name => sameFieldValue(only.fields[name], source.fields[name])) ? only : undefined
     }

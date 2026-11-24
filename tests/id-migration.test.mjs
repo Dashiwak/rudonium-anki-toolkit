@@ -80,7 +80,7 @@ function fixture(withOld = true) {
     const plugin = { manifest: { id, dir: '.obsidian/plugins/' + id }, app: { vault: { configDir: '.obsidian', adapter: new FileSystemAdapter(root) } },
         register(dispose) { this.disposeMigration = dispose }, addCommand() {} };
     let starts = 0;
-    return { target, source, config, plugin, pause: review => pauseForMigration(plugin, async () => { starts++; }, review),
+    return { target, source, config, plugin, pause: () => pauseForMigration(plugin, async () => { starts++; }),
         starts: () => starts, enabled: (...ids) => writeFileSync(join(config, 'community-plugins.json'), JSON.stringify(ids)) };
 }
 const current = () => modals.at(-1);
@@ -300,15 +300,12 @@ try {
     assert.equal(await halted.pause(),true);click('Resume migration');await until(()=>halted.starts()===1&&!current());
 
     const withCards = fixture();
-    let openedReview = false;
-    assert.equal(await withCards.pause(() => { openedReview = true; }),true);
-    const cardOption = current().contentEl.children.find(el => el.tag === 'label').children[0];
-    assert.equal(openedReview, false);
-    cardOption.checked = true; cardOption.onchange();
+    assert.equal(await withCards.pause(), true);
+    assert.ok(!current().contentEl.children.some(el => el.tag === 'label'));
     click('Copy settings and state');
-    await until(()=>openedReview && withCards.starts() === 1 && !current());
+    await until(() => withCards.starts() === 1 && !current());
     assert.ok(existsSync(join(withCards.target,'data.json')));
-    console.log('PASS optional card migration opens only after successful legacy settings import');
+    console.log('PASS native settings import starts the plugin without offering to convert existing cards');
 
     const localized = fixture();
     writeFileSync(join(localized.source,'data.json'),JSON.stringify({...sourceState,settings:{...sourceState.settings,INTERFACE_LANGUAGE:'ru'}}));

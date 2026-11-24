@@ -356,7 +356,6 @@ function verifyDraft(draft: Draft, inventory: Inventory, t: UiText): void {
         'Вопрос или ответ отличаются в Anki. Сравните обе версии перед переносом.'))
 }
 
-// Восстановив запись через Undo в Anki, пользователь должен по-прежнему владеть её сохранённым ID.
 function claimedNoteIds(text: string, syntax: DuplicateMarkerSyntax, foreign = foreignMigrationIds(text)): number[] {
     const ids = findIdMarkers(text, syntax).map(marker => marker.id)
     for (const id of foreign) ids.push(id)
@@ -373,13 +372,15 @@ export async function previewPageMigration(plugin: MyPlugin, options: PageMigrat
         const folder = safeFolder(options.folder, t)
         const model = options.model
         checkModel(plugin, model, t)
-        if (options.source && options.source !== 'auto' && !Object.prototype.hasOwnProperty.call(pluginIds, options.source))
+        if (options.source && options.source !== 'auto' && (options.source === 'rudonium' || options.source === 'obsidian-to-anki' || options.source === 'spaced-repetition' ||
+            !Object.prototype.hasOwnProperty.call(pluginIds, options.source)))
             throw new Error(t('Unknown source plugin.', 'Неизвестный исходный плагин.'))
         const discovery = await detectMigrationContext(plugin)
         const context: MigrationContext = { ...discovery, source: (options.source ?? 'auto') as MigrationContext['source'], folder, t, syntax: plugin.settings.Syntax }
         const settingsForPage = { ...scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings)),
             PAGE_MODEL: model }
         const data = await settingToData(plugin.app, settingsForPage, plugin.fields_dict, [])
+        const hasNativeRules = Object.values(plugin.settings.CUSTOM_REGEXPS ?? {}).some(rule => rule && rule !== pageCardExpression)
         const rows: PageMigrationRow[] = [], drafts: Draft[] = [], warnings: string[] = []
         const candidates: Array<{ candidate: MigrationCandidate; before: string; file: TFile; row: PageMigrationRow }> = []
         const owners = new Map<number, string>(), collisions = new Set<number>()
@@ -412,7 +413,8 @@ export async function previewPageMigration(plugin: MyPlugin, options: PageMigrat
             const text = await vault.read(file)
             markKeys(text, path)
             const claimedIds = foreignMigrationIds(text)
-            for (const id of claimedNoteIds(text, plugin.settings.Syntax, claimedIds)) mark(id, path)
+            const nativeIds = claimedNoteIds(text, plugin.settings.Syntax, claimedIds)
+            for (const id of nativeIds) mark(id, path)
             for (const view of editorsByPath.get(path) ?? []) {
                 const current = view.getViewData()
                 if (sameEditorText(current, text)) continue
@@ -430,6 +432,21 @@ export async function previewPageMigration(plugin: MyPlugin, options: PageMigrat
             if (candidate.id !== undefined) mark(candidate.id, path)
             if (candidate.status === 'review') { row.reason = candidate.reason; continue }
             if (unsaved.has(path)) { row.reason = t('Save the open edits and preview again.', 'Сохраните открытые правки и повторите предпросмотр.'); continue }
+            if (hasNativeRules) {
+                try {
+                    const parsed = await parsePortableMarkdown(plugin.app, data, file, text, nativeIds, {
+                        preview: true, syntax: plugin.settings.Syntax, metadata: editorPreviewMetadata(text, plugin.app.metadataCache?.getCache(path)) })
+                    if (parsed.previewCandidates?.length) {
+                        row.status = 'already'
+                        row.source = 'rudonium'
+                        row.reason = t('An active export rule already reads cards in this file.', 'Карточки в этом файле уже распознаются действующим правилом экспорта.')
+                        continue
+                    }
+                } catch (error) {
+                    row.reason = t('Could not verify the current export rules. ', 'Не удалось проверить действующие правила экспорта. ') + String(error)
+                    continue
+                }
+            }
             candidates.push({ candidate, before: text, file, row })
         }
         for (const row of rows) {
@@ -482,7 +499,7 @@ export async function previewPageMigration(plugin: MyPlugin, options: PageMigrat
                 const deck = inventory!.decks.get(linked.cards[0])
                 if (linked.cards.length !== 1 || !deck || (candidate.deck && candidate.deck !== deck))
                     throw new Error(t('The source deck or original single-card layout could not be verified.', 'Не удалось подтвердить колоду или исходный шаблон с одной карточкой.'))
-                if (linked.tags.some(tag => !tag || /[\s\x00-\x1f\x7f-\x9f\ud800-\udfff]/u.test(tag) || isRecoveryTag(tag))) throw new Error(t(
+                if (linked.tags.some(tag => !tag || /[\s\p{Cc}\ud800-\udfff]/u.test(tag) || isRecoveryTag(tag))) throw new Error(t(
                     'Review the invalid or pending recovery tags in Anki first.', 'Сначала проверьте в Anki некорректные теги или теги незавершённого восстановления.'))
                 candidate = { ...candidate, linkedRoute: { model: actualModel, deck }, preservedTags: [...linked.tags] }
             }

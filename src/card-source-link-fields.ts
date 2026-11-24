@@ -1,13 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 const action = 'anki-card'
 const linkClass = ' class="obsidian-link">Obsidian</a>'
 
-/** Меняет только ссылку, созданную штатным форматтером в настроенном поле. */
 export function cardSourceFieldPatch(fields: Record<string, string>, sourceUrl: string,
     vault: string, path: string, id: number, fieldName?: string): Record<string, string> {
     if (!fieldName || !sourceUrl || !vault || !path || !Number.isSafeInteger(id) || id <= 0 ||

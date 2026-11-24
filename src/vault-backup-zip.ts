@@ -1,9 +1,11 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as fs from 'fs'
+import * as path from 'path'
+import * as stream from 'stream'
+import * as zlib from 'zlib'
 import type { Stats } from 'fs'
 import type { FileHandle } from 'fs/promises'
 
@@ -21,12 +23,10 @@ export interface VaultZipProgress extends VaultZipResult {
 
 export type VaultZipProgressCallback = (progress: VaultZipProgress) => void
 
-/** Фильтр отсекает папку до обхода её содержимого. */
 export interface VaultZipWriteOptions {
     include?: (relativePath: string, directory: boolean) => boolean
 }
 
-/** Дополнительные ограничения нужны при чтении пользовательского архива импорта. */
 export interface VaultZipReadOptions {
     maxFiles?: number
     maxTotalBytes?: number
@@ -61,19 +61,6 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, index) => {
     for (let bit = 0; bit < 8; bit++) value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0)
     return value >>> 0
 })
-
-function desktop() {
-    // Desktop Obsidian provides require; the standalone release tool imports this module as native Node ESM.
-    const load = typeof require === 'function' ? require : typeof process !== 'undefined'
-        ? (process as typeof process & { getBuiltinModule?: (name: string) => unknown }).getBuiltinModule : undefined
-    if (!load) throw new Error('ZIP backups require desktop Obsidian.')
-    return {
-        fs: load('fs') as typeof import('fs'),
-        path: load('path') as typeof import('path'),
-        stream: load('stream') as typeof import('stream'),
-        zlib: load('zlib') as typeof import('zlib'),
-    }
-}
 
 function error(message: string): Error {
     return new Error(message)
@@ -128,7 +115,7 @@ function report(onProgress: VaultZipProgressCallback | undefined, phase: VaultZi
 function validateName(name: string, directory: boolean): string {
     const clean = directory && name.endsWith('/') ? name.slice(0, -1) : name
     for (const part of clean.split('/')) {
-        if (!part || part === '.' || part === '..' || /[\\:<>|"*?\u0000-\u001f\u007f]/.test(part) ||
+        if (!part || part === '.' || part === '..' || /[\\:<>|"*?\p{Cc}]/u.test(part) ||
             /[ .]$/.test(part) || /^(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(?:\.|$)/i.test(part)) {
             throw error(`ZIP contains a path that cannot be safely restored: ${name}`)
         }
@@ -152,7 +139,6 @@ function isInside(directory: string, target: string, path: typeof import('path')
 
 async function enumerate(root: string, onProgress?: VaultZipProgressCallback,
     include?: VaultZipWriteOptions['include']): Promise<{ candidates: Candidate[]; total: VaultZipResult }> {
-    const { fs, path } = desktop()
     const progress = report(onProgress, 'enumerate', { files: 0, bytes: 0 })
     progress(0, 0, undefined, true)
     const candidates: Candidate[] = []
@@ -284,10 +270,8 @@ function endRecords(entries: number, start: number, size: number): Buffer {
     return Buffer.concat([zip64, locator, end])
 }
 
-/** Записывает отдельный ZIP и проверяет, что хранилище не изменилось за время создания снимка. */
 export async function writeVaultZip(source: string, archive: string, onProgress?: VaultZipProgressCallback,
     options: VaultZipWriteOptions = {}): Promise<VaultZipResult> {
-    const { fs, path, stream, zlib } = desktop()
     const root = await fs.promises.realpath(source)
     if (!(await fs.promises.stat(root)).isDirectory()) throw error('The vault path is not a directory.')
     const outputParent = await fs.promises.realpath(path.dirname(archive))
@@ -308,7 +292,6 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
             const name = directory ? candidate.path + '/' : candidate.path
             const nameBytes = Buffer.from(name, 'utf8')
             if (nameBytes.length > max16) throw error(`The vault path is too long for ZIP: ${candidate.path}`)
-            // Медиа и очень большие файлы сохраняем напрямую. Для Markdown и настроек используем быстрое сжатие Deflate.
             const method = !directory && stat.size > 128 && stat.size < max32 - 16 * 1024 * 1024 &&
                 textExtension.test(name) ? deflated : stored
             const entry: ZipEntry = { name, directory, size: directory ? 0 : stat.size, compressed: 0,
@@ -324,7 +307,6 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
                     const start = position
                     let crc = 0xffffffff
                     let length = 0
-                    // Читаем объём, зафиксированный при обходе. Последующая проверка метаданных обнаружит уменьшение или рост файла.
                     if (stat.size) {
                         const sourceStream = fs.createReadStream(diskPath, {
                             fd: input.fd, autoClose: false, start: 0, end: stat.size - 1,
@@ -371,7 +353,6 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
             }
             entries.push(entry)
         }
-        // Заключительный обход выявляет новые файлы и файлы, изменённые после их чтения.
         const after = await enumerate(root, undefined, options.include)
         const original = new Map(candidates.map(candidate => [candidate.path, candidate]))
         if (after.candidates.length !== candidates.length || after.candidates.some(candidate => {
@@ -538,7 +519,6 @@ async function checkedDirectory(file: FileHandle, length: number, onProgress?: V
         progress(index + 1, 0, safeName)
     }
     if (cursor !== directory.length) throw error('The ZIP directory has unexpected trailing records.')
-    // Учитываем неявные родительские каталоги, поскольку некоторые ZIP-архиваторы опускают записи о папках.
     const directories = new Map<string, string>()
     for (const entry of entries) if (entry.directory) directories.set(comparePathKey(entry.safeName), entry.safeName)
     for (const entry of entries) {
@@ -573,7 +553,6 @@ function restoredTime(entry: ZipEntry): Date {
 
 async function readArchive(archive: string, destination: string | undefined,
     onProgress?: VaultZipProgressCallback, options: VaultZipReadOptions = {}): Promise<VaultZipResult> {
-    const { fs, path, stream, zlib } = desktop()
     const realArchive = await fs.promises.realpath(archive)
     const file = await fs.promises.open(realArchive, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
     let target: string | undefined
@@ -666,13 +645,11 @@ async function readArchive(archive: string, destination: string | undefined,
     }
 }
 
-/** Читает и проверяет заголовки и контрольные суммы всех файлов без создания хранилища. */
 export function verifyVaultZip(archive: string, onProgress?: VaultZipProgressCallback,
     options?: VaultZipReadOptions): Promise<VaultZipResult> {
     return readArchive(archive, undefined, onProgress, options)
 }
 
-/** Распаковывает в новую соседнюю или выбранную папку. Существующие каталоги сохраняются. */
 export function restoreVaultZip(archive: string, newDirectory: string,
     onProgress?: VaultZipProgressCallback, options?: VaultZipReadOptions): Promise<VaultZipResult> {
     return readArchive(archive, newDirectory, onProgress, options)

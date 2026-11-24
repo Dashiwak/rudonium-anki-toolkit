@@ -31,7 +31,6 @@ function inLiteral(prefix: string): boolean {
     return !!fence || comment
 }
 
-/** Редактируем весь набор общих полей одним изменением. Неизменённые строки переносим побайтно. */
 export function prepareFrozenFields(text: string, marker: string, model: string, fields: readonly string[],
     pattern: RegExp, t: UiText, pageOptions?: { page: PageCard; syntax?: DuplicateMarkerSyntax;
         file?: string; context?: string }): FrozenFields {
@@ -88,7 +87,6 @@ export function prepareFrozenFields(text: string, marker: string, model: string,
     }
     if (!marker.trim() || !model || /[\r\n]/u.test(marker + model)) throw manual()
     const header = marker + ' - ' + model + ':'
-    // Берём те же две группы, что и рабочий парсер: тип записи и текст всех её общих полей.
     const fieldText = (str: string) => str.replace(/\r\n/gu, '\n').replace(/\n+$/u, '')
     const matches = (str: string) => Array.from(str.matchAll(
         new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g'))).filter(m => m[1] === model)

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 function escaped(text: string, position: number): boolean {
     let slashes = 0
@@ -10,7 +8,6 @@ function escaped(text: string, position: number): boolean {
     return slashes % 2 === 1
 }
 
-/** Сохраняет координаты, но скрывает от распознавания ID атрибуты HTML и экранированные примеры комментариев. */
 export function maskIdMarkerHtmlLiterals(text: string, hideComments = false): string {
     return scanHtmlLiterals(text, hideComments)
 }
@@ -158,7 +155,6 @@ function scanHtmlLiterals(text: string, hideComments: boolean,
             advance(to)
             continue
         }
-        // HTML-подобный текст внутри кода и формулы не открывает настоящий тег.
         if (character === '`' && !escaped(text, position)) {
             const run = /^`+/u.exec(text.slice(position))![0]
             let end = text.indexOf(run, position + run.length)
@@ -233,7 +229,6 @@ function scanHtmlLiterals(text: string, hideComments: boolean,
             const close = text.indexOf('-->', position + 4)
             let end = close >= 0 ? close + 3 : text.length
             if (escaped(text, position)) {
-                // Экранированное начало не открывает многострочный HTML-комментарий.
                 const newline = text.indexOf('\n', position + 4)
                 if (newline >= 0) end = Math.min(end, newline)
                 ranges.push([position, end])
@@ -259,7 +254,6 @@ function scanHtmlLiterals(text: string, hideComments: boolean,
                     if (!serviceId.test(text)) ranges.push([position, end])
                 }
             }
-            // Внутри обычного комментария разметка не открывает HTML-теги.
             advance(end)
             continue
         }

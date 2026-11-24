@@ -35,8 +35,6 @@ function treeEntries(directory, commit) {
     });
 }
 
-// cat-file читает байты объектов напрямую, без фильтров checkout, export-subst
-// и локальных правил атрибутов. Один пакет избегает отдельного git.exe для каждого файла.
 function readObjects(directory, objects) {
     const ids = Array.from(objects.keys());
     const output = readGit(directory, ["cat-file", "--batch"], {

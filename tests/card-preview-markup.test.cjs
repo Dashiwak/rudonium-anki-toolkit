@@ -44,7 +44,8 @@ test("card field preview sanitizes host HTML before filtering offline content, w
         },
     });
     const owner = {
-        createElement(tag) {
+        createDocumentFragment() { return this; },
+        createEl(tag) {
             assert.equal(tag, "template");
             let appended;
             return { content: {

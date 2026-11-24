@@ -1,9 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
 import type MyPlugin from '../main'
 import { TFile } from 'obsidian'
 import { withFastScanReadLock } from './fast-scan'
@@ -62,16 +63,8 @@ const previewFileLimit = 256 * 1024
 const maxMarkdownBytes = 16 * 1024 * 1024
 type DirectoryNames = Map<string, { stamp: string; names: Map<string, string[]> }>
 
-function desktop() {
-    return {
-        fs: require('fs') as typeof import('fs'),
-        path: require('path') as typeof import('path'),
-        crypto: require('crypto') as typeof import('crypto'),
-    }
-}
-
 function hash(bytes: Uint8Array | string): string {
-    return desktop().crypto.createHash('sha256').update(bytes).digest('hex')
+    return crypto.createHash('sha256').update(bytes).digest('hex')
 }
 
 function failure(plugin: MyPlugin, english: string, russian: string): Error {
@@ -88,7 +81,7 @@ function cleanFolder(input: string): string {
     const folder = input.trim().replace(/\/+$/u, '')
     if (!folder) return ''
     if (folder.split('/').some(part => !part || part.startsWith('.') || part === '__MACOSX' ||
-        /[\\:<>|"*?\u0000-\u001f\u007f]/u.test(part) || /[ .]$/u.test(part) ||
+        /[\\:<>|"*?\p{Cc}]/u.test(part) || /[ .]$/u.test(part) ||
         /^(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(?:\.|$)/iu.test(part))) {
         throw new Error('Choose an ordinary vault folder with a relative path. / Выберите обычную папку хранилища с относительным путём.')
     }
@@ -99,9 +92,7 @@ function safeFilePath(input: string): boolean {
     try { return cleanFolder(input) === input && input.length > 0 } catch { return false }
 }
 
-/** Проверка каждого родителя исключает попадание через ссылку в чужое хранилище. */
 async function checkedPath(root: string, relative: string, allowPrivate = false, cache?: DirectoryNames): Promise<string> {
-    const { fs, path } = desktop()
     if (!allowPrivate && !safeFilePath(relative)) throw new Error('The vault path is invalid. / Недопустимый путь в хранилище.')
     const parts = relative.split('/')
     let current = root
@@ -147,7 +138,6 @@ async function checkedPath(root: string, relative: string, allowPrivate = false,
 }
 
 async function context(plugin: MyPlugin) {
-    const { fs, path } = desktop()
     const adapter = plugin.app.vault.adapter as typeof plugin.app.vault.adapter & { getBasePath?: () => string }
     const base = adapter.getBasePath?.()
     if (!base || !path.isAbsolute(base)) throw failure(plugin, 'ZIP import needs a local desktop vault.', 'Импорт ZIP требует локального хранилища на компьютере.')
@@ -159,11 +149,10 @@ async function context(plugin: MyPlugin) {
     }
     const names: DirectoryNames = new Map()
     const folder = await checkedPath(root, relative, true, names)
-    return { ...desktop(), root, relative, folder, names }
+    return { fs, path, crypto, root, relative, folder, names }
 }
 
 async function ensureFolder(root: string, relative: string, privateFolder = false): Promise<string> {
-    const { fs, path } = desktop()
     let accumulated = ''
     for (const part of relative.split('/')) {
         if (!part) continue
@@ -178,7 +167,6 @@ async function ensureFolder(root: string, relative: string, privateFolder = fals
 }
 
 async function jsonFile(path: string): Promise<unknown> {
-    const { fs } = desktop()
     try {
         const info = await fs.promises.lstat(path)
         if (!info.isFile() || info.size > 64 * 1024 * 1024) throw new Error('The ZIP import journal is invalid. / Повреждён журнал импорта ZIP.')
@@ -190,7 +178,6 @@ async function jsonFile(path: string): Promise<unknown> {
 }
 
 async function atomicJson(path: string, value: unknown): Promise<void> {
-    const { fs, crypto } = desktop()
     const temporary = `${path}.${crypto.randomUUID()}.tmp`
     const handle = await fs.promises.open(temporary, 'wx', 0o600)
     try { await handle.writeFile(JSON.stringify(value)); await handle.sync() } finally { await handle.close() }
@@ -272,7 +259,6 @@ function tick(progress: Progress | undefined, phase: string, files: number, tota
     progress?.({ phase, files, totalFiles, bytes: 0, totalBytes: 0, path })
 }
 
-/** Чтение архива не меняет файлы хранилища или записи Anki. */
 export function prepareZipImport(_plugin: MyPlugin, source: string | File, progress?: Progress,
     signal?: AbortSignal): Promise<ZipImportArchive> {
     return prepareZipImportArchive(source, progress, signal)
@@ -293,7 +279,7 @@ async function existingOwners(plugin: MyPlugin, wanted: ReadonlySet<number>, pro
             owners.set(id, paths)
         }
         tick(progress, 'ids', ++index, files.length, file.path)
-        if (index % 64 === 0) await new Promise<void>(resolve => setTimeout(resolve, 0))
+        if (index % 64 === 0) await new Promise<void>(resolve => window.setTimeout(resolve, 0))
     }
     return owners
 }
@@ -506,7 +492,6 @@ export async function applyZipImport(plugin: MyPlugin, plan: ZipImportPlan, sele
         const incomingOwners = new Map<number, Set<string>>()
         const dirty = dirtyPaths(plugin)
         const originalPaths = new Set(plugin.app.vault.getMarkdownFiles().map(file => file.path))
-        // Все проверки проходят до создания журнала и первой правки в хранилище.
         for (const row of rows) {
             const checked = row.saved
             if (!checked || dirty.has(row.path)) throw failure(plugin, 'A selected file is being edited. Save it and compare again.', 'Выбранный файл редактируется. Сохраните его и сравните заново.')
@@ -543,7 +528,6 @@ export async function applyZipImport(plugin: MyPlugin, plan: ZipImportPlan, sele
         }
         if (revision() !== startRevision) throw failure(plugin, 'The vault changed before importing. Compare again.', 'Хранилище изменилось перед импортом. Сравните заново.')
         await atomicJson(ctx.path.join(transaction, 'transaction.json'), journal)
-        // Маркер публикуется раньше первой записи. После сбоя восстановление проверит реальные хеши.
         await atomicJson(ctx.path.join(ctx.folder, pendingName), { id })
         try {
             for (const [index, entry] of journal.entries.entries()) {
@@ -552,10 +536,8 @@ export async function applyZipImport(plugin: MyPlugin, plan: ZipImportPlan, sele
                 await writeVaultFile(plugin, entry, bytes, entry.before, ctx)
                 tick(progress, 'apply', index + 1, journal.entries.length, entry.path)
             }
-            // Обновлённые нами имена кешируются на время записи. Финальная проверка перечитывает каталоги.
             ctx.names.clear()
             for (const entry of journal.entries) await checkedPath(ctx.root, entry.path, false, ctx.names)
-            // Свои записи меняют ревизию. Проверяем отдельно остальные Markdown-файлы и новые пути.
             if ([...originalPaths].some(path => !selected.has(path) && pathRevision(path) > startRevision) ||
                 plugin.app.vault.getMarkdownFiles().some(file => !selected.has(file.path) && !originalPaths.has(file.path))) {
                 throw failure(plugin, 'Other notes changed during import. Review the saved import recovery.', 'Другие заметки изменились во время импорта. Проверьте сохранённое восстановление импорта.')
@@ -578,7 +560,6 @@ export async function applyZipImport(plugin: MyPlugin, plan: ZipImportPlan, sele
     })
 }
 
-/** Возврат затрагивает только файлы с подтверждённым результатом именно этого импорта. */
 export async function recoverZipImport(plugin: MyPlugin, progress?: Progress): Promise<ZipImportResult> {
     return withFastScanReadLock(plugin, async () => {
         const ctx = await context(plugin)

@@ -81,7 +81,7 @@ test('the preview closes once after a completed apply; partial writes and failur
     }
 })
 
-test('two-way settings place the mode before the closed options in both languages and roll back a failed toggle', async () => {
+test('two-way settings place the mode first inside the collapsed group in both languages and roll back a failed toggle', async () => {
     const { load } = await import('./benchmark/migration-modules.cjs').then(module => module.default)
     const notices = []
     class Row {
@@ -118,26 +118,32 @@ test('two-way settings place the mode before the closed options in both language
         const plugin={settings:{INTERFACE_LANGUAGE:lang},saveAllData:async()=>{},scanVault:async()=>{scans++}}
         const top = new Group()
         ui.installBidirectionalSettings(top,plugin)
-        assert.equal(top.rows.length, 2)
-        const [mode, disclosure] = top.rows
+        assert.equal(top.rows.length, 1)
+        const [disclosure] = top.rows
         assert.equal(disclosure.tag, 'details')
         assert.equal(disclosure.open, false)
         const [summary, options] = disclosure.rows
         assert.equal(summary.text, lang === 'ru' ? 'Настройки синхронизации' : 'Sync settings')
+        const [mode] = options.rows
         assert.equal(mode.name, label)
+        assert.match(mode.hint, lang === 'ru'
+            ? /всего хранилища.*примерно в 10 раз.*односторонний экспорт/u
+            : /full vault sync.*about 10 times as long as a one-way export/u)
         const sync = mode.controls.find(control => control.text === (lang === 'ru' ? 'Синхронизировать' : 'Sync now'))
         const modeToggle = mode.controls.find(control => control.change)
         const previewButton = options.rows.flatMap(row => row.controls).find(control => control.text === (lang === 'ru' ? 'Открыть предпросмотр' : 'Preview now'))
         assert.equal(sync.buttonEl.disabled, true)
         assert.equal(previewButton.buttonEl.disabled, true)
         assert.equal(modeToggle.value, false)
-        const policy = options.rows.find(row => row.name === (lang === 'ru' ? 'Применять более позднюю правку' : 'Apply the newer edit')).controls[0]
+        const policyName = lang === 'ru' ? 'Применять более позднюю правку' : 'Apply the newer edit'
+        const policy = options.rows.find(row => row.name === policyName).controls[0]
         assert.equal(policy.value, true)
         await policy.change(false)
         assert.equal(plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY, 'skip')
         const restored = new Group()
         ui.installBidirectionalSettings(restored, {...plugin,settings:{...plugin.settings}})
-        assert.equal(restored.rows[1].rows[1].rows.find(row => row.name === (lang === 'ru' ? 'Применять более позднюю правку' : 'Apply the newer edit')).controls[0].value, false)
+        const [, restoredOptions] = restored.rows[0].rows
+        assert.equal(restoredOptions.rows.find(row => row.name === policyName).controls[0].value, false)
         await policy.change(true)
         assert.equal(plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY, 'latest')
         await modeToggle.change(true)

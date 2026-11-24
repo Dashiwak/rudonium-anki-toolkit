@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting } from 'obsidian'
 import type { ToggleComponent } from 'obsidian'
@@ -38,7 +36,6 @@ export function describeArchiveScope(settings: ArchiveTransferSettings, t: UiTex
         : t(' · Markdown only', ' · только Markdown'))
 }
 
-/** В окне редактируется копия правил. Сохранение проверяет, что настройки не менялись параллельно. */
 class ArchiveFoldersModal extends Modal {
     private readonly initial: ArchiveTransferSettings
     private readonly draft: ArchiveTransferSettings

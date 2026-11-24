@@ -1,14 +1,12 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import { Notice, Setting } from 'obsidian'
+import { Notice, Setting, setIcon } from 'obsidian'
 import type MyPlugin from '../main'
 import { interfaceLanguage, uiFor } from './interface-language'
 import type { UiText } from './interface-language'
-import { redrawSettingsPreservingLayout } from './settings-layout'
+import { redrawSettingsPreservingLayout, setAllSettingsGroupsOpen } from './settings-layout'
 import { supportUrl } from './plugin-identity'
 
 export function registerSupportCommand(plugin: MyPlugin): void {
@@ -22,11 +20,22 @@ export function registerSupportCommand(plugin: MyPlugin): void {
 
 export function installSettingsHelp(container: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
-    container.createEl('a', { text: t('Rudonium help on GitFlic', 'Помощь по Rudonium на GitFlic'),
+    const header = container.createDiv({ cls: 'rudonium-settings-header' })
+    header.createEl('a', { text: t('Rudonium help on GitFlic', 'Помощь по Rudonium на GitFlic'),
         attr: { href: supportUrl } })
+    const controls = header.createDiv({ cls: 'rudonium-section-controls', attr: {
+        role: 'group', 'aria-label': t('Settings sections', 'Разделы настроек') } })
+    const addButton = (label: string, icon: string, open: boolean) => {
+        const button = controls.createEl('button', { cls: 'clickable-icon',
+            attr: { type: 'button', title: label, 'aria-label': label } })
+        setIcon(button, icon)
+        button.onclick = () => setAllSettingsGroupsOpen(container, plugin, open)
+    }
+    addButton(t('Expand all sections', 'Развернуть все разделы'), 'chevrons-up-down', true)
+    addButton(t('Collapse all sections', 'Свернуть все разделы'), 'chevrons-down-up', false)
 }
 
-export function installInterfaceLanguage(container: HTMLElement, plugin: MyPlugin, redraw: () => void): void {
+export function installInterfaceLanguage(container: HTMLElement, plugin: MyPlugin, redraw: () => void, pane = container): void {
     const t = uiFor(plugin.settings)
     const label = t('Interface Language', 'Язык интерфейса')
     new Setting(container).setName(label)
@@ -50,8 +59,8 @@ export function installInterfaceLanguage(container: HTMLElement, plugin: MyPlugi
                             'Не удалось сохранить язык интерфейса. Попробуйте ещё раз.'))
                         return
                     }
-                    redrawSettingsPreservingLayout(container, plugin, redraw)
-                    const refreshed = container.querySelector<HTMLSelectElement>('select.anki-interface-language')
+                    redrawSettingsPreservingLayout(pane, plugin, redraw)
+                    const refreshed = pane.querySelector<HTMLSelectElement>('select.anki-interface-language')
                     refreshed?.focus({ preventScroll: true })
                 })
             control.selectEl.classList.add('anki-interface-language')

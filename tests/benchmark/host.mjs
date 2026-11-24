@@ -2,6 +2,7 @@
 // Test boundaries for desktop Obsidian, upstream Markdown renderer and AnkiConnect.
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+globalThis.window ??= { setTimeout, clearTimeout, setInterval, clearInterval }
 let host
 export function useHost(value) { host = value }
 export class MarkdownView {}

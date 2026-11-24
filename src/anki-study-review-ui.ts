@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { MarkdownView, Modal } from 'obsidian'
 import type MyPlugin from '../main'
@@ -38,7 +36,6 @@ export function canReviewMissingSourceCards(result: SyncAuditResult, id: number)
         result.ankiOnly.some(note => note.id === id && note.metadataAvailable && note.markers.includes('vault-link'))
 }
 
-/** Ручной Obsidian URL в тексте недостаточен. Для изменения состояния нужна созданная плагином ссылка с точным ID. */
 export function ownedMissingStudyLink(fields: readonly [string, string][], vault: string, id: number): string | undefined {
     const paths = new Set<string>()
     for (const [, html] of fields) {
@@ -55,7 +52,6 @@ export function ownedMissingStudyLink(fields: readonly [string, string][], vault
                     source.split('/').some(part => !part || part === '.' || part === '..') || source.includes('\\') || Array.from(source).some(character => character.charCodeAt(0) < 32)) continue
                 paths.add(source)
             } catch {
-                // Ошибочная ссылка не подтверждает принадлежность записи.
             }
         }
     }
@@ -97,7 +93,6 @@ async function examineStudyCards(plugin: MyPlugin, result: SyncAuditResult, id: 
         }
         await requireExpectedAnkiProfile(plugin, profile.active)
         const { vault } = plugin.app
-        // Подтверждаем отсутствие ID во всём хранилище. Перед записью перечитываем файлы.
         const files = vault.getMarkdownFiles().filter(file => !isSyncAuditReportPath(file.path))
         const index = await indexVaultIds(plugin, files, plugin.settings.Syntax, pathRevision, {
             force: !!apply, shouldStop: () => !stillCurrent(),

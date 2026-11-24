@@ -7,7 +7,7 @@ import overlay from '../../Build/overlay-source.cjs'
 import { loadSync } from './load-sync.mjs'
 import { useHost } from './host.mjs'
 
-export async function checkSuspension(count, checkDeletion = true, mass = true, checkArchive = false) {
+export async function checkSuspension(count, checkDeletion = true, mass = true, checkArchive = false, withHistory = false) {
     assert.ok(Number.isSafeInteger(count) && count >= 4)
     const runtime = await loadSync(overlay.directory)
     const profile = 'Schedule QA'
@@ -111,6 +111,7 @@ export async function checkSuspension(count, checkDeletion = true, mass = true, 
             CUSTOM_REGEXPS: {}, Syntax: { 'Suspend Line': label, 'Delete Note Line': 'RETIRE[x]' }, Defaults: { Deck: 'Knowledge' } },
         fields_dict: { Basic: ['Front', 'Back'] } }
     useHost(host)
+    if (withHistory) plugin.settings.SYNC_CHANGE_HISTORY = true
     const measure = async (scope, callback) => {
         const begin = performance.now()
         const offset = calls.length
@@ -161,6 +162,15 @@ export async function checkSuspension(count, checkDeletion = true, mass = true, 
         edit(clean)
         failNextStatus = true
         await measure('cursor-interrupted-resume', () => apply(true).catch(() => undefined))
+        if (withHistory) {
+            const rows = await runtime.readSyncChanges(plugin)
+            assert.ok(rows.some(r => r.action === 'unknown' && r.noteId === target && r.detail === 'unsuspend'))
+            assert.ok(rows.some(r => r.action === 'suspend' && r.noteId === target && r.direction === 'to-anki'))
+            for (const [action, before, after] of [['suspend', '', '2'], ['unsuspend', '2', '']]) {
+                const entry = rows.find(row => row.action === action && row.noteId === target && row.direction === 'to-obsidian')
+                assert.deepEqual(entry?.fields, [{ name: 'SUSPEND', before, after }])
+            }
+        }
         assert.deepEqual(suspended(), [false, false])
         await measure('cursor-retry-after-lost-acknowledgement', async () => {
             const dialog = await preview(true)
@@ -195,6 +205,11 @@ export async function checkSuspension(count, checkDeletion = true, mass = true, 
             edit(requested)
             await measure('custom-delete-archive', () => apply())
             assert.ok(!notes.has(explicit))
+            if (withHistory) {
+                const rows = (await runtime.readSyncChanges(plugin)).filter(r => r.noteId === explicit)
+                assert.ok(rows.some(r => r.action === 'delete' && r.direction === 'to-anki' && r.fields.some(f => f.name === 'Back' && f.before)))
+                assert.ok(rows.some(r => r.action === 'edit' && r.direction === 'to-obsidian' && r.fields.some(f => f.after.includes('RUDONIUM-ARCHIVE'))))
+            }
             assert.ok(file.text.includes(original), 'original fields and ID must remain author-readable')
             assert.ok(!file.text.includes(command))
             const envelope = id => [`<!--RUDONIUM-ARCHIVE:${id}:mark-->`, `<!--/RUDONIUM-ARCHIVE:${id}-->`]
@@ -245,7 +260,8 @@ export async function checkSuspension(count, checkDeletion = true, mass = true, 
             assert.ok(candidate.preview.canApply, JSON.stringify(candidate.preview.rows))
             failFind = true
             const firstAttempt = await candidate.apply(new Map())
-            assert.match(firstAttempt, /0 deletions/)
+            assert.match(firstAttempt, /changed.*Preview the sync again/isu)
+            assert.doesNotMatch(firstAttempt, /Deleted [1-9]|Updated Obsidian after deletion/u)
             assert.equal(file.text, clean, 'failed global lookup cannot authorize cleanup')
             failFind = false
             await measure('confirmed-remote-deletion', () => apply())

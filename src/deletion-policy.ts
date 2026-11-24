@@ -12,7 +12,6 @@ export function isAfterDeleteMode(value: unknown): value is AfterDeleteMode {
     return deletionModes.some(mode => mode === value)
 }
 
-/** Новые настройки содержат один режим. Старые хранилища читаем без миграции или изменения файлов. */
 export function afterDeleteMode(settings: DeletionSettings): AfterDeleteMode {
     const saved = settings.AFTER_DELETE_MODE
     if (saved !== undefined) return isAfterDeleteMode(saved) ? saved : 'keep'

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice } from 'obsidian'
 import type { App, TFile } from 'obsidian'
@@ -459,7 +457,6 @@ async function saveReport(app: App, result: SyncAuditResult, exportIncomplete: b
         try {
             return await app.vault.create(path, markdown)
         } catch (error) {
-            // Если другой процесс успел создать файл с тем же именем, пробуем следующий номер.
             if (!app.vault.getAbstractFileByPath(path)) throw error
         }
     }
@@ -701,7 +698,6 @@ class SyncAuditModal extends ReviewModal {
                 const hint = this.contentEl.createEl('p', { text: folderProfileDescription(plan.folderScope, t) +
                     t('. Export is running before this deck is checked. Closing stops it after the current batch.',
                         '. Идёт экспорт перед проверкой колоды. Если закрыть окно, он остановится после текущей группы файлов.') })
-                // При повторе прерванного экспорта сохраняем ранее подтверждённый профиль.
                 let profile = plan.runProfile ?? plan.expectedProfile
                 if (profile === undefined) {
                     try {
@@ -1341,7 +1337,6 @@ export function openSyncAudit(plugin: MyPlugin, scope: VaultSyncAuditScope = 'de
     showAuditModal(plugin, scope)
 }
 
-/** По явному выбору в уведомлении открываем аудит именно колоды проблемной карточки. */
 export async function openAuditForExportIssue(plugin: MyPlugin, deck?: string, repair?: ExportRepairTarget): Promise<void> {
     const request = {}
     auditsFromNotice.set(plugin, request)
@@ -1353,7 +1348,6 @@ export async function openAuditForExportIssue(plugin: MyPlugin, deck?: string, r
     else openSyncAuditDeckPicker(plugin, [], false, repair)
 }
 
-/** Начинает новый аудит с выбранным пользователем режимом. Навигация в отчёте только читает данные. */
 export function startSyncAudit(plugin: MyPlugin, scope: VaultSyncAuditScope = 'default-deck'): void {
     showAuditModal(plugin, scope, { chooseMode: true })
 }

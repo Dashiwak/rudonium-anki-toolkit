@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { MarkdownView, TFile } from 'obsidian'
 import type MyPlugin from '../main'
@@ -178,8 +176,6 @@ async function readChange(plugin: MyPlugin, source: AuditRepairSource, id: numbe
     const blockStart = source.blockStart + shift
     const oldEnd = source.blockEnd + shift
     if (blockStart < 0 || before.slice(blockStart, oldEnd) !== source.blockText) throw changed(t)
-    // Предыдущая строка в том же пакете могла сдвинуть блок. Геометрия берётся из
-    // нового текста, а содержимое и границы повторно сверяются штатным парсером.
     const lineAt = (offset: number) => {
         let line = 1
         for (const match of before.matchAll(lineBreak)) {
@@ -268,8 +264,6 @@ async function confirmCandidateDeck(deck: string, candidate: AuditRepairCandidat
             if (error instanceof DOMException && error.name === 'TimeoutError') throw error
         }
     }
-    // Старые AnkiConnect и временные колоды требуют той же проверки точного
-    // состава колоды, которая используется при поиске соответствий.
     if (!(await readSyncAuditNoteInventory(deck, signal))?.has(candidate.id)) throw problem(t(
         'The Anki note is no longer confirmed in the audited deck. Run the audit again.',
         'Запись больше не подтверждается в проверяемой колоде Anki. Проведите аудит заново.'))
@@ -370,8 +364,6 @@ async function saveIntent(plugin: MyPlugin, profile: string, source: AuditRepair
     const temp = `${path}.part`
     const adapter = plugin.app.vault.adapter
     if (await adapter.exists(path) || await adapter.exists(temp)) throw changed(t)
-    // Запрос в Anki отправляется только после проверки сохранённого намерения.
-    // При обрыве записи временный файл не попадёт в список незавершённых действий.
     await adapter.write(temp, data)
     if (await adapter.read(temp) !== data) throw changed(t)
     await adapter.rename(temp, path)
@@ -483,8 +475,6 @@ export async function applyAuditRepairs(plugin: MyPlugin, input: {
                         } catch (error) {
                             console.warn('[Export to Anki] AnkiConnect не подтвердил удаление', error)
                         }
-                        // Даже после потери ответа удаление повторно не отправляется.
-                        // Отсутствие записи проверяется новым запросом к тому же профилю.
                         busy(plugin, t)
                         await requireExpectedAnkiProfile(plugin, profile, signal)
                         const after = await remotePresence(ids, t, signal)
@@ -563,7 +553,6 @@ export async function finishAuditRepairUnlink(plugin: MyPlugin, profile: string,
             const before = await plugin.app.vault.read(file)
             const blockStart = digitOffset(plugin, before, oldId, t) - intent.digitsInBlock
             const blockEnd = blockStart + intent.blockLength
-            // Правки за границей карточки можно сохранить, если сама карточка побайтно совпадает с подтверждённой.
             if (blockStart < 0 || await hash(before.slice(blockStart, blockEnd)) !== intent.blockHash) throw changed(t)
             const after = before.slice(0, blockStart + intent.markerStartInBlock) + before.slice(blockStart + intent.markerEndInBlock)
             if (findIdMarkers(after, plugin.settings.Syntax).some(marker => marker.id === oldId)) throw changed(t)

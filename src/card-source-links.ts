@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { MarkdownView, Notice } from 'obsidian'
 import type { App, Plugin, TFile } from 'obsidian'
@@ -67,7 +65,6 @@ function openEditorText(app: App, paths: ReadonlySet<string>, t: UiText): Map<st
     return text
 }
 
-/** Находит исходный блок по обратной ссылке без AnkiConnect, учитывая перемещённые файлы и повторные ID. */
 export function registerCardSourceLinks(plugin: Plugin, getSyntax: () => DuplicateMarkerSyntax = () => ({}),
     onDuplicate?: (id: number) => void, getText: () => UiText = () => englishUi): void {
     const app = plugin.app

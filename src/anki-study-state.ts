@@ -1,12 +1,9 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { isRecoveryTag } from './export-recovery'
 
-/** Эти метки принадлежат обучению в Anki или журналу восстановления экспорта. */
 export function isProtectedAnkiTag(tag: string): boolean {
     const key = tag.toLowerCase()
     return key === 'leech' || key === 'marked' || isRecoveryTag(key)
@@ -15,7 +12,6 @@ export function isProtectedAnkiTag(tag: string): boolean {
 export type AnkiStudyRead = (action: 'deckNamesAndIds' | 'findCards', params?: Record<string, unknown>) => Promise<unknown>
 type AnkiDeckConfigRead = (action: 'getDeckConfig', params: { deck: string }) => Promise<unknown>
 
-/** Для фильтрованных колод Anki возвращает встроенную конфигурацию, для обычных — настройки с dyn=false. */
 export async function readAnkiDeckKind(deck: string, read: AnkiDeckConfigRead):
     Promise<'filtered' | 'ordinary' | 'missing' | 'unknown'> {
     return deckKind(await read('getDeckConfig', { deck }))
@@ -55,7 +51,6 @@ export async function readAnkiDeckEntries(read: AnkiStudyRead): Promise<Map<stri
     return result
 }
 
-/** Ограничиваем число переходов между Obsidian и Anki. Отказ одной колоды не меняет вывод по соседним. */
 export async function readFilteredAnkiDecks(decks: Iterable<string>,
     read: (action: 'getDeckConfig' | 'deckNamesAndIds' | 'multi', params?: Record<string, unknown>) => Promise<unknown>,
     shouldStop?: () => boolean, unverified = new Set<string>()): Promise<Map<string, string>> {
@@ -85,7 +80,6 @@ export async function readFilteredAnkiDecks(decks: Iterable<string>,
     const checked = new Map(await inspect([...names.values()]))
     const missing = [...checked].filter(([, kind]) => kind === 'missing')
     if (missing.length && !shouldStop?.()) {
-        // Anki ищет конфигурацию с учётом регистра. Отличаем отсутствующую колоду от другого написания.
         const entries = await readAnkiDeckEntries(() => read('deckNamesAndIds')).catch(() => undefined)
         const aliases: string[] = []
         for (const [deck] of missing) {
@@ -134,7 +128,6 @@ export function findFilteredAnkiCards(cards: readonly number[], read: AnkiStudyR
     return findCardIds('deck:filtered', cards, read)
 }
 
-/** Поиск по числовому ID колоды в новых версиях Anki исключает подколоды и учитывает исходные колоды карточек. */
 export async function findAnkiDeckCardIds(deckId: number, cards: readonly number[], read: AnkiStudyRead): Promise<Set<number>> {
     if (!isId(deckId)) throw new Error('Invalid Anki deck ID')
     return findCardIds(`did:${deckId}`, cards, read)

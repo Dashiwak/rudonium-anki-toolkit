@@ -6,7 +6,6 @@ import { findIdMarkers } from './duplicate-markers'
 import type { CursorCardTarget } from './cursor-card'
 import { uiFor } from './interface-language'
 
-/** Учитываем ещё не сохранённую копию того же ID даже во вкладке вне области экспорта. */
 export function checkCursorEditors(plugin: MyPlugin, target: CursorCardTarget): void {
     const t = uiFor(plugin.settings)
     for (const { view } of plugin.app.workspace.getLeavesOfType('markdown')) {

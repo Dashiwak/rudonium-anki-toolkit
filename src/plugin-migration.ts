@@ -1,9 +1,10 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as fs from 'fs'
+import * as path from 'path'
+import * as crypto from 'crypto'
 import { Modal, Notice } from 'obsidian'
 import type { FileSystemAdapter, Plugin } from 'obsidian'
 import { uiFor } from './interface-language'
@@ -108,7 +109,6 @@ function readSavedPlan(value: unknown): SavedPlan | undefined {
             typeof row.hash === 'string' && digestPattern.test(row.hash)) ||
         new Set(value.files.map(row => row.path)).size !== value.files.length ||
         !value.files.some(row => row.path === 'data.json')) throw new Error('The migration checkpoint is damaged.')
-    // В журнале первой версии единственным источником был Export to Anki.
     const sourceId = value.version === 1 ? upstreamPluginId : value.sourceId
     if (sourceId !== previousRudoniumId && sourceId !== upstreamPluginId) throw new Error('Unknown migration source.')
     return { sourceId, files: value.files }
@@ -218,13 +218,11 @@ async function inspectMigration(context: MigrationContext): Promise<MigrationPla
             indexedIds = ids.size
         }
     } catch {
-        // Индекс — только справочный счётчик. Проверку его версии после импорта выполняет сканер.
     }
     return { kind: 'preview', sourceId, files, cachedFiles: Object.keys(data['File Hashes'] as JsonObject).length,
         indexedIds, interrupted: saved !== undefined }
 }
 
-// Все имена здесь взяты из проверенного плана. Каждый родитель проверяется до чтения или создания.
 async function statePath(context: MigrationContext, root: string, relative: string, create: boolean): Promise<string> {
     if (!knownFile(relative) || await context.fs.promises.realpath(root) !== root) throw new Error('Invalid state path.')
     const parts = relative.split('/')
@@ -257,8 +255,6 @@ async function publishExclusive(context: MigrationContext, target: string,
         await prepare(staged)
         const handle = await fs.promises.open(staged, 'r+')
         try { await handle.sync() } finally { await handle.close() }
-        // На обычных настольных ФС ссылка публикует проверенный файл атомарно.
-        // На томах без жёстких ссылок сохраняем запрет перезаписи через COPYFILE_EXCL.
         checkMigrationActive(context)
         try { await fs.promises.link(staged, target) }
         catch (error) {
@@ -292,13 +288,11 @@ async function copyMigration(context: MigrationContext, expected: Extract<Migrat
             const source = await statePath(context, origin, entry.path, false)
             if (!await regularPath(fs, source)) throw new Error('A migration source file is missing.')
             await publishExclusive(context, target, async stage => {
-                // Не загружаем в память целиком резервные ZIP и версии вложений.
                 await fs.promises.copyFile(source, stage, fs.constants.COPYFILE_EXCL)
                 if (await hashFile(context, stage) !== entry.hash) throw new Error('The source changed after preview.')
             })
         }
     }
-    // inspectMigration ещё раз сверяет содержимое обеих папок и активность прежних плагинов.
     const confirmed = await inspectMigration(context)
     if (confirmed.kind !== 'preview' || confirmed.sourceId !== actual.sourceId || JSON.stringify(confirmed.files) !== JSON.stringify(actual.files)) {
         throw new Error('The old plugin files changed during migration.')
@@ -312,12 +306,9 @@ async function copyMigration(context: MigrationContext, expected: Extract<Migrat
 async function migrationContext(plugin: Plugin, isStopped: () => boolean): Promise<MigrationContext> {
     const { app, manifest } = plugin
     const adapter = app.vault.adapter as Partial<FileSystemAdapter>
-    if (typeof adapter.getBasePath !== 'function' || typeof require !== 'function') {
+    if (typeof adapter.getBasePath !== 'function') {
         throw new Error('Migration requires a desktop file-system vault.')
     }
-    const fs: FileSystem = require('fs')
-    const path: PathTools = require('path')
-    const crypto: Crypto = require('crypto')
     const root = await fs.promises.realpath(adapter.getBasePath())
     const config = inside(root, app.vault.configDir, path)
     const plugins = path.join(config, 'plugins')
@@ -328,7 +319,6 @@ async function migrationContext(plugin: Plugin, isStopped: () => boolean): Promi
         throw new Error('The plugin directory cannot be verified for migration.')
     }
     setImageReceiptDirectory(app, relative)
-    // Перенос предшествует загрузке настроек. Первый экран использует английский язык по умолчанию.
     const t = uiFor()
     return { fs, path, crypto, config, plugins, plugin, isStopped, destination, t }
 }
@@ -337,7 +327,7 @@ class MigrationModal extends Modal {
     busy = false
     constructor(plugin: Plugin, private readonly context: MigrationContext,
         private readonly plan: Exclude<MigrationPlan, { kind: 'ready' }>,
-        private readonly actions: { refresh: () => Promise<void>; finish: (reviewCards?: boolean) => Promise<void>; canReviewCards: boolean }) {
+        private readonly actions: { refresh: () => Promise<void>; finish: () => Promise<void> }) {
         super(plugin.app)
     }
 
@@ -370,26 +360,18 @@ class MigrationModal extends Modal {
             return
         }
         content.insertBefore(content.createEl('p', { text: t('Source plugin folder: ', 'Папка прежнего плагина: ') + plan.sourceId }), controls)
-        status.setText(t('Copy the old settings and verified sync checkpoints. The previous plugin files, Markdown and Anki stay untouched.',
-            'Скопируйте прежние настройки и данные синхронизации. Файлы прежнего плагина, Markdown и Anki остаются без записи.'))
+        status.setText(t('Copy your settings and sync history to keep using your existing Markdown cards and Anki note IDs.',
+            'Скопируйте настройки и историю синхронизации, чтобы продолжить работу с существующими карточками Markdown и их ID в Anki.'))
         content.insertBefore(content.createEl('p', { text: t(
             `Files to copy: ${plan.files.length}. Saved Markdown hashes: ${plan.cachedFiles}.`,
             `Файлов для переноса — ${plan.files.length}. Сохранённых хешей Markdown — ${plan.cachedFiles}.`) }), controls)
         if (plan.indexedIds !== undefined) content.insertBefore(content.createEl('p', { text: t(
             `Anki IDs recorded in the previous index: ${plan.indexedIds}. The index is not a live Anki check.`,
             `ID Anki в прежнем индексе — ${plan.indexedIds}. Данные взяты из индекса, Anki не подключалась.`) }), controls)
-        let reviewCards = false
-        if (this.actions.canReviewCards) {
-            const label = content.createEl('label')
-            content.insertBefore(label, controls)
-            const option = label.createEl('input', { attr: { type: 'checkbox' } })
-            label.createSpan({ text: t(' Review card files after copying settings', ' Проверить файлы карточек после переноса настроек') })
-            option.onchange = () => { reviewCards = option.checked }
-        }
         controls.createEl('button', { text: plan.interrupted ? t('Resume migration', 'Продолжить перенос') :
             t('Copy settings and state', 'Перенести настройки и данные'), cls: 'mod-cta' }).onclick = () => void run(async () => {
             await copyMigration(context, plan)
-            await this.actions.finish(reviewCards)
+            await this.actions.finish()
         })
         if (!plan.interrupted) controls.createEl('button', { text: t('Use new settings', 'Начать с новых настроек') }).onclick = () => void run(async () => {
             const current = await inspectMigration(context)
@@ -400,13 +382,11 @@ class MigrationModal extends Modal {
     }
 }
 
-/** Открывает перенос до того, как штатная загрузка создаст настройки или установит команды записи. */
-export async function pauseForMigration(plugin: Plugin, start: () => Promise<void>, reviewCards?: () => void): Promise<boolean> {
+export async function pauseForMigration(plugin: Plugin, start: () => Promise<void>): Promise<boolean> {
     if (plugin.manifest.id !== rudoniumPluginId) return false
     let modal: MigrationModal | undefined
     let started = false
     let stopped = false
-    // Учитываем выгрузку даже во время первого чтения больших журналов из старой папки.
     plugin.register(() => { stopped = true; modal?.close() })
     try {
         const context = await migrationContext(plugin, () => stopped)
@@ -414,17 +394,17 @@ export async function pauseForMigration(plugin: Plugin, start: () => Promise<voi
         const first = await inspectMigration(context)
         if (stopped) return true
         if (first.kind === 'ready') return false
-        const finish = async (showCards = false) => {
+        const finish = async () => {
             if (context.isStopped() || started) return
             checkMigrationActive(context)
             started = true
-            try { await start(); modal?.close(); if (showCards && !context.isStopped()) reviewCards?.() }
+            try { await start(); modal?.close() }
             catch (error) { started = false; throw error }
         }
         const review = (plan: Exclude<MigrationPlan, { kind: 'ready' }>) => {
             if (stopped || started) return
             modal?.close()
-            modal = new MigrationModal(plugin, context, plan, { finish, refresh, canReviewCards: !!reviewCards })
+            modal = new MigrationModal(plugin, context, plan, { finish, refresh })
             modal.open()
         }
         const refresh = async () => {

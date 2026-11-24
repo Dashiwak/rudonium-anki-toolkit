@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type { TFile } from 'obsidian'
 import type MyPlugin from '../main'
@@ -37,7 +35,7 @@ const maxFolders = 2048
 
 function visiblePath(path: string): boolean {
     return path === '' || path.split('/').every(part => Boolean(part) && !part.startsWith('.') && part !== '__MACOSX' &&
-        !/[\\:<>|"*?\x00-\x1f\x7f]/u.test(part) && !/[ .]$/u.test(part) &&
+        !/[\\:<>|"*?\p{Cc}]/u.test(part) && !/[ .]$/u.test(part) &&
         !/^(?:CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])(?:\.|$)/iu.test(part))
 }
 
@@ -53,7 +51,6 @@ function folderList(raw: unknown): string[] {
     return [...new Set(paths)].sort()
 }
 
-/** Пустой список включений означает всё хранилище. Исключённая ветка имеет приоритет. */
 export function readArchiveSettings(raw: unknown): ArchiveTransferSettings {
     const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Partial<ArchiveTransferSettings> : {}
     const includeFolders = folderList(value.includeFolders)
@@ -82,13 +79,11 @@ export function archivePathIncluded(path: string, settings: ArchiveTransferSetti
         (settings.includeAttachments || /\.md$/iu.test(path))
 }
 
-/** Режим упаковки и папка результата не меняют набор исходных файлов. */
 export function archiveScopeSignature(settings: ArchiveTransferSettings): string {
     const normalized = readArchiveSettings(settings)
     return JSON.stringify([normalized.includeFolders, normalized.excludeFolders, normalized.includeAttachments])
 }
 
-/** Предпросмотр читает только список и размеры файлов, исключённые вложения остаются на диске. */
 export async function previewArchiveFiles(plugin: MyPlugin, options: ArchivePreviewOptions = {}): Promise<ArchiveFilePreview> {
     const settings = readArchiveSettings(options.settings ?? (options.useSavedScope ? (plugin.settings as SettingsWithArchive).ARCHIVE_TRANSFER : undefined))
     const folder = options.folder?.trim().replace(/\/+$/u, '') ?? ''
@@ -124,7 +119,6 @@ export async function previewArchiveFiles(plugin: MyPlugin, options: ArchivePrev
         excludedFiles, excludedBytes, missingFolders, scope: JSON.stringify([folder, archiveScopeSignature(settings)]) }
 }
 
-/** Запись проходит в общей очереди data.json и сохраняет неизвестные поля прежних версий. */
 export function saveArchiveSettings(plugin: MyPlugin, raw: ArchiveTransferSettings, expected?: ArchiveTransferSettings): Promise<void> {
     const next = readArchiveSettings(raw)
     return withFastScanReadLock(plugin, () => savePluginDataInOrder(plugin, async () => {

@@ -79,8 +79,6 @@ function checkRepository(repository, manifest) {
     return assets;
 }
 
-// В staging попадает только что созданный репозиторий. Не распространяем кеш,
-// личное хранилище или посторонний архив из локальной копии исходной основы.
 function checkSourceTree(repository) {
     let count = 0;
     const blocked = new Set([".git", ".obsidian", ".trash", "node_modules", ".npmrc", ".env", ".DS_Store", "Thumbs.db"]);

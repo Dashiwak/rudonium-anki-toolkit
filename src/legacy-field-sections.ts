@@ -10,7 +10,7 @@ type View = { text: string; ranges: Range[]; ends: ReadonlyMap<number, number> }
 const noRanges: Range[] = []
 const noEnds: ReadonlyMap<number, number> = new Map()
 let last: { source: string; view: View } | undefined
-let expiry: ReturnType<typeof setTimeout> | undefined
+let expiry: number | undefined
 
 /** Version 0.9.7 wrote closed appendices. Preserve their bytes as inert Markdown. */
 export function legacyFieldSections(source: string): View {
@@ -37,12 +37,10 @@ export function legacyFieldSections(source: string): View {
     const view: View = page || !ranges.length ? { text: source, ranges: noRanges, ends: noEnds }
         : { text: masked, ranges, ends: new Map(ranges) }
     last = { source, view }
-    if (expiry !== undefined) clearTimeout(expiry)
+    if (expiry !== undefined) window.clearTimeout(expiry)
     expiry = undefined
     if (source.length > 4 * 1024 * 1024) {
-        expiry = setTimeout(() => { last = undefined; expiry = undefined }, 5000)
-        const handle = expiry as unknown as { unref?(): void }
-        handle.unref?.()
+        expiry = window.setTimeout(() => { last = undefined; expiry = undefined }, 5000)
     }
     return view
 }

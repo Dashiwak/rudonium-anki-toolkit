@@ -1,17 +1,17 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 type Span = readonly [start: number, end: number]
 
-/** CodeMirror может вернуть LF для того же сохранённого текста с CRLF. */
+export function markdownHighlightPattern(): RegExp {
+    return /(?<!=)==(?!=)([^\r\n]+?)(?<!=)==(?!=)/gu
+}
+
 export function sameEditorText(current: string, saved: string | undefined): boolean {
     return current === saved || (saved !== undefined && current.replace(/\r\n/g, '\n') === saved.replace(/\r\n/g, '\n'))
 }
 
-/** Индекс непустых полуоткрытых диапазонов для поиска пересечений. */
 export function makeSpanOverlap(spans: readonly Span[]): (start: number, end: number) => boolean {
     const sorted = spans.filter(([start, end]) => start < end).sort((a, b) => a[0] - b[0])
     const merged: Array<[number, number]> = []
@@ -38,7 +38,6 @@ export function makeSpanLookup(spans: readonly Span[]): (offset: number) => bool
     return offset => overlaps(offset, offset + 1)
 }
 
-/** Сохраняет смещения и переносы строк при маскировании кода перед поиском формул. */
 export function maskMarkdownSpans(text: string, spans: readonly Span[]): string {
     if (!spans.length) return text
     const pieces: string[] = []
@@ -53,7 +52,6 @@ export function maskMarkdownSpans(text: string, spans: readonly Span[]): string 
     return pieces.join('')
 }
 
-/** Формулы распознаются после исключения исходного кода, со старыми смещениями. */
 export function findMarkdownSyntaxSpans(text: string, fenced: RegExp, inline: RegExp,
     displayMath: RegExp, inlineMath: RegExp): { code: Array<[number, number]>; math: Array<[number, number]> } {
     const hasMath = text.includes('$')
@@ -72,7 +70,6 @@ export function findMarkdownSyntaxSpans(text: string, fenced: RegExp, inline: Re
     return { code, math: collect(displayMath, sourceMath).concat(collect(inlineMath, sourceMath)) }
 }
 
-/** Удаляет только команды, распознанные за пределами кода и формул. */
 export function removeUnprotectedMatches(text: string, regex: RegExp, isProtected: (offset: number) => boolean): string {
     const pieces: string[] = []
     let cursor = 0
@@ -85,10 +82,6 @@ export function removeUnprotectedMatches(text: string, regex: RegExp, isProtecte
     return pieces.join('')
 }
 
-/**
- * Разбирает диапазоны только при первом совпадении. Совпадения matchAll идут
- * слева направо, поэтому границы достаточно обновлять по мере продвижения.
- */
 export function* matchesOutsideSpans(pattern: RegExp | Iterable<RegExpMatchArray>, text: string,
     spans: readonly Span[]): IterableIterator<RegExpMatchArray> {
     const initialCount = spans.length
@@ -99,15 +92,12 @@ export function* matchesOutsideSpans(pattern: RegExp | Iterable<RegExpMatchArray
     for (const match of pattern instanceof RegExp ? text.matchAll(pattern) : pattern) {
         if (match.index === undefined) continue
         sorted ??= spans.slice(0, initialCount).sort((a, b) => a[0] - b[0])
-        // У штатного поиска есть допуск в один символ у обеих границ.
         const start = match.index + 1
         const finish = match.index + match[0].length - 1
         for (; nextInitial < sorted.length && sorted[nextInitial][0] <= start; nextInitial++) {
             furthestEnd = Math.max(furthestEnd, sorted[nextInitial][1])
         }
         for (; nextAdded < spans.length; nextAdded++) {
-            // Потребитель добавляет только диапазон только что отданного
-            // совпадения, поэтому начало всегда левее следующего совпадения.
             furthestEnd = Math.max(furthestEnd, spans[nextAdded][1])
         }
         if (furthestEnd >= finish) continue
@@ -115,7 +105,6 @@ export function* matchesOutsideSpans(pattern: RegExp | Iterable<RegExpMatchArray
     }
 }
 
-/** Сохраняет относительный порядок нескольких вставок в одной позиции. */
 export function joinIdInsertions(text: string, inserts: ReadonlyArray<readonly [number, string]>,
     renderMarker?: (text: string, position: number, marker: string) => string): string {
     if (!inserts.length) return text
@@ -135,7 +124,6 @@ export function joinIdInsertions(text: string, inserts: ReadonlyArray<readonly [
 
 const memoByFormatter = new WeakMap<object, Map<string, string>>()
 
-/** Медиа и ссылки проходят через исходный конвертер каждый раз. */
 export function memoizeMarkdownField(owner: object, text: string, cloze: boolean, highlights: boolean, render: () => string): string {
     if (text.length > 1024 || /[[\]<>!]/.test(text)) return render()
     let memo = memoByFormatter.get(owner)
@@ -151,7 +139,6 @@ export function memoizeMarkdownField(owner: object, text: string, cloze: boolean
     return value
 }
 
-/** Вычисляет строки предупреждений одним проходом по исходному Markdown. */
 export function suspiciousMathCardLines(text: string, math: readonly Span[], code: readonly Span[]): number[] {
     if (!math.length) return []
     const insideMath = makeSpanLookup(math)
@@ -172,7 +159,6 @@ export function suspiciousMathCardLines(text: string, math: readonly Span[], cod
 
 /** Original offsets of the YAML properties, including a BOM or Windows line endings. */
 export function frontmatterBounds(content: string): { start: number; close: number; end: number } | undefined {
-    // Начальный разделитель допускает UTF-8 BOM и переносы строк Windows.
     const opening = /^\uFEFF?---[ \t]*\r?\n/.exec(content)
     if (!opening) return undefined
     const start = opening[0].length

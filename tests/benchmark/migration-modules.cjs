@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 "use strict";
 const fs = require("node:fs");
-const { stripTypeScriptTypes } = require("node:module");
+const { isBuiltin, stripTypeScriptTypes } = require("node:module");
 const vm = require("node:vm");
 const overlay = require("../../Build/overlay-source.cjs");
 
 async function load(names, api, generated = {}) {
-    const context = vm.createContext({ require, Buffer, performance, URL, structuredClone, TextEncoder, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout });
+    const context = vm.createContext({ require, Buffer, performance, URL, structuredClone, TextEncoder, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout, window: { setTimeout, clearTimeout, setInterval, clearInterval } });
     const modules = new Map(), imports = new Map();
     const needed = new Set(names);
     for (const name of needed) {
@@ -14,6 +14,9 @@ async function load(names, api, generated = {}) {
         const source = stripTypeScriptTypes(raw, { mode: "transform" });
         modules.set("./" + name, new vm.SourceTextModule(source, { context }));
         for (const [, bindings, id] of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*'([^']+)'/g)) {
+            if (id === "./sync-change-history" || id === "./sync-outcome") needed.add(id.slice(2));
+            if (id === "./card-format-presets") needed.add("card-format-presets");
+            if (name === "bidirectional-markdown" && id === "./markdown-pipeline") needed.add("markdown-pipeline");
             if (id === "./legacy-field-sections" || id === "./id-marker-literals" || id === "./page-named-fields" || id === "./page-id-location" || id === "./page-frontmatter" || id === "./suspend-label" || id === "./suspend-marker" || id === "./archived-card" || id === "./delimited-rule" || id === "./bidirectional-fields") needed.add(id.slice(2));
             if (name === "archived-card") {
                 for (const dependency of ["anki-id-marker", "id-marker-literals", "markdown-pipeline"]) needed.add(dependency);
@@ -21,9 +24,20 @@ async function load(names, api, generated = {}) {
             if (name === "suspend-marker") {
                 for (const dependency of ["duplicate-markers", "anki-id-marker", "id-marker-literals"]) needed.add(dependency);
             }
+            if (isBuiltin(id)) continue;
             const keys = imports.get(id) || new Set();
             for (const key of bindings.split(",").map(v => v.trim()).filter(Boolean)) keys.add(key);
             imports.set(id, keys);
+        }
+    }
+    for (const source of modules.values()) {
+        for (const id of source.dependencySpecifiers || []) {
+            if (!isBuiltin(id) || modules.has(id)) continue;
+            const builtin = require(id);
+            const keys = Object.keys(builtin);
+            modules.set(id, new vm.SyntheticModule(keys, function () {
+                for (const key of keys) this.setExport(key, builtin[key]);
+            }, { context }));
         }
     }
     for (const [id, keys] of imports) if (!modules.has(id)) {

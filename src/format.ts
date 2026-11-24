@@ -1,4 +1,4 @@
-import { memoizeMarkdownField } from './markdown-pipeline'
+import { markdownHighlightPattern, memoizeMarkdownField } from './markdown-pipeline'
 import { AnkiConnectNote } from './interfaces/note-interface'
 import { basename, extname } from 'path'
 import { Converter } from 'showdown'
@@ -8,7 +8,7 @@ import * as c from './constants'
 import showdownHighlight from 'showdown-highlight'
 
 const ANKI_MATH_REGEXP:RegExp = /(\\\[[\s\S]*?\\\])|(\\\([\s\S]*?\\\))/g
-const HIGHLIGHT_REGEXP:RegExp = /==(.*?)==/g
+const HIGHLIGHT_REGEXP = markdownHighlightPattern()
 
 const MATH_REPLACE:string = "OBSTOANKIMATH"
 const INLINE_CODE_REPLACE:string = "OBSTOANKICODEINLINE"

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type MyPlugin from '../main'
 import * as AnkiConnect from './anki'
@@ -68,10 +66,8 @@ export function annotateAnkiProfileError(error: unknown, expected: string): unkn
         : error
 }
 
-/** Читаем имя активного профиля через тот же интерфейс, который примет запрос записи. */
 export async function readActiveAnkiProfile(signal?: AbortSignal): Promise<string> {
     try {
-        // Используем общую проверку отмены перед отправкой запроса и общий тайм-аут транспорта.
         const response: unknown = await withAnkiDeadline(() => AnkiConnect.invoke('getActiveProfile'),
             'Anki profile check', 5_000, signal)
         if (typeof response === 'string' && response.trim()) return response
@@ -104,7 +100,6 @@ export async function requireExpectedAnkiProfile(plugin: MyPlugin, pinned?: stri
     const expected = expectedAnkiProfile(plugin)
     if (locked && expected === undefined) throw new AnkiProfileError('unconfigured', pinned)
     if (expected !== undefined && pinned !== undefined && pinned !== expected) throw new AnkiProfileError('changed', pinned)
-    // Если привязка не сохранена, закрепляем активную коллекцию на время текущей операции.
     const target = expected ?? pinned
     const actual = target === undefined ? await readActiveAnkiProfile(signal) : await checkPinnedAnkiProfile(target, signal)
     if (locked !== isAnkiProfileLockEnabled(plugin) || expected !== expectedAnkiProfile(plugin)) {

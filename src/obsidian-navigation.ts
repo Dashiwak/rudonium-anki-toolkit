@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { ItemView, MarkdownView, Modal, TFile } from 'obsidian'
 import type { App, Editor, WorkspaceLeaf } from 'obsidian'
@@ -200,7 +198,6 @@ async function navigateToFile(app: App, path: string, origin?: NavigationOrigin,
     if (!(view instanceof MarkdownView) || view.file?.path !== file.path || (select && view.getMode() !== 'source')) {
         throw new Error('The Markdown note could not be opened.')
     }
-    // Пользователь мог закрыть исходный диалог, пока вкладка загружалась.
     if (origin?.isClosed()) return
     select?.(view.editor)
     await showReviewAlongside(app, origin, settings)

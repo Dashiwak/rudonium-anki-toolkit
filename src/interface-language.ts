@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export type InterfaceLanguage = 'en' | 'ru'
 export type UiText = (english: string, russian: string) => string
@@ -22,7 +20,6 @@ export function uiFor(settings?: InterfaceSettings): UiText {
     return interfaceLanguage(settings) === 'ru' ? russianUi : englishUi
 }
 
-/** Короткая подпись остаётся читаемой и для полей с форматированием Anki. */
 export function ankiBrowseMessage(id: number, front = ''): string {
     const title = front.replace(/<[^>]*>/gu, ' ').replace(/\s+/gu, ' ').trim().slice(0, 90)
     return `Anki Browse: ID ${id}${title ? ' · ' + title : ''}. Select another note or close Browse, then retry sync.`
@@ -98,10 +95,8 @@ const diagnosticRules: ReadonlyArray<readonly [RegExp, string]> = [
     [/^The active Anki profile changed during the backup\.?$/i, 'Активный профиль Anki изменился при создании резервной копии.'],
 ]
 
-/** Переводит известные ошибки на границе интерфейса. Исходный ответ внешнего компонента остаётся в консоли. */
 export function uiDiagnostic(error: unknown, t: UiText): string {
     const text = error instanceof Error ? error.message : String(error)
-    // Сообщения проверок могут содержать обе локализации. Выбираем язык до общей обработки ошибок.
     const bilingual = /^(.*?) \/ ([А-ЯЁа-яё][\s\S]*)$/su.exec(text)
     if (bilingual && !text.includes('Anki Browse: ID ')) {
         const location = /^(.+?\.md):\s+/iu.exec(bilingual[1])

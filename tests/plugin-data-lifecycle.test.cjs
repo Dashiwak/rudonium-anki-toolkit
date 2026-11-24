@@ -11,12 +11,17 @@ async function loadPlugin() {
     const context = vm.createContext({ console: { log() {}, error(...args) { errors.push(args); } } });
     const source = stripTypeScriptTypes(fs.readFileSync(path.join(__dirname, "../main.ts"), "utf8"), { mode: "transform" });
     const entry = new vm.SourceTextModule(source, { context });
+    const {load} = require("./benchmark/migration-modules.cjs");
+    const { "sync-profiles": profiles } = await load(["sync-profiles"], {});
     const supplied = {
+        importLegacyScanScope: profiles.importLegacyScanScope,
         Plugin: class {},
         Notice: class { constructor(message) { notices.push(message); } },
         uiFor: () => (_en, ru) => ru,
     };
     await entry.link(id => {
+        if (id === "multimatch")
+            return new vm.SyntheticModule(["default"], function () { this.setExport("default", () => { throw Error("unexpected scan"); }); }, {context});
         const names = [...source.matchAll(/import\s*\{([^}]+)\}\s*from\s*'([^']+)'/g)]
             .filter(match => match[2] === id).flatMap(match => match[1].split(",").map(name => name.trim()));
         return new vm.SyntheticModule(names, function () {
@@ -74,6 +79,9 @@ test("startup reads one consistent legacy snapshot and preserves newer settings 
     assert.equal(settings.Defaults.Tag, "");
     assert.equal(settings.Defaults["Scan Directory"], undefined);
     assert.equal(settings.IGNORED_FILE_GLOBS, undefined);
+    assert.deepEqual([...settings.LEGACY_IGNORED_FILE_GLOBS], ["*.tmp"]);
+    assert.equal(settings.ACTIVE_SYNC_FOLDER_PROFILE, settings.SYNC_FOLDER_PROFILES[0].id);
+    assert.deepEqual([...settings.SYNC_FOLDER_PROFILES[0].folders], ["old"]);
     assert.equal(settings.Syntax["Begin Note"], "BEGIN");
     assert.equal(settings.Syntax["End Note"], "END");
     assert.equal(settings.BIDIRECTIONAL_SYNC, true);
@@ -120,4 +128,30 @@ test("block and regexp notes preserve custom field order, optional captures and 
     assert.deepEqual(template.fields, {});
     const malformed = new InlineNote("Question without model", fields, false, false, formatter);
     assert.equal(malformed.parse("Default", "", {}, data, "").identifier, NOTE_TYPE_ERROR);
+});
+
+
+test("imported upstream export scope applies to vault sync and individual paths", async () => {
+    class TFolder {}
+    const {load} = require("./benchmark/migration-modules.cjs");
+    const { "sync-profiles": scope } = await load(["sync-profiles"], {TFolder});
+    const dir = new TFolder();
+    const settings = { IGNORED_FILE_GLOBS: ["**/*.excalidraw.md"] };
+    scope.importLegacyScanScope(settings, {"Scan Directory": "Cards"});
+    const files = ["Cards/A.md","Cards/Deep/B.md","Cards/P.excalidraw.md","Other/C.md"].map(path => ({path}));
+    const plugin = { settings, app: {vault: {getMarkdownFiles: () => files, getAbstractFileByPath: path => path === "Cards" ? dir : null}},
+        matchIgnoredPaths(paths, patterns) {
+            assert.deepEqual([...patterns], ["**/*.excalidraw.md"]);
+            return paths.filter(path => path.endsWith(".excalidraw.md"));
+        } };
+    const resolved = scope.resolveSyncScope(plugin);
+    assert.deepEqual([...resolved.paths], files.slice(0,2).map(file => file.path));
+    for (const file of files) assert.equal(scope.describeSyncPath(plugin, file.path).included, resolved.contains(file.path));
+    assert.equal(resolved.excludes("Cards/P.excalidraw.md"), true);
+    const original = resolved.signature;
+    settings.LEGACY_IGNORED_FILE_GLOBS = [];
+    assert.notEqual(scope.syncScopeSignature(settings), original);
+    assert.equal(scope.describeSyncPath(plugin, "Cards/P.excalidraw.md").included, true);
+    plugin.app.vault.getAbstractFileByPath = () => null;
+    assert.throws(() => scope.resolveSyncScope(plugin), /missing folders/);
 });

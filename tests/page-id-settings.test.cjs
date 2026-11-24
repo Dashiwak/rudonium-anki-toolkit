@@ -38,7 +38,7 @@ async function screen(saved, russian = false) {
         saveData: async data => { if (plugin.offline) throw Error('write failed'); Object.assign(saved, data) },
     }
     const module = await load(['id-tools-settings-ui'], { Setting, Notice: class { constructor(msg) { notices.push(msg) } },
-        createSettingsGroup: () => new Element(), uiFor: () => (en, ru) => russian ? ru : en,
+        createSettingsGroup: () => new Element(), rememberGroup: () => {}, uiFor: () => (en, ru) => russian ? ru : en,
         uiDiagnostic: String, withFastScanReadLock: (_, run) => run(), savePluginDataInOrder: (_, run) => run() })
     let opened = 0
     module['id-tools-settings-ui'].installIdMarkerSettings(new Element(), plugin, {moveVaultPages: () => { opened++ }})

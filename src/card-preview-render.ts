@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { auditRead } from './sync-audit'
 import { englishUi } from './interface-language'
@@ -64,7 +62,6 @@ function clozeNumbers(fields: Iterable<string>): number[] {
     return [...numbers].sort((left, right) => left - right)
 }
 
-/** Подставляет пропуски Cloze в HTML без выполнения скриптов шаблона и без изменения записи. */
 function displayCloze(html: string, selected: number, question: boolean): string {
     const chunks: string[] = []
     const frames: { number: number; answer: string[]; hint?: string[] }[] = []
@@ -127,7 +124,6 @@ export function buildBasicCardVariants(fields: readonly CardPreviewField[], mode
     return cards
 }
 
-/** Разбирает подстановки в двойных фигурных скобках по правилам Anki, включая вложенные необязательные разделы. */
 function renderTemplate(source: string, field: (expression: string) => string): string | undefined {
     if (source.length > renderLimit) return undefined
     const sections: { name: string; hidden: boolean }[] = []
@@ -156,7 +152,6 @@ function renderTemplate(source: string, field: (expression: string) => string): 
             if (!section || section.name !== name) return undefined
             if (section.hidden) hidden--
         } else if (operator === '=') {
-            // Старые шаблоны Anki могут использовать другие разделители. Показываем основной предпросмотр полей.
             return undefined
         } else if (operator !== '!' && !hidden) {
             append(field(expression))

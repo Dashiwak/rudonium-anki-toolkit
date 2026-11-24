@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type { Vault } from 'obsidian'
 import type { MediaIndex } from './media-sync'
@@ -37,7 +35,6 @@ function portablePath(path: string): string {
     return path.normalize('NFC').toLowerCase()
 }
 
-/** Ищет метаданные по всему хранилищу. Обращается к адаптеру только для путей, которых в метаданных нет. */
 export async function confirmMissingCachePaths(vault: Vault, candidates: Iterable<string>):
     Promise<{ missing: string[]; skipped: number }> {
     const live = new Set(vault.getMarkdownFiles().map(file => file.path))
@@ -56,7 +53,6 @@ export async function confirmMissingCachePaths(vault: Vault, candidates: Iterabl
             try {
                 const { files, folders } = await vault.adapter.list(parent)
                 const paths = [...files, ...folders]
-                // list() возвращает пути относительно хранилища, включая префикс запрошенной папки.
                 if (paths.some(path => typeof path !== 'string' || parentOf(path) !== parent)) return undefined
                 return new Set(paths.map(portablePath))
             } catch {
@@ -88,7 +84,6 @@ export async function confirmMissingCachePaths(vault: Vault, candidates: Iterabl
     return { missing: missing.sort(), skipped }
 }
 
-/** Сведения об отправленных файлах и незавершённые связи необходимы для дальнейшей проверки конфликтов. */
 export function compactMediaLinks(index: MediaIndex, removed: ReadonlySet<string>): { index: MediaIndex; links: number } {
     let links = 0
     const next: MediaIndex = new Map()

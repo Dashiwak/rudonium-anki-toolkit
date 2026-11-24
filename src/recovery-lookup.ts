@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { AnkiProfileError } from './anki-profile'
 import { isRecoveryTag } from './export-recovery'
@@ -136,7 +134,6 @@ function classify(request: RecoveryLookupRequest, ids: readonly number[],
         const match = notes.get(id)
         const tags = match?.tags.map(tag => tag.toLowerCase())
         if (tags?.includes(tag)) exact.push(id)
-        // Anki может находить вложенные теги. Кандидатами считаем только записи с точным тегом.
         else if (!tags?.some(candidate => candidate.startsWith(tag + '::'))) incomplete = true
     }
     const candidates = exact.slice(0, maximumDisplayedIds)
@@ -172,7 +169,6 @@ function classify(request: RecoveryLookupRequest, ids: readonly number[],
     return { state: 'found', noteId, candidates }
 }
 
-/** Работает в режиме чтения. Вызывающий код проверяет принадлежность исходника и сохраняет подтверждённые ID. */
 export async function lookupRecoveryNotes(requests: readonly RecoveryLookupRequest[],
     checkProfile: () => Promise<unknown>, read: RecoveryLookupRead = (action, params) => auditRead(action, params, undefined, 15_000)):
     Promise<ReadonlyMap<string, RecoveryLookupResult>> {

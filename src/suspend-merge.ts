@@ -2,7 +2,6 @@
 import type { SuspendCard } from './suspend-anki'
 import type { SuspendSelection } from './suspend-marker'
 
-/** Запоминаем идентичность учебных карточек лишь для записей, где есть паузы. */
 export interface SuspendBase {
     marker: SuspendSelection
     cards: [cardId: number, number: number | null, suspended: boolean][]
@@ -55,7 +54,6 @@ export function mergeSuspension(slots: readonly SuspendCard[], marker: SuspendSe
     for (const slot of slots) {
         const before = old.get(slot.cardId)
         const selected = local.has(slot.cardId)
-        // При первом связывании сохраняем обе паузы. На следующих сверках используем стабильный cardId.
         const wanted = !base ? selected || slot.suspended :
             edited && before && selected !== before.suspended ? selected : slot.suspended
         if (wanted) target.add(slot.cardId)
@@ -73,7 +71,6 @@ export function mergeSuspension(slots: readonly SuspendCard[], marker: SuspendSe
     return { target, remote, nextMarker, next, remoteChange, localChange, changed: remoteChange || localChange || JSON.stringify(next) !== JSON.stringify(base) }
 }
 
-/** При смене идентичности только явный выбор актуальной стороны Anki устанавливает новое соответствие. */
 export function acceptAnkiSuspension(slots: readonly SuspendCard[], marker: SuspendSelection | null) {
     const observed = mergeSuspension(slots, null)
     return { ...observed, changed: true, localChange: !equalSelection(marker, observed.nextMarker) }

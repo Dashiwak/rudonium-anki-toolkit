@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
@@ -44,17 +42,16 @@ function requestTimeLeft(deadline: number): number {
 async function readRefreshProfile(deadline: number, pinned?: string): Promise<string | undefined> {
     const remaining = requestTimeLeft(deadline)
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), remaining)
+    const timer = window.setTimeout(() => controller.abort(), remaining)
     try {
         return pinned === undefined ? await readActiveAnkiProfile(controller.signal) :
             await checkPinnedAnkiProfile(pinned, controller.signal)
     } catch (error) {
         if (controller.signal.aborted) throw new Error(timeoutMessage)
-        // Старые реализации AnkiConnect могут читать схему, даже если не умеют сообщать профиль.
         if (pinned === undefined && error instanceof AnkiProfileError && error.reason === 'unsupported') return undefined
         throw error
     } finally {
-        clearTimeout(timer)
+        window.clearTimeout(timer)
     }
 }
 
@@ -164,7 +161,6 @@ function updatedChoices(settings: MyPlugin['settings'], names: readonly string[]
     }
 }
 
-/** Считывает схему целиком до её применения. Экспорт и аудит используют ту же блокировку. */
 export function refreshNoteTypes(plugin: MyPlugin): Promise<RefreshResult> {
     const active = refreshes.get(plugin)
     if (active) return active
@@ -179,7 +175,6 @@ export function refreshNoteTypes(plugin: MyPlugin): Promise<RefreshResult> {
         const disabled: RefreshResult['disabled'] = []
         const conflicts: string[] = []
         await savePluginDataInOrder(plugin, async () => {
-            // Схема получена несколькими запросами. Перед публикацией повторно проверяем профиль.
             if (profile !== undefined) await readRefreshProfile(deadline, profile)
             if (expected !== expectedAnkiProfile(plugin)) throw new AnkiProfileError('changed', expected)
             const { settings, fields_dict: previousFields } = plugin
@@ -192,7 +187,6 @@ export function refreshNoteTypes(plugin: MyPlugin): Promise<RefreshResult> {
                 !sameChoices(settings.CONTEXT_FIELDS, choices.CONTEXT_FIELDS)
             if (!changed) return
 
-            // Сохраняем снимок до публикации. Другие записи настроек выполняются до или после него в общей очереди.
             try {
                 await plugin.saveData({
                     settings: { ...settings, ...choices },
@@ -205,7 +199,6 @@ export function refreshNoteTypes(plugin: MyPlugin): Promise<RefreshResult> {
             }
             plugin.note_types = names
             plugin.fields_dict = fields
-            // Сохраняем правки пользователя, сделанные во время записи снимка.
             conflicts.length = 0
             Object.assign(plugin.settings, updatedChoices(plugin.settings, names, fields, disabled, conflicts))
         })

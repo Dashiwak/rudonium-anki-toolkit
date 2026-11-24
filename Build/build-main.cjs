@@ -1,13 +1,9 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 "use strict";
 
-// Сборщик готовит файлы для копирования в Obsidian. Нужны Node.js с npm и доступ
-// к npm для зависимостей. Для автоматической загрузки исходников также нужны GitHub и tar.
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -17,7 +13,6 @@ const { copySuppliedSource } = require("./upstream-source.cjs");
 const { bundleNotice, configureRollup } = require("./release-rollup.cjs");
 const { isUpstreamTestState, isFreeFileSyncState, captureUpstream, applyReleaseMetadata, collectDependencyNotices, finalizeProvenance } = require("./release-provenance.cjs");
 
-// Хеш коммита закрепляет официальный релиз 3.6.0. Сборка не зависит от изменений в основной ветке.
 const upstreamCommit = "2dd39fefd26f3141a4e02105b1172a5a3eb2611f";
 const upstreamArchive = "https://codeload.github.com/ObsidianToAnki/Obsidian_to_Anki/tar.gz/" + upstreamCommit;
 const pluginId = "obsidian-to-anki-plugin";
@@ -28,8 +23,6 @@ const releaseLicense = "GPL-3.0-only";
 const errorReport = path.join(__dirname, "build-error.txt");
 const legalFiles = ["LICENSE", "NOTICE.md", "AUTHORS.md", "TRADEMARKS.md", "LICENSING-ru.md"];
 
-// Запускает команду в указанной папке и ждёт её завершения.
-// Вывод виден в том же терминале. Ошибка запуска или ненулевой код останавливают сборку.
 function run(command, args, cwd) {
     const result = spawnSync(command, args, { cwd, stdio: "inherit" });
     if (result.error) throw new Error(command + ": " + result.error.message);
@@ -38,7 +31,6 @@ function run(command, args, cwd) {
     }
 }
 
-// Выбирает способ запуска npm в зависимости от операционной системы.
 function npm(args, cwd, checkTypeErrors = false) {
     const windows = process.platform === "win32";
     const command = windows ? process.env.ComSpec || "cmd.exe" : "npm";
@@ -60,8 +52,6 @@ function npm(args, cwd, checkTypeErrors = false) {
     run(command, parameters, cwd);
 }
 
-// Помещает исходники во временную папку. Можно передать распакованную копию
-// вручную или позволить сборщику скачать архив закреплённого коммита.
 async function getSource(temp, source, suppliedDirectory) {
     if (suppliedDirectory) {
         return copySuppliedSource(suppliedDirectory, source, upstreamCommit);
@@ -70,7 +60,6 @@ async function getSource(temp, source, suppliedDirectory) {
     console.log("Downloading the official Export to Anki 3.6.0 source...");
     let response;
     try {
-        // Ограничиваем ожидание ответа GitHub, чтобы сбой сети не блокировал сборку надолго.
         response = await fetch(upstreamArchive, { signal: AbortSignal.timeout(90_000) });
     } catch (error) {
         throw new Error("GitHub source download failed: " + (error.cause?.message ?? error.message));
@@ -82,8 +71,6 @@ async function getSource(temp, source, suppliedDirectory) {
             "Build-Windows.cmd or Build/build-main.cjs.");
     }
     const archive = path.join(temp, "source.tar.gz");
-    // У архива GitHub есть общий верхний каталог. tar убирает его при распаковке,
-    // чтобы manifest.json и package.json сразу оказались в рабочей папке сборки.
     fs.writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
     fs.mkdirSync(source);
     run("tar", ["-xzf", archive, "--strip-components", "1", "-C", source], temp);
@@ -102,7 +89,6 @@ function copyReleaseStyles(source) {
     }
 }
 
-// Обновление из разных каталогов может оставить в хранилище манифест прежнего выпуска.
 function verifyRuntimeManifest(script, packaged, expected) {
     if (!packaged.equals(expected)) throw new Error("The compiled distribution contains a different manifest.json.");
     const release = JSON.parse(expected.toString("utf8"));
@@ -117,13 +103,11 @@ function nameBuildPackage(source, manifest) {
     applyReleaseMetadata(source, manifest, releaseLicense);
 }
 
-// Лицензии собираются только при сборке, а не во время экспорта карточек.
 function copyLegalDocuments(source) {
     for (const name of legalFiles) fs.copyFileSync(path.join(kit, name), path.join(source, name));
     fs.copyFileSync(path.join(kit, "LICENSES", "README.md"), path.join(source, "LICENSES", "README.md"));
 }
 
-// Отдельная папка сохраняет уведомления рядом с бинарными файлами выпуска.
 function prepareDistribution(source, release) {
     const destination = path.join(kit, "Release-" + release.version);
     const stage = fs.mkdtempSync(path.join(kit, ".rudonium-release-"));
@@ -149,8 +133,6 @@ function prepareDistribution(source, release) {
     } finally { cleanupTemporaryDirectory(stage); }
 }
 
-// Разворачивает законченные исходники для репозитория. Дальнейшая сборка использует
-// npm lock-файл и локальные файлы проекта без предварительной загрузки чужого репозитория.
 function prepareRepository(source, directory) {
     const destination = path.resolve(directory);
     if (fs.existsSync(destination)) throw new Error("The repository destination already exists.");
@@ -196,8 +178,6 @@ function prepareRepository(source, directory) {
     console.log("Source tree assembled: " + destination);
 }
 
-// Выполняет сборку целиком. После проверок готовый main.js появляется рядом с Build,
-// а рабочая копия исходников удаляется при завершении.
 async function build() {
     const args = process.argv.slice(2);
     const prepare = args[0] === "--prepare-repository";
@@ -220,7 +200,6 @@ async function build() {
         throw new Error("Invalid Rudonium Anki Toolkit release manifest.");
     }
 
-    // Удаляем только сам прежний отчёт; каталоги и цели ссылок не затрагиваем.
     try { fs.unlinkSync(errorReport); }
     catch (error) { if (error.code !== "ENOENT") console.warn("Could not clear Build/build-error.txt."); }
 
@@ -231,7 +210,6 @@ async function build() {
         const directory = prepare ? args[1] : args[0];
         const acquired = await getSource(temp, source, directory === "-" ? undefined : directory);
 
-        // Проверяем manifest.json до установки зависимостей. Правки рассчитаны на один плагин и версию.
         stage = "Verify upstream source";
         const manifestPath = path.join(source, "manifest.json");
         const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -247,8 +225,6 @@ async function build() {
 
         stage = "Install locked dependencies";
         console.log("Installing locked build dependencies...");
-        // npm ci устанавливает версии из lock-файла. Затем применяем правки и запускаем
-        // исходную команду сборки плагина, которая создаёт main.js.
         npm(["ci", "--no-audit", "--no-fund", "--loglevel=http"], source);
         stage = "Collect dependency notices";
         collectDependencyNotices(source);
@@ -273,8 +249,6 @@ async function build() {
         if (!artifact.isFile() || !artifact.size) throw new Error("Rollup did not create a nonempty regular main.js.");
         run(process.execPath, ["--check", built], source);
 
-        // Командные ID и имена файлов состояния привязаны к работе плагина.
-        // Текст уведомлений и подписей может меняться без изменения функций.
         const script = fs.readFileSync(built, "utf8");
         for (const identifier of [
             "anki-preview-export",
@@ -305,8 +279,6 @@ async function build() {
         verifyRuntimeManifest(script, fs.readFileSync(manifestPath), releaseBytes);
         finalizeProvenance(source, { release, license: releaseLicense });
 
-        // Перемещаем проверенный результат одним действием. При сбое сборки
-        // предыдущий main.js остаётся на месте.
         stage = "Write release";
         if (prepare) prepareRepository(source, args[2]);
         else {
@@ -330,12 +302,10 @@ async function build() {
         } catch { console.warn("Could not save Build/build-error.txt."); }
         throw error;
     } finally {
-        // Удаляем временные исходники и зависимости при успешной сборке и при ошибке.
         cleanupTemporaryDirectory(temp);
     }
 }
 
-// Выводим причину ошибки и возвращаем ненулевой код, чтобы её увидел и терминал, и Windows-скрипт.
 if (require.main === module) build().catch(error => {
     console.error("Build failed: " + (error.cause?.message ?? error.message));
     process.exitCode = 1;

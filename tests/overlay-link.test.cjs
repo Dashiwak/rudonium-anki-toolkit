@@ -5,32 +5,38 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const overlaySource = require("../Build/overlay-source.cjs");
-const { stripTypeScriptTypes } = require("node:module");
+const { isBuiltin, stripTypeScriptTypes } = require("node:module");
 const { test } = require("node:test");
 const { SourceTextModule, SyntheticModule } = require("node:vm");
 
 test("All desktop overlay modules link with their real local exports", async () => {
     const overlay = new Map();
-    for (const name of overlaySource.names()) {
+    const names = new Set(overlaySource.names());
+    if (fs.existsSync(overlaySource.file("constants.ts"))) names.add("constants.ts");
+    for (const name of names) {
         const source = fs.readFileSync(overlaySource.file(name), "utf8");
         const identifier = "./" + name.slice(0, -3);
         overlay.set(identifier, new SourceTextModule(stripTypeScriptTypes(source, { mode: "transform" }), { identifier }));
     }
-    // Only these dependencies come from the pinned repository or desktop host.
+    // Pin the boundary to the upstream renderer and desktop APIs.
     const externals = {
         "./anki": [],
-        "./constants": ["OBS_DISPLAY_CODE_REGEXP", "OBS_CODE_REGEXP", "OBS_DISPLAY_MATH_REGEXP", "OBS_INLINE_MATH_REGEXP"],
+        "./constants": ["OBS_DISPLAY_CODE_REGEXP", "OBS_CODE_REGEXP", "OBS_DISPLAY_MATH_REGEXP", "OBS_INLINE_MATH_REGEXP", "escapeRegex"],
         "./file": ["AllFile"],
         "./files-manager": ["FileManager", "frontmatterTags", "mergeTags"],
         "./setting-to-data": ["settingToData"],
-        "obsidian": ["ItemView", "MarkdownView", "Modal", "Notice", "Setting", "TFile", "TFolder",
-            "editorInfoField", "parseLinktext", "parseYaml", "sanitizeHTMLToDom", "setIcon"],
+        "obsidian": ["App", "ItemView", "MarkdownView", "Modal", "Notice",
+            "Setting", "TFile", "TFolder", "editorInfoField", "editorLivePreviewField",
+            "parseLinktext", "parseYaml", "sanitizeHTMLToDom", "setIcon"],
+        "@codemirror/state": ["Prec", "StateEffect"],
+        "@codemirror/view": ["Decoration", "EditorView", "ViewPlugin", "WidgetType"],
         "ts-md5": ["Md5"],
-        "fs": Object.keys(require("node:fs")),
-        "path": Object.keys(require("node:path")),
     };
     const hosts = new Map(Object.entries(externals).map(([id, names]) => [id, new SyntheticModule(names, () => {}, { identifier: id })]));
     const resolveModule = (id, importer) => {
+        if (isBuiltin(id) && !hosts.has(id)) {
+            hosts.set(id, new SyntheticModule(Object.keys(require(id)), () => {}, { identifier: id }));
+        }
         const mod = overlay.get(id) || hosts.get(id);
         assert.ok(mod, importer.identifier + " imports an unknown module: " + id);
         return mod;

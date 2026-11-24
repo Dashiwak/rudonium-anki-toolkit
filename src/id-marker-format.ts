@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { findIdMarkers } from './duplicate-markers'
 import type { DuplicateMarkerSyntax } from './duplicate-markers'
@@ -19,7 +17,6 @@ export interface IdMarkerSpan {
     line: number
 }
 
-/** Оболочка ID определяется общим парсером; примеры в коде, формулах и обычных комментариях пропускаются. */
 export function collectIdMarkerSpans(text: string, syntax: DuplicateMarkerSyntax = {}): IdMarkerSpan[] {
     const visible = maskIdMarkerHtmlLiterals(text)
     const found = findIdMarkers(visible, syntax)
@@ -122,7 +119,6 @@ export function collectIdMarkerSpans(text: string, syntax: DuplicateMarkerSyntax
 
 export type IdMarkerDirection = 'to-comment' | 'to-plain'
 
-/** Все замены идут справа налево и сохраняют цифры, дату, окончания строк и остальное содержимое. */
 export function convertIdMarkerText(text: string, direction: IdMarkerDirection,
     syntax: DuplicateMarkerSyntax = {}): { text: string; markers: IdMarkerSpan[] } {
     const markers = collectIdMarkerSpans(text, syntax).filter(marker => direction === 'to-comment' ? !marker.comment : marker.comment)

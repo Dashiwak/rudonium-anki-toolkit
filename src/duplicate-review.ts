@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { MarkdownView } from 'obsidian'
 import type { App, TFile } from 'obsidian'
@@ -31,7 +29,6 @@ function matchesStamp(file: TFile, saved: FileStamp | IndexedIds): boolean {
     return mtime === saved[0] && ctime === saved[1] && size === saved[2]
 }
 
-/** Проверка дублей читает только Markdown. Она не сохраняет открытые редакторы и не обращается к Anki. */
 export function createDuplicateReviewLoader(app: App, options: ReviewOptions): () => Promise<DuplicateReviewResult> {
     const cache = new Map<string, { entry: IndexedIds; revision: number | undefined }>()
     let previousConflictPaths = new Set<string>()
@@ -58,7 +55,6 @@ export function createDuplicateReviewLoader(app: App, options: ReviewOptions): (
         const inventory = new Map<string, { entry: IndexedIds; revision: number | undefined }>()
         const toRead: Array<[string, TFile]> = []
         for (const [path, file] of files) {
-            // В последующих проходах перечитываем прежние места конфликта даже при том же размере файла.
             if (!previousConflictPaths.has(path) && !dirty.has(path)) {
                 const revision = options.revision(path)
                 const local = cache.get(path)

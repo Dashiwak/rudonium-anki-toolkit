@@ -8,6 +8,10 @@ const { patchInterfaceSettings } = require('../Build/install.cjs')
 async function screen(settings = {}) {
     const rows = [], notices = []
     class Control {
+        events = {}
+        inputEl = { addEventListener: (name, cb) => { this.events[name] = cb } }
+        getValue() { return this.value }
+        async blur() { this.events.blur(); await new Promise(resolve => setImmediate(resolve)) }
         addOption(key, label) { (this.options ??= []).push([key, label]); return this }
         setValue(value) { this.value = value; return this }
         setDisabled(value) { this.disabled = value; return this }
@@ -28,7 +32,7 @@ async function screen(settings = {}) {
     let error = false
     const plugin = { settings: { Syntax: { 'Delete Note Line': 'REMOVE' }, ...settings }, loadData: async () => saved,
         saveData: async data => { if (error) throw Error('write failed'); saved = data } }
-    const modules = await load(['card-lifecycle-settings', 'suspend-label', 'deletion-policy'], {
+    const modules = await load(['card-lifecycle-settings', 'suspend-label', 'deletion-policy', 'interface-settings-ui', 'interface-language'], {
         Setting, Notice: class { constructor(message) { notices.push(message) } }, uiFor: () => en => en,
         uiDiagnostic: error => String(error), createSettingsGroup: () => ({}),
         openFrozenFields: target => { assert.equal(target, plugin); opened++ },
@@ -63,7 +67,7 @@ test('Renaming a suspension marker previews literal ordinals, retains aliases an
 
 test('Cleanup defaults protect blocks and pages, master opt-out disarms both, failed saves leave state intact', async () => {
     const state = await screen()
-    const [, blocks, pages, shared] = state.rows
+    const [, , blocks, pages, shared] = state.rows
     assert.equal(blocks.dropdown.value, 'keep')
     assert.equal(pages.toggle.disabled, true)
     await blocks.dropdown.change('remove')
@@ -85,7 +89,7 @@ test('Cleanup defaults protect blocks and pages, master opt-out disarms both, fa
 test('Installer connects the settings group once and keeps historical marker aliases out of the editable syntax list', () => {
     const patched = patchInterfaceSettings('this.setup_workflows()\nfor (let key of Object.keys(plugin.settings["Syntax"])) {\ntext => text.setValue(plugin.settings["Syntax"][key]).onChange((value) => { plugin.settings["Syntax"][key] = value\nplugin.saveAllData() })\n}')
     assert.match(patched, /installCardLifecycleSettings\(this.containerEl/)
-    assert.match(patched, /key === 'Suspend Line Aliases'\) continue/)
+    assert.match(patched, /if \(isLifecycleSyntax\(key\)\) continue/)
     assert.match(patched, /text => bindSyntaxEdit\(text, plugin, key\)/)
 })
 
@@ -96,30 +100,34 @@ test('Scheduling diagnostics display the selected language and retain the Markdo
     assert.equal(uiDiagnostic(message, russianUi), 'Cards/Linz.md: Проверьте номера.')
 })
 
-test('A partially entered deletion marker stays inactive until committed and an invalid rename restores the saved marker', async () => {
-    const state = await screen(), events = {}
-    let saved
-    const input = { inputEl: { addEventListener: (name, cb) => { events[name] = cb } },
-        getValue() { return this.val }, setValue(value) { this.val = value; return this },
-        setDisabled(value) { this.disabled = value; if (!value) saved(); return this } }
-    state.api.bindSyntaxEdit(input, state.plugin, 'Delete Note Line')
-    async function blur() {
-        const settled = new Promise(resolve => { saved = resolve })
-        events.blur()
-        await settled
-    }
-    input.val = 'RE'
+test('Moved directives keep their section order and save validated values on blur', async () => {
+    const syntax = { 'Frozen Fields Line': 'SHARED', 'Begin Note': 'START', 'Delete Note Line': 'REMOVE' }
+    const state = await screen({ Syntax: syntax })
+    assert.deepEqual(state.rows.map(row => row.name), [
+        'Suspension marker', 'Delete Note Line', 'Markdown after confirmed Anki deletion',
+        'Move deleted card pages to trash', 'Shared fields in the current note', 'Frozen Fields Line',
+    ])
+    const del = state.rows[1].text, frozen = state.rows.at(-1).text
+    assert.equal(frozen.value, 'SHARED')
+    del.setValue('RE')
     assert.equal(state.plugin.settings.Syntax['Delete Note Line'], 'REMOVE')
-    input.val = 'SUSPEND'
-    await blur()
-    assert.equal(input.val, 'REMOVE')
-    input.val = 'END'
-    await blur()
-    assert.equal(input.val, 'REMOVE')
+    for (const value of ['SUSPEND', 'END']) {
+        del.setValue(value)
+        await del.blur()
+        assert.equal(del.value, 'REMOVE')
+    }
     assert.match(state.notices.at(-1), /deletion marker/)
-    input.val = 'УДАЛИТЬ'
-    await blur()
-    assert.equal(state.plugin.settings.Syntax['Delete Note Line'], 'УДАЛИТЬ')
+    del.setValue('УДАЛИТЬ')
+    await del.blur()
+    frozen.setValue('ОБЩИЕ')
+    await frozen.blur()
+    const reopened = await screen(state.saved().settings)
+    assert.equal(reopened.rows[1].text.value, 'УДАЛИТЬ')
+    assert.equal(reopened.rows.at(-1).text.value, 'ОБЩИЕ')
+    assert.equal(state.saved().settings.Syntax['Begin Note'], 'START')
+    const legacy = await screen({ Syntax: {} })
+    assert.equal(legacy.rows[1].text.value, 'DELETE')
+    assert.equal(legacy.rows.at(-1).text.value, 'FROZEN')
 })
 
 test('Generated upstream settings type accepts both optional syntax keys for old and new vaults', () => {
@@ -132,7 +140,7 @@ test('Generated upstream settings type accepts both optional syntax keys for old
 
 test('Existing removal preferences survive upgrade, marking disarms page trash and keeps both options exclusive', async () => {
     const s = await screen({ CLEAN_DELETED_BLOCKS: true, TRASH_DELETED_PAGES: true })
-    const [, mode, pages] = s.rows
+    const [, , mode, pages] = s.rows
     assert.equal(mode.dropdown.value, 'remove')
     assert.equal(pages.toggle.value, true)
     await mode.dropdown.change('mark')
@@ -148,7 +156,7 @@ test('Existing removal preferences survive upgrade, marking disarms page trash a
 
 test('The five mutually exclusive modes retain their order and survive reload without arming page trash', async () => {
     const page = await screen()
-    const [, mode, pages] = page.rows
+    const [, , mode, pages] = page.rows
     assert.deepEqual(mode.dropdown.options.map(option => option[0]), ['keep', 'remove', 'mark', 'strike', 'hidden'])
     for (const selected of ['hidden', 'strike', 'mark', 'remove', 'keep']) {
         await mode.dropdown.change(selected)
@@ -158,7 +166,7 @@ test('The five mutually exclusive modes retain their order and survive reload wi
         assert.equal(mode.dropdown.value, selected)
         assert.equal(pages.toggle.disabled, selected !== 'remove')
         const reopened = await screen(saved)
-        assert.equal(reopened.rows[1].dropdown.value, selected)
+        assert.equal(reopened.rows[2].dropdown.value, selected)
     }
 })
 test('Invalid newer settings default to retaining the source, while 0.8.5 settings retain their old mode', async () => {
@@ -166,5 +174,5 @@ test('Invalid newer settings default to retaining the source, while 0.8.5 settin
         [{ AFTER_DELETE_MODE: 'unknown', CLEAN_DELETED_BLOCKS: true, TRASH_DELETED_PAGES: true }, 'keep'],
         [{ AFTER_DELETE_MODE: 'hidden', CLEAN_DELETED_BLOCKS: true }, 'hidden'],
         [{ MARK_DELETED_BLOCKS: true }, 'mark'], [{ CLEAN_DELETED_BLOCKS: true }, 'remove'], [{}, 'keep'],
-    ]) assert.equal((await screen(settings)).rows[1].dropdown.value, expected)
+    ]) assert.equal((await screen(settings)).rows[2].dropdown.value, expected)
 })

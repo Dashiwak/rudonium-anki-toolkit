@@ -114,6 +114,7 @@ test('ordinary export forces custom numbered/all markers again after restart, wi
     const h = await fixture(), plugin = h.plugin()
     assert.equal(await h.scan(plugin), 'completed', h.notices.join('\n'))
     assert.deepEqual(h.written, [[701, 801]])
+    assert.equal(h.notices.at(-1), 'Paused reviews for 2 notes.')
     assert.equal(h.cards.get(702).suspended, true)
     assert.equal(h.cards.get(703).suspended, false)
     assert.equal(h.cards.get(901).suspended, false)
@@ -280,6 +281,7 @@ test('ordinary one-way export executes the custom DELETE command using each of t
         await store.checkpoint([[7, record], [8, record]])
         assert.equal(await h.scan(plugin), 'completed', mode + '\n' + h.notices.join('\n'))
         assert.deepEqual(h.deleted, [7], mode)
+        assert.equal(h.notices.at(-1), 'Deleted 1 note from Anki.', mode)
         assert.ok(!h.cards.has(701) && !h.cards.has(702) && !h.cards.has(703))
         assert.ok(h.cards.has(801), mode)
         assert.ok(h.marked.text.endsWith(neighbor))
@@ -425,3 +427,28 @@ for (const placement of ['heading', 'yaml', 'after-answer']) {
         assert.deepEqual(h.deleted, [7])
     })
 }
+
+test('current-file and vault exports share optional history and add no Anki calls when tracing', async () => {
+    for (const currentOnly of [false, true]) {
+        let expectedCalls
+        for (const enabled of [false, true]) {
+            const h = await fixture(), plugin = h.plugin()
+            plugin.app.workspace.getActiveFile = () => h.marked
+            plugin.settings.SYNC_CHANGE_HISTORY = enabled
+            assert.equal(await h.scan(plugin, false, currentOnly), 'completed', h.notices.join('\n'))
+            const snapshots = [...h.journal].filter(([name]) => name.includes('sync-change-history'))
+            if (!enabled) {
+                expectedCalls = [...h.calls]
+                assert.equal(snapshots.length, 0)
+                continue
+            }
+            assert.deepEqual(h.calls, expectedCalls)
+            const newest = snapshots.map(([,data]) => JSON.parse(data)).sort((a,b) => b.revision - a.revision)[0]
+            assert.ok(newest)
+            assert.deepEqual(newest.rows.map(row => [row.mode,row.direction,row.action,row.path,row.noteId]), [
+                ['one-way','to-anki','suspend',h.marked.path,7], ['one-way','to-anki','suspend',h.marked.path,8],
+            ])
+            assert.deepEqual(newest.rows.map(row => row.fields[0].after), ['701','801'])
+        }
+    }
+})

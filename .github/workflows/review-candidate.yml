@@ -77,7 +77,7 @@ jobs:
 
   attest:
     if: github.ref_type == 'tag'
-    needs: [verify, lint]
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -89,6 +89,23 @@ jobs:
         with:
           name: rudonium-candidate-${{ github.sha }}
           path: candidate
+      - name: Compare downloaded assets with the verified build
+        working-directory: candidate
+        run: |
+          node <<'JS'
+          const assert = require('node:assert/strict');
+          const { readFileSync } = require('node:fs');
+          const { createHash } = require('node:crypto');
+          const { release, artifacts } = require('./notices/PROVENANCE.json');
+          const files = ['main.js', 'manifest.json', 'styles.css'];
+          assert.equal(release.version, process.env.GITHUB_REF_NAME);
+          assert.deepEqual(artifacts.map(item => item.path).sort(), files);
+          for (const file of files) {
+            const digest = createHash('sha256').update(readFileSync('install/' + file)).digest('hex');
+            assert.equal(digest, artifacts.find(item => item.path === file).sha256);
+            console.log(digest + '  ' + file);
+          }
+          JS
       - name: Attest the verified Obsidian assets
         uses: actions/attest@v4
         with:

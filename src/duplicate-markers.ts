@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { activeCardMarkdown, archivedCardRanges } from './archived-card'
 import { pageYamlClaims } from './page-frontmatter'
@@ -12,7 +10,6 @@ import { maskIdMarkerHtmlLiterals } from './id-marker-literals'
 import { maskLegacyFieldSections } from './legacy-field-sections'
 import { parseAnkiIdMarker, ankiIdDateWarning, markedPageAnswerBoundary } from './anki-id-marker'
 import type { AnkiIdDateWarning } from './anki-id-marker'
-/** Номер строки начинается с 1. Столбец начинается с 0 и указывает на I в ID:. */
 export interface IdMarker {
     location?: 'yaml'
     id: number
@@ -20,7 +17,6 @@ export interface IdMarker {
     column: number
 }
 
-/** Сохранённый архивом ID занят при перепривязке. Его строка служит только для диагностики. */
 export function archivedIdMarkers(content: string): IdMarker[] {
     const ranges = archivedCardRanges(content)
     const markers: IdMarker[] = []
@@ -58,7 +54,6 @@ const inlineId = /(?:^|\s)(ID:[ \t]*(\d+))(?!\d|[.,]\d|[eE][+-]?\d)/g
 const trailingInlineId = /^[ \t]*(ID:[ \t]*(\d+))(?!\d|[.,]\d|[eE][+-]?\d)/
 const inlineCardBody = /^(?:[ \t]*\[[^\]\r\n]+\][ \t]+\S|[ \t]+[^|]+\|[^|]+\|[^|]+\|$)/
 
-/** Маскируем только закрытые фрагменты кода, сохраняя столбцы исходной строки. */
 function maskCode(line: string): string {
     return line.replace(/(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g, span => ' '.repeat(span.length))
 }
@@ -84,7 +79,6 @@ function maskInlineCommentExamples(line: string, state: { closing?: string }): s
     return visible
 }
 
-/** Служебный комментарий должен быть самостоятельным, а не вложенным примером в обычном комментарии. */
 function rootIdComments(line: string, initialClosing?: string): Set<number> {
     const result = new Set<number>()
     let cursor = 0
@@ -114,7 +108,6 @@ function appendMarker(markers: IdMarker[], match: RegExpMatchArray, row: number,
     }
 }
 
-/** Собирает маркеры, в том числе повторы в одном файле, с их точными координатами. */
 export function findIdMarkers(content: string, syntax: DuplicateMarkerSyntax = {}): IdMarker[] {
     if (content.includes('RUDONIUM-ARCHIVE')) content = activeCardMarkdown(content)
     content = maskLegacyFieldSections(content)
@@ -250,12 +243,10 @@ function stockBlockSource(rows: readonly string[], row: number, syntax: Duplicat
     return { preview, ...(front && { front }), ...(back && { back }) }
 }
 
-/** Для известной разметки берёт поля, иначе показывает ближайший исходный текст. */
 export function readDuplicateSource(content: string, marker: IdMarker, syntax: DuplicateMarkerSyntax = {}): DuplicateSource {
     return readSourceLines(content.split(lineBreak), marker, syntax)
 }
 
-/** Подготавливает исходные строки один раз для всех повторных ID в файле. */
 export function readDuplicateSources(content: string, markers: readonly IdMarker[],
     syntax: DuplicateMarkerSyntax = {}): DuplicateSource[] {
     if (!markers.length) return []
@@ -297,7 +288,6 @@ function readSourceLines(rows: readonly string[], marker: IdMarker, syntax: Dupl
     return { ...marker, preview: excerpt(standalone && previous.trim() ? [previous, line] : [line]) }
 }
 
-/** Нестандартная дата видна пользователю, но не отменяет числовую связь с Anki. */
 export function collectAnkiIdDateWarnings(content: string, syntax: DuplicateMarkerSyntax = {}): AnkiIdDateWarning[] {
     const lines = content.split(lineBreak)
     const warnings: AnkiIdDateWarning[] = []

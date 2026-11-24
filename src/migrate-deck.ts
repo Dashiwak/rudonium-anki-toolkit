@@ -90,7 +90,7 @@ export const detectDeckToAnki: MigrationAdapter = (path, text, context) => {
         front = body.slice(0, split.index).trim()
         back = body.slice(split.index + split[0].length)
     }
-    if (!front.trim() || front !== front.trim() || /[\r\n\x00-\x1f]|#anki-page/u.test(front) ||
+    if (!front.trim() || front !== front.trim() || /[\p{Cc}]|#anki-page/u.test(front) ||
         /^(?:#{1,6}[ \t]|[-*+>][ \t]|\d+[.)][ \t]|```|~~~|<!--|%%|---$)/u.test(front)) {
         return review('The front must fit on one heading line. Check its Markdown formatting.',
             'Вопрос должен помещаться в одну строку заголовка. Проверьте его разметку.')

@@ -39,7 +39,7 @@ export function deletionLabelProblem(syntax: DuplicateMarkerSyntax): string | un
     const label = syntax['Delete Note Line'] ?? defaults['Delete Note Line']
     if (!label) return
     const normalized = label.toLowerCase()
-    if (label !== label.trim() || /[\x00-\x1f\x7f\u2028\u2029]/u.test(label) ||
+    if (label !== label.trim() || /[\p{Cc}\u2028\u2029]/u.test(label) ||
         /^(?:ID\s*:|Tags:|---|\$\$|%%)$/iu.test(label) ||
         Object.entries(defaults).some(([key, fallback]) => key !== 'Delete Note Line' &&
             (syntax[key as keyof DuplicateMarkerSyntax] ?? fallback).trim().toLowerCase() === normalized) ||
@@ -53,7 +53,7 @@ export function suspendLabelProblem(label: string, syntax?: DuplicateMarkerSynta
     try { labels = suspendLabels({ ...syntax, 'Suspend Line': label }) } catch {
         return 'Invalid suspension marker history. / Проверьте сохранённые прежние метки приостановки.'
     }
-    if (!label || labels.some(value => !value || value !== value.trim() || /[\x00-\x1f\x7f\u2028\u2029]/u.test(value) ||
+    if (!label || labels.some(value => !value || value !== value.trim() || /[\p{Cc}\u2028\u2029]/u.test(value) ||
         /(?:_|[ \t])\d+(?:,[ \t]*\d+)*$/u.test(value) ||
         /^(?:ID\s*:|#{1,6}(?:\s|$)|[-+*>]\s|---$|\$\$|~~~|%%|<!--|\x60)/iu.test(value))) {
         return 'Choose a single visible marker without a card-number suffix. / Введите отдельную метку без номера карточки на конце.'

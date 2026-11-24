@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import * as AnkiConnect from './anki'
 import { ankiBrowseMessage } from './interface-language'
@@ -21,7 +19,6 @@ import type { ExportPreviewOperation } from './export-plan'
 const readAnki: typeof AnkiConnect.invoke = (action, params) =>
     withAnkiDeadline(() => AnkiConnect.invoke(action, params), `AnkiConnect ${action}`)
 
-/** Какие поля, теги и колоду должна получить существующая заметка Anki. */
 export interface ExistingNoteSource {
     id: number
     path: string
@@ -30,7 +27,6 @@ export interface ExistingNoteSource {
     deck: string
     modelName: string
     deckRule?: DeckRouteOrigin
-    /** Проверка исходной разметки позволяет синхронизировать значения, которые пользователь намеренно оставил пустыми. */
     authoredFields?: readonly string[]
     namedLayout?: OneWayNamedLayout
     sharedPageFields?: readonly string[]
@@ -59,6 +55,7 @@ export interface ExistingNotePolicy {
     authorizeField?(conflict: OneWayFieldConflict): boolean
     reviewOperation?(path: string, operation: ExportPreviewOperation): boolean
     reviewEvidence?(request: AnkiConnect.AnkiConnectRequest, evidence: ReviewedAnkiEvidence): void
+    rememberMoveOwner?(request: AnkiConnect.AnkiConnectRequest, id: number): void
     rememberReviewedCards?(request: AnkiConnect.AnkiConnectRequest, cardIds: readonly number[]): void
     includeCardStudyDetails?: boolean
 }
@@ -152,7 +149,6 @@ async function readAvailableNoteRows(notes: number[]): Promise<unknown> {
     }
 }
 
-/** Свежий пакет используется только для сверки операций предпросмотра. */
 export async function readReviewedNoteSnapshots(ids: readonly number[]): Promise<Map<number, NoteSnapshot>> {
     const result = new Map<number, NoteSnapshot>()
     const requestedIds = [...new Set(ids)]
@@ -190,7 +186,6 @@ export function matchesReviewedAnkiEvidence(note: NoteSnapshot | undefined, evid
 
 export { sameFieldValue } from './anki-field-value'
 
-/** Сохраняем написание каждого тега, а совпадения проверяем без учёта регистра. */
 function indexTags(tags: readonly string[]): Map<string, string> {
     const indexed = new Map<string, string>()
     for (const tag of tags) {
@@ -204,7 +199,6 @@ export function isExistingDeckManaged(source: Pick<ExistingNoteSource, 'deckRule
     return source.deckRule !== undefined && source.deckRule.origin !== 'default'
 }
 
-/** Старый парсер заполняет отсутствующие поля пустыми значениями. Записываем пустое значение только при его явном наличии в исходнике. */
 export function managedFieldEntries(source: ExistingNoteSource): [string, string][] {
     const authored = source.authoredFields ? new Set(source.authoredFields) : undefined
     return Object.entries(source.fields).filter(([name, value]) => authored ? authored.has(name) : value !== '')
@@ -229,7 +223,6 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
     const readImpact = async (hazards: ReviewedCardImpact['hazards']): Promise<ReviewedCardImpact> => {
         const ids = [...actual.cards].sort((left, right) => left - right)
         if (policy.includeCardStudyDetails && cards === undefined) {
-            // Сведения о повторениях дополняют предпросмотр. При старом AnkiConnect показываем подтверждённые ID.
             cards = await readCardStudyDetails(source.id, ids, batch => readAnki('cardsInfo', { cards: batch }))
                 .catch(() => ids.map(id => ({ id })))
         }
@@ -323,7 +316,6 @@ function planProtectedTags(source: ExistingNoteSource, actual: NoteSnapshot, pri
     }
 }
 
-/** Читаем поля, теги и список карточек, связывая каждый ответ по ID заметки. */
 async function readNoteSnapshots(sources: ReadonlyMap<number, ExistingNoteSource>,
     report: (path: string, message: string) => void,
     prefetched: ReadonlyMap<number, NoteSnapshot>): Promise<Map<number, NoteSnapshot>> {
@@ -382,7 +374,6 @@ async function readNoteSnapshots(sources: ReadonlyMap<number, ExistingNoteSource
     return result
 }
 
-/** getDecks группирует ID карточек по названиям колод. Строим обратное соответствие. */
 async function readCardDecks(cards: readonly number[], read = readAnki): Promise<{ decks: Map<number, string>; problems: Map<number, string> }> {
     const decks = new Map<number, string>()
     const problems = new Map<number, string>()
@@ -456,10 +447,8 @@ async function readMoveBundle(cards: readonly number[], profile: string): Promis
     return async (action, params) => results.get(JSON.stringify([action, params]))
 }
 
-/** Повторно проверяем источник непосредственно перед переносом карточки в колоду, подтверждённым пользователем. */
 export async function readUnfilteredMoveSources(cards: readonly number[], profile: string): Promise<Map<number, string>> {
     const unique = Array.from(new Set(cards))
-    // На коннекторах с пакетным чтением проверяем закреплённый профиль до и после обоих запросов.
     const bundled = await readMoveBundle(unique, profile)
     const read = bundled ?? readAnki
     const filtered = await findFilteredAnkiCards(unique, read)
@@ -473,7 +462,6 @@ export async function filteredMoveTargets(decks: readonly string[], unverified =
     return new Set((await readFilteredAnkiDecks(decks, readAnki, undefined, unverified)).keys())
 }
 
-/** Сохраняем карточки в активной фильтрованной колоде и проверяем их исходную колоду. */
 async function planDeckMoves(sources: ReadonlyMap<number, ExistingNoteSource>, snapshots: ReadonlyMap<number, NoteSnapshot>,
     report: (path: string, message: string) => void): Promise<{ moves: Map<number, number[]>; decks: Map<number, string> }> {
     const cards = Array.from(new Set(Array.from(snapshots.values()).flatMap(note => note.cards)))
@@ -484,7 +472,6 @@ async function planDeckMoves(sources: ReadonlyMap<number, ExistingNoteSource>, s
     } catch (error) {
         filteredError = error
     }
-    // Некоторые версии AnkiConnect не возвращают сведения о размещении карточек в фильтрованных колодах.
     const { decks, problems } = await readCardDecks(cards.filter(card => !filtered?.has(card)))
     const moves = new Map<number, number[]>()
     const filteredByNote = new Map<number, number[]>()
@@ -541,7 +528,6 @@ async function planDeckMoves(sources: ReadonlyMap<number, ExistingNoteSource>, s
         try {
             confirmed.set(target, await findAnkiDeckCardIds(targetId, ids, readAnki))
         } catch {
-            // При неизвестной исходной колоде проверка остаётся незавершённой.
         }
     }
     for (const [id, ids] of filteredByNote) {
@@ -554,7 +540,6 @@ async function planDeckMoves(sources: ReadonlyMap<number, ExistingNoteSource>, s
     return { moves, decks }
 }
 
-/** Планирует подтверждённые локальные изменения, проверяя наличие полей в исходнике и соответствие истории. */
 export async function prepareExistingNoteChanges(
     notes: readonly ExistingNoteSource[],
     report: (path: string, message: string) => void,
@@ -638,12 +623,13 @@ export async function prepareExistingNoteChanges(
             kind: 'deck', id: source.id, modelName: source.modelName, deck: source.deck,
             values: move.map(card => ({ name: String(card), before: decks.get(card), after: source.deck })),
         }))) {
-            actions.push(AnkiConnect.changeDeck(move, source.deck))
+            const request = AnkiConnect.changeDeck(move, source.deck)
+            policy.rememberMoveOwner?.(request, source.id)
+            actions.push(request)
             if (previewMoves) {
                 const details = previewMoves.get(source.path) ?? new Map<string, ExportDeckMove>()
                 const reason = source.deckRule
                 for (const card of move) {
-                    // Текущая колода каждой карточки уже определена через getDecks до проверки фильтрации.
                     const from = decks.get(card)!
                     const key = JSON.stringify([from, source.deck, reason?.origin, reason?.folder])
                     const existing = details.get(key)
@@ -670,7 +656,6 @@ export async function prepareExistingNoteChanges(
     return changes
 }
 
-/** Узнаёт, какие из запланированных обновлений затрагивают записи, выбранные в Browse. */
 export async function findOpenNotesForUpdate(
     changes: ReadonlyMap<string, readonly AnkiConnect.AnkiConnectRequest[]>,
 ): Promise<Set<number>> {
@@ -688,8 +673,6 @@ export async function findOpenNotesForUpdate(
             return new Set(selected.filter(id => planned.has(id)))
         }
     } catch {
-        // Некоторые версии или совместимые реализации AnkiConnect не поддерживают этот запрос.
-        // В этом случае сохранённые поля всё равно проверяются после записи через notesInfo.
     }
     return new Set()
 }
@@ -700,6 +683,7 @@ export interface ExistingWriteEvidence {
     created?: readonly Pick<ExistingNoteSource, 'id' | 'path' | 'modelName' | 'fields' | 'tags' | 'namedLayout'>[]
     confirmedActions?: ReadonlySet<AnkiConnect.AnkiConnectRequest>
     reviewedCards?: ReadonlyMap<AnkiConnect.AnkiConnectRequest, readonly number[]>
+    onDeckVerified?(cardId: number): void
     onCardImpact?(impact: VerifiedCardImpact): void
     capture?(receipt: OneWayReceipt): void
 }
@@ -715,7 +699,6 @@ interface ExpectedNoteWrite {
     cardIds?: readonly number[]
 }
 
-/** AnkiConnect может подтвердить запись без сохранения, пока поле редактируется в браузере Anki. */
 export async function verifyExistingNoteFieldWrites(
     changes: ReadonlyMap<string, AnkiConnect.AnkiConnectRequest[]>,
     report?: (path: string, message: string) => void,
@@ -836,7 +819,7 @@ export async function verifyExistingNoteFieldWrites(
             if (actual === undefined || ankiStudyDeckKey(actual) !== ankiStudyDeckKey(deck)) {
                 const failure = problems.get(card) ?? `expected ${deck}, received ${actual ?? 'no deck'}`
                 issue(path, `could not verify the new deck for Anki card ${card}: ${failure}`)
-            }
+            } else evidence?.onDeckVerified?.(card)
         }
     }
     return errors

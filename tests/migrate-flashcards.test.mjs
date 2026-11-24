@@ -12,14 +12,13 @@ const literals = JSON.stringify(uri(code('id-marker-literals')))
 const frontmatter = JSON.stringify(uri(code('page-frontmatter').replace("'./id-marker-literals'", literals)
     .replace("'./suspend-label'", JSON.stringify(uri(code('suspend-label'))))))
 const ids = uri(code('anki-id-marker').replace("'./page-frontmatter'", frontmatter).replace("'./id-marker-literals'", literals))
-const { detectFlashcards, detectObsidianToAnki } = await import(uri(code('migrate-flashcards')
+const { detectFlashcards } = await import(uri(code('migrate-flashcards')
     .replace("'obsidian'", JSON.stringify(yamlHost)).replace("'./anki-id-marker'", JSON.stringify(ids))
     .replace("'./migration-markdown'", JSON.stringify(uri(code('migration-markdown'))))))
 const { fixtures } = await import(yamlHost)
 const ctx = { t: en => en }
 const file = 'Study/Word.md'
 const flash = (text, source) => detectFlashcards(file, text, { ...ctx, source })
-const ota = text => detectObsidianToAnki(file, text, ctx)
 const sampleId = 1700000000123
 function withProps(raw, props, body, eol = '\n') {
     const header = raw.replace(/\n/gu, eol) + eol
@@ -107,40 +106,4 @@ test('Flashcards refuses unresolved identity, multiple cards, outside prose and 
     assert.equal(flash('Intro\n\n```md\n# Heading #card\nA\n```'), undefined)
     assert.equal(flash('Intro\n<!--\nQ #card\n-->'), undefined)
     assert.equal(flash('# Q #card\nA', 'obsidian-to-anki'), undefined)
-})
-
-test('Obsidian_to_Anki reads official implicit Front and ID before END, explicit Front, two deck directive styles and dated IDs', () => {
-    for (const [body, deck] of [
-        ['TARGET DECK\nVol 1::History\n\nSTART\nBasic\nQuestion?\nBack: First\n\nSecond\n<!--ID: 1700000000123-->\nEND', 'Vol 1::History'],
-        ['START\nBasic\nFront: Question?\nBack: First\n\nSecond\nEND\nID: 1700000000123\n\nTARGET DECK: Vol 1::History', 'Vol 1::History'],
-        ['START\nBasic\nFront: Question?\nBack: First\n\nSecond\n<!--ID: 1700000000123 | 2026-11-19-->\nEND', undefined],
-    ]) {
-        const card = ota('\uFEFF---\r\ntags: [plants]\r\n---\r\n' + body.replaceAll('\n', '\r\n'))
-        assert.equal(card.status, 'candidate')
-        assert.equal(card.front, 'Question?')
-        assert.equal(card.back, 'First\r\n\r\nSecond')
-        assert.equal(card.id, sampleId)
-        assert.equal(card.model, 'Basic')
-        assert.equal(card.deck, deck)
-        assert.equal(card.prefix, '\uFEFF---\r\ntags: [plants]\r\n---\r\n')
-        assert.deepEqual(card.fieldNames, ['Front', 'Back'])
-    }
-    assert.equal(ota('START\nBasic\nQuestion?\nBack: Answer\nEND').id, undefined)
-})
-
-test('Obsidian_to_Anki leaves mixed files, invalid IDs, other fields and unsupported cards for review', () => {
-    const raw = 'START\nBasic\nQuestion?\nBack: Answer\nEND'
-    for (const text of [raw + '\nNote outside card', 'Intro\n' + raw, raw + '\n' + raw,
-        raw.replace('Question?', 'Question?\nMore front'), raw.replace('Basic', 'Cloze'),
-        raw.replace('Basic', 'Basic (and reversed card)'), raw.replace('Basic', 'Other'),
-        raw.replace('Question?', 'Extra: Q'), raw.replace('END', 'Tags: tag\nEND'), raw.replace('END', 'Extra: X\nEND'),
-        raw.replace('END', '<!--ID: bad-->\nEND'), raw.replace('END', '<!--ID: 7 | invalid-->\nEND'),
-        raw.replace('END', 'ID: 1\nID: 2\nEND'), raw.replace('END', 'ID: 1\nEND\nID: 2'),
-        raw.replace('END', 'ID: 0001\nEND'), raw.replace('END', 'ID: 9007199254740992\nEND'),
-        raw.replace('END', 'END\nTARGET DECK:\n'), raw.replace('START', 'STARTI'), raw.replace('END', ''),
-    ]) assert.equal(ota(text)?.status, 'review', text)
-    assert.equal(ota('```md\n' + raw + '\n```'), undefined)
-    assert.equal(ota('Example\n\n~~~md\n' + raw + '\n~~~'), undefined)
-    assert.equal(ota('Ordinary file.'), undefined)
-    assert.equal(detectObsidianToAnki(file, raw, { ...ctx, source: 'flashcards' }), undefined)
 })

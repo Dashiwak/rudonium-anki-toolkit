@@ -18,7 +18,7 @@ Rollup writes `main.js` next to `manifest.json` and `styles.css`. All three belo
 1. Keep the permanent SourceGit checkout `rudonium-anki-toolkit`, `Rudonium-Incoming` and `Rudonium-Builds` in the same parent directory.
 2. Keep the original update ZIP in `Rudonium-Incoming` and extract it into its own folder there. Run its `Apply-Update.cmd`. The command validates the input, reconstructs the target sources and builds them in temporary storage. Local revisions such as Update 1 use the same version directory. After success the tested assets are in `Rudonium-Builds/<version>/install/`.
 3. Check the plugin in a test vault and Anki profile. Once you accept the build, run `Prepare-Release.cmd` in the current repository, or run `npm run release:prepare` there. The command checks the selected sources and previously built assets and places the publication files in `Rudonium-Builds/<version>/release/`. Keep the verified copy of the full source ZIP in `Rudonium-Incoming` for recovery.
-4. Review and commit the matching source tree in SourceGit. Point the three-part tag (e.g. `0.10.13`) at that commit on both remotes. Use the release notes and verified files below when publishing.
+4. Review and commit the matching source tree in SourceGit. Create the matching tag on that commit (e.g. `0.11.0`), then run `Rudonium-Incoming/Sync-GitHub-Release.cmd`. The command verifies the default branch and tag on GitFlic before synchronizing GitHub. Use the release notes and verified files below when publishing.
 
 | Files in `release/` | Use |
 | --- | --- |
@@ -27,7 +27,7 @@ Rollup writes `main.js` next to `manifest.json` and `styles.css`. All three belo
 | `Rudonium-<version>-Repository.zip` | Complete corresponding source snapshot. The same archive serves both remotes. |
 | `SHA256SUMS.txt`, `RELEASE-NOTES.md`, `RELEASE-INFO.json` | Verify downloads, describe the release and identify the source used for the build. |
 
-Attach both ZIPs and their SHA-256 sums on GitFlic and GitHub. The review workflow builds the tagged commit and can attest the runtime files. Local preparation and CI are separate from publishing the release.
+Attach the install ZIP to the GitFlic release. Keep the repository ZIP as the base for subsequent owner updates. On GitHub, wait for the tagged commit’s **Build review candidate → attest** job. Its log lists the SHA-256 digests of the three verified files. Compare those with the release folder before uploading. GitHub records the attestations as part of this job. You can verify each downloaded asset with `gh attestation verify <file> --repo Dashiwak/rudonium-anki-toolkit`. Local preparation and CI are separate from publishing the release.
 
 ## Сборка из исходников
 
@@ -38,6 +38,8 @@ Attach both ZIPs and their SHA-256 sums on GitFlic and GitHub. The review workfl
 1. Храните постоянный клон `rudonium-anki-toolkit`, входящие архивы `Rudonium-Incoming` и результаты `Rudonium-Builds` в трёх соседних папках.
 2. Сохраните ZIP обновления в `Rudonium-Incoming` и распакуйте в отдельную папку. Запустите из неё `Apply-Update.cmd`. Локальные исправления, в том числе Update 1, используют ту же папку версии. После успешной проверки исходников и сборки возьмите плагин из `Rudonium-Builds/<версия>/install/`.
 3. Проверьте плагин в тестовом хранилище Obsidian и профиле Anki. Когда выберете сборку для публикации, запустите `Prepare-Release.cmd` или `npm run release:prepare` из постоянного репозитория. Команда сверит исходники и готовые файлы сборки. Материалы для публикации появятся в `Rudonium-Builds/<версия>/release/`, а копия полного исходного архива — в `Rudonium-Incoming`.
-4. Проверьте изменения в SourceGit и зафиксируйте соответствующие исходники. Отправьте один коммит с тегом версии, например `0.10.13`, на обе площадки. Для GitHub прикрепите `main.js`, `manifest.json` и `styles.css` отдельными файлами. Для ручной установки на обеих площадках разместите архив `Install.zip` с номером версии, для восстановления исходников — `Repository.zip`, для сверки — `SHA256SUMS.txt`. Описание для публикации находится в `RELEASE-NOTES.md`, сведения о сборке — в `RELEASE-INFO.json`.
+4. Проверьте изменения в SourceGit и зафиксируйте соответствующие исходники. На этом коммите создайте тег с версией из манифеста, например `0.11.0`. Запустите `Rudonium-Incoming/Sync-GitHub-Release.cmd`. Команда подтверждает основную ветку и тег на GitFlic, затем сверяет и обновляет GitHub. Для GitHub прикрепите `main.js`, `manifest.json` и `styles.css` отдельными файлами. На GitFlic разместите установочный ZIP. Сохраните архив исходников в Incoming для следующих обновлений. Контрольная сумма каждого файла приведена в отдельной строке `SHA256SUMS.txt`. Описание для публикации находится в `RELEASE-NOTES.md`, сведения о сборке — в `RELEASE-INFO.json`.
+
+После отправки тега на GitHub дождитесь завершения задания **Build review candidate → attest**. Сверьте SHA-256 трёх файлов из журнала задания со своими файлами перед публикацией. Для проверки скачанного файла используйте `gh attestation verify <файл> --repo Dashiwak/rudonium-anki-toolkit`.
 
 [Установка](README.ru.md) · [Installation](README.md) · [Licenses and notices](NOTICE.md)

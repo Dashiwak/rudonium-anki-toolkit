@@ -1,19 +1,16 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 "use strict";
 
 const fs = require("node:fs");
 const path = require("node:path");
 
-// Текст зависит только от выпуска. Дата обозначает изменение исходников.
 function bundleNotice(release, license) {
     return [
         "/*!",
-        " * " + release.name + " " + release.version + " — modified 2026-11-22.",
+        " * " + release.name + " " + release.version + " — modified 2026-11-23.",
         " * SPDX-License-Identifier: " + license,
         " * Rudonium additions: Copyright (C) 2026 dashiwak. GNU GPLv3. Original component permissions and notices are retained.",
         " * Derived from Obsidian_to_Anki 3.6.0 by Pseudonium and contributors.",
@@ -24,8 +21,6 @@ function bundleNotice(release, license) {
     ].join("\n");
 }
 
-// Эта функция целиком входит в rollup.config.js подготовленного репозитория.
-// Сборке из этого репозитория достаточно его собственных файлов и npm lock-файла.
 function rudoniumRollupConfig(config, notice, version) {
     if (Array.isArray(config)) return config.map(entry => rudoniumRollupConfig(entry, notice, version));
 
@@ -40,8 +35,6 @@ function rudoniumRollupConfig(config, notice, version) {
             intro: prepend(output?.intro, "const RUDONIUM_BUILD_VERSION = " + JSON.stringify(version) + ";") };
     }
 
-    // Obsidian предоставляет собственные экземпляры CodeMirror. Сохраняем и
-    // исходные исключения Rollup, включая пользовательскую функцию с контекстом.
     const inherited = config.external;
     const rules = Array.isArray(inherited) ? inherited : inherited ? [inherited] : [];
     return {
@@ -65,7 +58,6 @@ function configureRollup(sourceDirectory, release, license) {
     if (!declaration) throw new Error("Unrecognized upstream Rollup configuration export.");
     const exporter = declaration === esm ? "export default" : "module.exports =";
     const original = text.replace(declaration, "const rudoniumUpstreamConfig = ");
-    // Читаем manifest.json при каждой сборке, включая обычный npm run build в развёрнутом репозитории.
     const readManifest = declaration === esm
         ? 'import { readFileSync as rudoniumReadFile } from "fs";\n' +
             'const rudoniumManifest = JSON.parse(rudoniumReadFile(new URL("./manifest.json", import.meta.url), "utf8"));'

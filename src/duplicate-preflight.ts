@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { isDuplicateFirstFieldErrorMessage, withAnkiDeadline } from './anki-transport'
 import { sameFieldValue } from './anki-field-value'
@@ -48,8 +46,6 @@ export function collectionDuplicateOptions(note: NewNote) {
 }
 
 function lookupQuery(fields: readonly string[], value: string): string | undefined {
-    // Дополнительный поиск только для первых полей, которые можно точно представить запросом Anki.
-    // Совпадение ещё проверяем по порядку полей и сохранённому значению в notesInfo.
     if (!value.length || value.length > 160 || /[<>&\r\n\t]/.test(value)) return undefined
     const names = [...new Set(fields)].filter(name => /^[\p{L}\p{N}][\p{L}\p{N} _-]{0,79}$/u.test(name)).slice(0, 30)
     const escape = (text: string) => text.replace(/[\\*_:"()]/g, '\\$&')
@@ -62,7 +58,6 @@ function firstValue(target: Target): string | undefined {
     return typeof value === 'string' && value.trim() ? value.normalize('NFC') : undefined
 }
 
-/** Живёт только в пределах одного запуска и не загружает всю коллекцию для поиска дублей. */
 export class DuplicatePreflight {
     private mode: 'detailed' | 'legacy' | 'guard-only' = 'detailed'
     private readonly previous = new Map<string, DuplicateSource>()
@@ -103,7 +98,6 @@ export class DuplicatePreflight {
     private async remoteRejections<T extends Target>(targets: readonly T[], read: Read): Promise<Map<T, 'duplicate' | 'unknown'>> {
         const result = new Map<T, 'duplicate' | 'unknown'>()
         if (!targets.length || this.mode === 'guard-only') return result
-        // Только поля заметки. У проверочного запроса нет вложений, URL для скачивания или команд записи.
         const notes = targets.map(({ note }) => ({ deckName: note.deckName, modelName: note.modelName,
             fields: note.fields, options: collectionDuplicateOptions(note) }))
         if (this.mode === 'detailed') {
@@ -123,7 +117,6 @@ export class DuplicatePreflight {
                     if (row?.canAdd === false && typeof row.error === 'string' && isDuplicateFirstFieldErrorMessage(row.error)) {
                         result.set(targets[index], 'duplicate')
                     } else if (row?.canAdd === false && typeof row.error === 'string' && /^deck was not found\s*:/i.test(row.error)) {
-                        // Запланированная колода может ещё не существовать. Точный поиск остаётся доступным без её создания.
                         result.set(targets[index], 'unknown')
                     }
                 })
@@ -248,7 +241,6 @@ export class DuplicatePreflight {
                 if (candidates.length) matches.set(target, candidates)
             }
         } catch {
-            // Отсутствующий отчёт о кандидатах не меняет подтверждённый результат canAddNotesWithErrorDetail.
         }
         return matches
     }

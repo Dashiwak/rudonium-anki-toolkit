@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { parseYaml } from 'obsidian'
 import { splitMigrationMarkdown, withoutMigrationKeys } from './migration-markdown'
-import { looksLikeAnkiIdMarker, parseAnkiIdMarker } from './anki-id-marker'
+import { looksLikeAnkiIdMarker } from './anki-id-marker'
 import type { MigrationAdapter, MigrationCandidate } from './page-migration-context'
 
 type Sides = { front: string; back: string }
@@ -54,7 +54,7 @@ function trimBlankRows(lines: string[]): string[] {
 
 function headingSafe(front: string): boolean {
     return !!front && front === front.trim() && !blockStart.test(front) &&
-        !/[\r\n\x00-\x1f]|#anki-page|(?:^|\s)\^[\w-]+$/u.test(front)
+        !/[\p{Cc}]|#anki-page|(?:^|\s)\^[\w-]+$/u.test(front)
 }
 
 /** Page migration accepts whole source files. An anchor on an unrelated inner block must stay there. */
@@ -220,67 +220,4 @@ export const detectFlashcards: MigrationAdapter = (path, text, context) => {
     if (yaml === undefined) return review('Check the source YAML spelling and references.', 'Проверьте оформление исходного YAML и ссылки на его свойства.', id)
     return { source, status: 'candidate', front: sides.front, back: sides.back.replace(/\n/gu, parts.eol), id, prefix: parts.bom + yaml, anchor,
         externalKey: anchor?.startsWith('q-') ? anchor : undefined, recoveryModel: 'Obsidian-basic', model: id ? 'Obsidian-basic' : undefined, deck: props['cards-deck'] as string | undefined }
-}
-
-export const detectObsidianToAnki: MigrationAdapter = (_path, text, context) => {
-    const source = 'obsidian-to-anki'
-    if (context.source && context.source !== 'auto' && context.source !== source || !/^STARTI?(?:[ \t]|\r?$)/mu.test(text)) return
-    const review = (en: string, ru: string, id?: number): MigrationCandidate =>
-        ({ source, status: 'review', reason: context.t(en, ru), id })
-    const parts = splitMigrationMarkdown(text)
-    if (!parts) return review('Check the YAML boundaries before importing.', 'Проверьте границы YAML перед переносом.')
-    let rows = trimBlankRows(parts.body.split(/\r?\n/u))
-    if (!visibleMarker(rows, row => /^STARTI?(?:[ \t]|$)/u.test(row))) return
-    if (/^(?: {4}|\t| {0,3}(?:`{3}|~{3}|<!--|%%))/u.test(rows[0])) return
-    let deck: string | undefined
-    if (rows[0] === 'TARGET DECK' || /^TARGET DECK:[ \t]/u.test(rows[0])) {
-        const inline = rows[0] !== 'TARGET DECK'
-        deck = inline ? rows[0].slice('TARGET DECK:'.length).trim() : rows[1]?.trim()
-        if (!deck || /^(?:(?:STARTI?|ENDI?)$|TARGET DECK(?:[: \t]|$))/u.test(deck)) return review('Specify the original target deck.', 'Укажите исходную колоду.')
-        rows = trimBlankRows(rows.slice(inline ? 1 : 2))
-    }
-    const last = rows.length - 1
-    if (last > 0 && (rows[last - 1] === 'TARGET DECK' || /^TARGET DECK:[ \t]/u.test(rows[last]))) {
-        if (deck) return review('Check the repeated target deck directive.', 'Проверьте повторяющуюся команду выбора колоды.')
-        const inline = rows[last - 1] !== 'TARGET DECK'
-        deck = (inline ? rows[last].slice('TARGET DECK:'.length) : rows[last]).trim()
-        if (!deck || /^(?:(?:STARTI?|ENDI?)$|TARGET DECK(?:[: \t]|$))/u.test(deck)) return review('Check the target deck name.', 'Проверьте название колоды.')
-        rows = trimBlankRows(rows.slice(0, inline ? last : last - 1))
-    }
-    if (rows[0] !== 'START' || rows.filter(row => /^STARTI?(?:[ \t]|$)/u.test(row)).length !== 1) {
-        return review('Keep one START/END note per file and check any surrounding text.', 'Проверьте текст вокруг записи. В файле нужна одна запись START/END.')
-    }
-    let id: number | undefined
-    const markers = rows.flatMap((row, index) => looksLikeAnkiIdMarker(row) ? [index] : [])
-    if (markers.length) {
-        const i = markers[0]
-        const marker = parseAnkiIdMarker(rows[i])
-        if (markers.length !== 1 || !marker || marker.warning || String(marker.id) !== marker.digits ||
-            !(i === rows.length - 2 && rows[rows.length - 1] === 'END' || i === rows.length - 1 && rows[rows.length - 2] === 'END')) {
-            return review('Check the Anki note ID and its position beside END.', 'Проверьте ID записи Anki и его положение рядом с END.')
-        }
-        id = marker.id
-        rows.splice(i, 1)
-    }
-    if (rows[rows.length - 1] !== 'END' || rows.slice(1, -1).some(row => /^(?:ENDI?\b|TARGET DECK\b|FILE TAGS\b|FROZEN\b|DELETE\b|Tags:)|<!--\s*(?:ID:|Obsidian-to-Anki pending |anki-bidirectional-tags:)/u.test(row))) {
-        return review('Check text outside the note and any tag, frozen-field or deck directives.', 'Проверьте текст вне записи и директивы тегов, фиксированных полей и колоды.', id)
-    }
-    const model = rows[1] ?? ''
-    if (!model.trim() || model !== model.trim() || /cloze|reverse|type in|type-in/iu.test(model)) {
-        return review('Check the original card template and its directions.', 'Проверьте шаблон исходной карточки и её направления.', id)
-    }
-    const content = trimBlankRows(rows.slice(2, -1))
-    const frontLine = content.shift() ?? ''
-    const explicit = /^Front:[ \t]*(.*)$/u.exec(frontLine)
-    const front = explicit ? explicit[1] : frontLine
-    const tail = trimBlankRows(content)
-    const backLine = /^Back:[ \t]*(.*)$/u.exec(tail[0] ?? '')
-    const extraField = /^[^ \t:][^:]{0,80}:(?:[ \t]|$)/u
-    if ((!explicit && (model !== 'Basic' || extraField.test(front))) || !headingSafe(front) || !backLine ||
-        tail.slice(1).some(row => extraField.test(row))) {
-        return review('Check the fields. A page needs a one-line Front and one Back.', 'Проверьте поля. Для страницы нужны однострочный Front и одно поле Back.', id)
-    }
-    const back = trimBlankRows([backLine[1], ...tail.slice(1)]).join(parts.eol)
-    if (!back.trim()) return review('The answer is empty.', 'Ответ пуст.', id)
-    return { source, status: 'candidate', front, back, model, id, deck, prefix: parts.bom + parts.yaml, fieldNames: ['Front', 'Back'] }
 }

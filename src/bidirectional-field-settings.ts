@@ -1,13 +1,12 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { isBidirectionalFieldName, isGeneratedBidirectionalField, readBidirectionalFieldRules } from './bidirectional-fields'
 import type { BidirectionalFieldDirection, BidirectionalFieldRule } from './bidirectional-fields'
+import { openSyncChangeHistory } from './sync-change-history-ui'
 import { addPreviewPreference } from './bidirectional-preview-preference'
 import { previewBidirectionalSync } from './bidirectional-sync'
 import { withFastScanReadLock } from './fast-scan'
@@ -153,11 +152,11 @@ function openBidirectionalFieldSettings(plugin: MyPlugin): void {
 
 export function installBidirectionalSettings(container: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
-    const mode = new Setting(container).setName(t('Bidirectional sync', 'Двусторонняя синхронизация'))
-        .setDesc(t('Sync linked fields between Obsidian and Anki. Enable this mode to run a sync or open its preview.',
-            'Обменивается изменениями связанных полей между Obsidian и Anki. Включите этот режим, чтобы запустить синхронизацию или открыть её предпросмотр.'))
     const options = createSettingsGroup(container, plugin, 'bidirectional-settings', t('Sync settings', 'Настройки синхронизации'))
-    type Option = 'BIDIRECTIONAL_SYNC' | 'SKIP_SYNC_ERRORS' | 'BIDIRECTIONAL_CONFLICT_POLICY'
+    const mode = new Setting(options).setName(t('Bidirectional sync', 'Двусторонняя синхронизация'))
+        .setDesc(t('Syncs linked fields between Obsidian and Anki. Depending on your collection, a full vault sync can take about 10 times as long as a one-way export.',
+            'Синхронизирует связанные поля между Obsidian и Anki. В зависимости от коллекции синхронизация всего хранилища может занять примерно в 10 раз больше времени, чем односторонний экспорт.'))
+    type Option = 'SYNC_CHANGE_HISTORY' | 'BIDIRECTIONAL_SYNC' | 'SKIP_SYNC_ERRORS' | 'BIDIRECTIONAL_CONFLICT_POLICY'
     const toggleRow = <K extends Option>(row: Setting, key: K, on: MyPlugin['settings'][K], off: MyPlugin['settings'][K],
         changed?: () => void) => row.addToggle(toggle => {
         const isOn = () => (plugin.settings[key] ?? (key === 'BIDIRECTIONAL_CONFLICT_POLICY' ? 'latest' : false)) === on
@@ -200,6 +199,12 @@ export function installBidirectionalSettings(container: HTMLElement, plugin: MyP
             button.setButtonText(t('Preview now', 'Открыть предпросмотр')).onClick(() => previewBidirectionalSync(plugin))
         })
         .addButton(button => button.setButtonText(t('Additional fields', 'Дополнительные поля')).onClick(() => openBidirectionalFieldSettings(plugin)))
+    const history = new Setting(options)
+        .setName(t('Sync change history', 'Журнал изменений синхронизации'))
+        .setDesc(t('Save recent sync operations and field values in this vault for debugging. Long values are shortened.',
+            'Сохранять в этом хранилище последние операции и значения полей до и после синхронизации. Длинные значения сокращаются.'))
+        .addButton(button => button.setButtonText(t('Open history', 'Открыть журнал')).onClick(() => openSyncChangeHistory(plugin)))
+    toggleRow(history, 'SYNC_CHANGE_HISTORY', true, false)
     let syncButton: HTMLButtonElement | undefined
     mode.addButton(button => {
         syncButton = button.buttonEl

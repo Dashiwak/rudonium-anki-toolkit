@@ -13,7 +13,7 @@ Write flashcards in Obsidian and review them in desktop Anki. Rudonium links eac
 
 - Write a question and answer inline, in an explicit block, or on a dedicated page. Choose a named format for an Anki note type or enter a custom regular expression.
 - Mark a page with `#anki-page` or add `anki-page` to its YAML tags. Use the first H1 for the question, write the answer below it and use **Add Anki page field…** to pick an extra field from the note type. Page IDs can live in YAML, under the question or after the public content. [Card page examples](docs/en/card-formats.md#whole-page)
-- Migrate single-card Markdown files from Anki Forge, Anki Bridge by Aaron Ade, Anki AST Sync, Anki Exporter, Yanki, Flashcards v1/v2 by reuseman, Obsidian_to_Anki (Export to Anki), and Deck To Anki. The wizard previews changes and saves a full vault ZIP. [Supported formats and limitations](docs/en/migrate-card-files.md)
+- Migrate single-card Markdown files from Anki Forge, Anki Bridge by Aaron Ade, Anki AST Sync, Anki Exporter, Yanki, Flashcards v1/v2 by reuseman, and Deck To Anki. The wizard previews changes and saves a full vault ZIP. [Supported formats and limitations](docs/en/migrate-card-files.md)
 - Preview an export, check the destination deck and select the files to send. Use folder profiles when different collections of Markdown notes belong in different decks.
 - Open **Preview Current Card** with the cursor in the card and choose **Sync this card** to review and apply changes to that card.
 - Review edits on either side with bidirectional sync. A linked vocabulary card can receive an empty answer from Anki and retain its language, question and ID. [Example](docs/en/card-formats.md#clearing-a-linked-answer)
@@ -21,9 +21,35 @@ Write flashcards in Obsidian and review them in desktop Anki. Rudonium links eac
 - Back up a vault or selected folders and exchange Markdown and attachments in ZIP packages. Optional Anki collection backup requires a desktop runtime with SQLite online backup support.
 - After confirmed deletion in Anki, keep the text and ID, remove the block, add a status label, strike through the whole card or hide it in an HTML comment. Add shared values such as the book title and chapter to several Anki fields in one edit.
 
-## Install
+## Performance in large vaults
 
-You need desktop Obsidian **1.15.1 or later**, desktop Anki, and the **AnkiConnect** add-on. Install the add-on in Anki, restart Anki and open the profile you want to use. [AnkiConnect](https://ankiweb.net/shared/info/2055492159)
+Rudonium builds on Obsidian To Anki and adds a file index for repeat exports. In a benchmark with 20,000 previously exported cards across 20,000 unchanged Markdown files, a one-way vault scan took **0.16 s with Rudonium** and **54.1 s with Obsidian To Anki**. Times are medians of three runs with simulated Obsidian and AnkiConnect APIs.
+
+## Setup
+
+1. Open desktop Anki on the computer where you use Obsidian. Select the Anki profile that should receive your cards. [Download Anki](https://apps.ankiweb.net/)
+2. In Anki, open **Tools → Add-ons → Get Add-ons**, enter `2055492159` and restart Anki. If AnkiConnect is already installed, check that it is enabled. [AnkiConnect on AnkiWeb](https://ankiweb.net/shared/info/2055492159)
+3. Open **Tools → Add-ons**, select **AnkiConnect** and click **Config**. Add `"app://obsidian.md"` to the existing `webCorsOriginList` array. Keep the other origins and any unrelated settings. Here is an example for Rudonium’s default local connection.
+
+   ```json
+   {
+     "apiKey": null,
+     "apiLogPath": null,
+     "webBindAddress": "127.0.0.1",
+     "webBindPort": 8765,
+     "webCorsOrigin": "http://localhost",
+     "webCorsOriginList": [
+       "http://localhost",
+       "app://obsidian.md"
+     ]
+   }
+   ```
+
+4. Save the configuration, restart Anki and leave the collection open in the selected profile.
+5. Open your vault in desktop Obsidian **1.15.1 or later**. Go to **Settings → Community plugins**, turn on community plugins if prompted and choose **Browse**. Search for **Rudonium Anki Toolkit**, click **Install**, then **Enable**. [Download Obsidian](https://obsidian.md/)
+6. With Anki running, open Rudonium’s **Quick Start** and click **Check Connection**. Confirm the profile name, choose a deck, a note type and a Markdown format, then click **Save Setup**. [Export your first card](docs/en/quick-start.md#export-one-card)
+
+### Manual installation from a release ZIP
 
 1. Open the latest release on GitFlic and download the installer ZIP bearing its version number. [GitFlic project](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit)
 2. Extract the ZIP into your vault’s `.obsidian/plugins/` folder. It contains the `rudonium-anki-toolkit/` directory with `main.js`, `manifest.json` and the stylesheet if the build produced one. If your vault uses a custom configuration directory, use it in place of `.obsidian`.
@@ -35,7 +61,7 @@ To build from source, use Node.js 22.18 or later and npm. In the source director
 
 ## Set up your first card
 
-Quick Start opens automatically when the vault has neither a configured format nor a complete pair of block markers. Reopen it from **Anki Connection → First Run** or the **Quick Start** command. English is the initial interface language. Check the connection, choose an ordinary Anki deck, select a note type and a Markdown format, and inspect both sides of the example. Save the setup, then use the quick start to export one note. To change the language later, use **Interface Language** just above **About the plugin** in settings. Reload the plugin to update command-palette labels. [Step-by-step guide](docs/en/quick-start.md)
+Quick Start opens automatically when the vault has neither a configured format nor a complete pair of block markers. Reopen it from **Anki Connection → First Run** or the **Quick Start** command. English is the initial interface language. Check the connection, choose an ordinary Anki deck, select a note type and a Markdown format, and inspect both sides of the example. Save the setup, then use the quick start to export one note. To change the language later, open **Interface and plugin information** and select **Interface Language**. Reload the plugin to update command-palette labels. [Step-by-step guide](docs/en/quick-start.md)
 
 ## Data and access
 

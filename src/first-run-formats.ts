@@ -9,7 +9,6 @@ import { OBS_DISPLAY_CODE_REGEXP, OBS_CODE_REGEXP, OBS_DISPLAY_MATH_REGEXP, OBS_
 
 type FormatSettings = Pick<MyPlugin['settings'], 'Syntax' | 'CUSTOM_REGEXPS'>
 type FormatEvidence = { syntax: string; path?: string; shown?: true }
-// Эти публичные методы Obsidian 1.8.7 отсутствуют в более ранних типах исходной основы.
 type FormatStorageApp = App & {
     loadLocalStorage?(key: string): unknown
     saveLocalStorage?(key: string, data: unknown): void
@@ -78,7 +77,6 @@ function markerProbe(settings: FormatSettings): (source: string) => boolean {
     }
 }
 
-/** Сохраняем только путь первого найденного блока или факт показа мастера, без кэша заметок. */
 export async function needsFormatSetup(app: App, settings: FormatSettings, stopped: () => boolean): Promise<boolean> {
     if (stopped()) return false
     const prior = readEvidence(app)
@@ -91,7 +89,6 @@ export async function needsFormatSetup(app: App, settings: FormatSettings, stopp
     const probe = markerProbe(settings)
     const witness = prior?.syntax === syntax && typeof prior.path === 'string' ? app.vault.getAbstractFileByPath(prior.path) : null
     const priorFile = witness instanceof TFile ? witness : null
-    // Проверяем сам текст даже для ранее найденной заметки: синхронизатор диска может сохранить mtime.
     let incomplete = false
     const check = async (file: TFile) => {
         try { return probe(await app.vault.read(file)) }
@@ -108,7 +105,7 @@ export async function needsFormatSetup(app: App, settings: FormatSettings, stopp
             if (current()) remember(app, { syntax, path: hit.path })
             return false
         }
-        if (offset % 128 === 124) await new Promise<void>(resolve => setTimeout(resolve, 0))
+        if (offset % 128 === 124) await new Promise<void>(resolve => window.setTimeout(resolve, 0))
     }
     return current() && !incomplete
 }

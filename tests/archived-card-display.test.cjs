@@ -2,8 +2,6 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const overlay = require('../Build/overlay-source.cjs')
 const { load } = require('./benchmark/migration-modules.cjs')
 
 const lines = ['Active before', '<!--RUDONIUM-ARCHIVE:123-->', 'First line', 'Second line',
@@ -66,15 +64,12 @@ test('Reading View strikes only proven legacy sections and preserves the status,
 })
 
 test('Live Preview restricts legacy formatting to visible text and leaves native modes and Source mode intact', async () => {
-    const raw = fs.readFileSync(overlay.file('archived-card-display.ts'), 'utf8')
-    const injected = "import { runtime } from './display-host'\n" + raw.replace(/\brequire\(/gu, 'runtime(')
     let viewClass
     const live = {}, effect = { define: () => ({ of: value => value }) }
     const cm = { Decoration: { none: [], set: spans => spans, mark: () => ({ range: (from, to) => [from, to] }) },
         ViewPlugin: { fromClass: klass => (viewClass = klass) }, EditorView: { baseTheme: value => value } }
-    const api = { runtime: name => name === 'obsidian' ? { editorLivePreviewField: live } :
-        name === '@codemirror/state' ? { StateEffect: effect } : cm }
-    const { 'archived-card-display': { registerArchivedCardDisplay } } = await load(['archived-card-display'], api, { 'archived-card-display': injected })
+    const api = { editorLivePreviewField: live, StateEffect: effect, ...cm }
+    const { 'archived-card-display': { registerArchivedCardDisplay } } = await load(['archived-card-display'], api)
     registerArchivedCardDisplay({ registerEditorExtension: () => {} })
     const mkView = (text, isLive, visibleRanges = [{ from: 0, to: text.length }]) => {
         const stats = { copies: 0, iterations: [] }

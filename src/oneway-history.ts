@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Md5 } from 'ts-md5'
 import { isProtectedAnkiTag } from './anki-study-state'
@@ -18,7 +16,6 @@ export interface OneWayRecord {
     readonly fields: Readonly<Record<string, string>>
     readonly matchedTags: readonly string[]
     readonly managedTags: readonly string[]
-    /** Только явно присутствовавшие имена, для которых Anki подтвердила значение. */
     readonly namedFields?: readonly string[]
 }
 
@@ -28,7 +25,6 @@ export interface OneWayNamedLayout {
     present: readonly string[]
 }
 
-/** Вызывающий код накапливает наблюдения до повторной проверки профиля Anki. */
 export interface OneWayReceipt {
     id: number
     modelName: string
@@ -53,7 +49,6 @@ const validatedHistory = new WeakMap<HistoryStorage, { path: string; disk: DiskS
 
 function rememberValidation(storage: HistoryStorage, path: string, disk: DiskSnapshot, snapshot?: Snapshot): void {
     const [first, second] = disk
-    // В памяти хранится один недавно использованный профиль для каждого адаптера. Кешируем точные байты вместе с метаданными.
     if ((first?.length ?? 0) + (second?.length ?? 0) > 16_000_000) {
         validatedHistory.delete(storage)
         return
@@ -120,7 +115,6 @@ async function readDisk(storage: HistoryStorage, path: string): Promise<DiskSnap
     return Promise.all([read(0), read(1)])
 }
 
-/** Сохраняет только подтверждённо совпавшие поля и принадлежность тегов. У прежних экспортов истории нет. */
 export class OneWayHistory {
     private readonly records: Map<number, OneWayRecord>
     private revision: number
@@ -164,7 +158,6 @@ export class OneWayHistory {
             const managed = new Set(previous?.managedTags)
             let named: Set<string> | undefined
             for (const [name, value] of Object.entries(receipt.fields ?? {})) {
-                // Отмечаем только проверенные поля. При частичной ошибке остальные ждут повторной сверки.
                 if (receipt.namedLayout?.shared?.includes(name) && previous?.namedFields?.includes(name)) {
                     named ??= new Set(previous.namedFields)
                     named.delete(name)
@@ -220,7 +213,6 @@ export class OneWayHistory {
         const slot = revision % 2
         const snapshot: Snapshot = { version: 1, profile: this.profile, revision, notes: [...this.records] }
         const payload = JSON.stringify(snapshot)
-        // Добавляем контрольную сумму к сериализованному объекту, чтобы не сериализовать каждую запись дважды.
         const text = `${payload.slice(0, -1)},"checksum":"${digest(payload)}"}`
         const file = `${this.path}.${slot}`
         await this.storage.write(file, text)

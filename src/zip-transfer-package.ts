@@ -1,9 +1,11 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import * as crypto from 'crypto'
+import * as os from 'os'
+import * as path from 'path'
+import { constants, promises as fs } from 'fs'
 import { MarkdownView, TFile } from 'obsidian'
 import type { FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
@@ -66,7 +68,7 @@ function abort(signal?: AbortSignal): void {
 function safeRelative(raw: string, t: UiText): string {
     const path = raw.trim().replace(/\/$/u, '')
     if (!path || path === '/') return ''
-    if (path.split('/').some(part => !part || part.startsWith('.') || /[\\:\x00-\x1f\x7f]/u.test(part))) {
+    if (path.split('/').some(part => !part || part.startsWith('.') || /[\\:\p{Cc}]/u.test(part))) {
         throw new Error(t('Choose a visible vault folder using its path relative to the vault.',
             'Выберите обычную папку хранилища и укажите путь относительно его корня.'))
     }
@@ -76,17 +78,11 @@ function safeRelative(raw: string, t: UiText): string {
 function desktop(plugin: MyPlugin) {
     const t = uiFor(plugin.settings)
     const adapter = plugin.app.vault.adapter as Partial<FileSystemAdapter>
-    if (typeof require !== 'function' || typeof adapter.getBasePath !== 'function') {
+    if (typeof adapter.getBasePath !== 'function') {
         throw new Error(t('ZIP transfer requires desktop Obsidian and a local vault.',
             'Для переноса ZIP нужен настольный Obsidian с локальным хранилищем.'))
     }
-    return {
-        fs: (require('fs') as typeof import('fs')).promises,
-        path: require('path') as typeof import('path'),
-        crypto: require('crypto') as typeof import('crypto'),
-        os: require('os') as typeof import('os'),
-        base: adapter.getBasePath(), t,
-    }
+    return { fs, path, crypto, os, base: adapter.getBasePath(), t }
 }
 
 function inside(path: typeof import('path'), root: string, target: string): boolean {
@@ -110,10 +106,7 @@ function pluginStorage(plugin: MyPlugin, root: string, path: typeof import('path
     return result
 }
 
-/** Проверяем каждый компонент до записи, чтобы исходник или служебная папка не вели по ссылке наружу. */
 async function checkedPath(root: string, target: string, createFolders = false): Promise<void> {
-    const fs = (require('fs') as typeof import('fs')).promises
-    const path: typeof import('path') = require('path')
     if (!inside(path, root, target)) throw new Error('Path is outside the vault')
     let cursor = root
     const parts = path.relative(root, target).split(path.sep).filter(Boolean)
@@ -132,7 +125,6 @@ async function checkedPath(root: string, target: string, createFolders = false):
     }
 }
 
-/** Снимок служит общей точкой сравнения. Его содержимое хранится только в настольном хранилище. */
 export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOptions,
     onProgress?: (progress: TransferPackageProgress) => void, signal?: AbortSignal): Promise<TransferPackageResult> {
     return withFastScanReadLock(plugin, async () => {
@@ -211,8 +203,8 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
         const readSource = async (file: TFile): Promise<Buffer> => {
             const source = path.join(root, ...file.path.split('/'))
             await checkedPath(root, source)
-            const handle = await fs.open(source, (require('fs') as typeof import('fs')).constants.O_RDONLY |
-                ((require('fs') as typeof import('fs')).constants.O_NOFOLLOW ?? 0))
+            const handle = await fs.open(source, constants.O_RDONLY |
+                (constants.O_NOFOLLOW ?? 0))
             try {
                 const stat = await handle.stat()
                 const limit = /\.md$/iu.test(file.path) ? limits.markdownBytes : limits.entryBytes
@@ -246,7 +238,6 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
                 copiedBytes += bytes.length
                 progress('copy', baseline.files.length, file.path)
             }
-            // Сверяем байты повторно, включая правки синхронизатора, которые могли сохранить прежний размер файла.
             for (let index = 0; index < files.length; index++) {
                 progress('check', index, files[index].path)
                 if (plugin.app.vault.getAbstractFileByPath(files[index].path) !== files[index] ||
@@ -271,7 +262,6 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
                 maxFiles: limits.files, maxTotalBytes: limits.totalBytes,
                 maxEntryBytes: limits.entryBytes, signal,
             })
-            // Проверяем готовый пакет тем же разборщиком, который будет читать его на телефоне.
             if (options.mobileCompatible) {
                 const mobile = await prepareMobileZip(new Uint8Array(await fs.readFile(output)), value => {
                     onProgress?.({ ...value, phase: 'verify' })
@@ -293,7 +283,6 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
                 requireSavedEditors()
                 await fs.rename(temporaryIndex, indexPath)
             } finally { await fs.unlink(temporaryIndex).catch(() => undefined) }
-            // Квитанция уже опубликована, поэтому сбой отображения прогресса не отменяет готовый архив.
             try { onProgress?.({ phase: 'complete', files: payloadFiles, totalFiles: payloadFiles, bytes: payloadBytes, totalBytes: payloadBytes }) } catch { /* Интерфейс может уже закрыться. */ }
             return { id, output, files: payloadFiles, scopedFiles: files.length }
         } catch (error) {
@@ -301,13 +290,11 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
             if (baselinePath) await fs.unlink(baselinePath).catch(() => undefined)
             throw error
         } finally {
-            // Готовый ZIP и квитанция уже согласованы. Сбой очистки временной папки не меняет результат операции.
             await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined)
         }
     })
 }
 
-/** Маркер архива выбирает известный снимок. Значения хешей из входящего ZIP не считаются исходной версией. */
 export async function readTransferBaseline(plugin: MyPlugin, archive: ZipImportArchive,
     prefix: string, target: string): Promise<TransferBaseline | undefined> {
     const { fs, path, base, t } = desktop(plugin)

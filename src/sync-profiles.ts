@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { TFolder } from 'obsidian'
 import type { TFile } from 'obsidian'
@@ -67,7 +65,6 @@ function validFolderPaths(paths: unknown): paths is string[] {
         typeof path === 'string' && path.length > 0 && !path.startsWith('/') && !path.endsWith('/'))
 }
 
-/** Возвращает правила только выбранного профиля и блокирует использование повреждённой конфигурации. */
 export function activeExportRules(settings: FolderProfileSettings): ExportRule[] | undefined {
     const raw = settings.ACTIVE_SYNC_FOLDER_PROFILE
         ? (Array.isArray(settings.SYNC_FOLDER_PROFILES)
@@ -80,7 +77,6 @@ export function activeExportRules(settings: FolderProfileSettings): ExportRule[]
     return rules.length ? rules : undefined
 }
 
-/** Вместо всей коллекции профилей сохраняет только правила, влияющие на текущий экспорт. */
 export function scanProfileFreeSettings<T extends FolderProfileSettings & InterfaceSettings>(
     settings: T,
 ): Omit<T, keyof FolderProfileSettings | keyof InterfaceSettings> & Pick<FolderProfileSettings, 'EFFECTIVE_EXPORT_RULES'> {
@@ -89,6 +85,35 @@ export function scanProfileFreeSettings<T extends FolderProfileSettings & Interf
         INTERFACE_LANGUAGE: language, NOTE_TYPE_RULE_NAMES: ruleLabels, ...exportSettings } = settings
     const rules = activeExportRules(settings)
     return rules ? { ...exportSettings, EFFECTIVE_EXPORT_RULES: rules } : exportSettings
+}
+
+interface LegacyScanOptions {
+    IGNORED_FILE_GLOBS?: unknown
+    LEGACY_IGNORED_FILE_GLOBS?: unknown
+    SYNC_FOLDER_PROFILES?: unknown
+    ACTIVE_SYNC_FOLDER_PROFILE?: unknown
+}
+
+export function importLegacyScanScope(options: LegacyScanOptions, preferences: { 'Scan Directory'?: unknown }): void {
+    const scan = preferences['Scan Directory']
+    const patterns = options.LEGACY_IGNORED_FILE_GLOBS ?? options.IGNORED_FILE_GLOBS
+    if (patterns !== undefined) {
+        if (!Array.isArray(patterns) || !patterns.every(pattern => typeof pattern === 'string'))
+            throw new Error('Invalid ignored file patterns in the imported settings.')
+        options.LEGACY_IGNORED_FILE_GLOBS = [...patterns]
+    }
+    if (scan != null && typeof scan !== 'string') throw new Error('Invalid scan directory in the imported settings.')
+    if (typeof scan === 'string' && scan && !options.SYNC_FOLDER_PROFILES && !options.ACTIVE_SYNC_FOLDER_PROFILE) {
+        const folder = scan.split('/').filter(Boolean).join('/')
+        if (!folder && scan !== '/') throw new Error('Invalid scan directory in the imported settings.')
+        if (folder) {
+            const id = 'obsidian-to-anki-scan-directory'
+            options.SYNC_FOLDER_PROFILES = [{ id, name: folder, folders: [folder], excludedFolders: [] }]
+            options.ACTIVE_SYNC_FOLDER_PROFILE = id
+        }
+    }
+    delete options.IGNORED_FILE_GLOBS
+    delete preferences['Scan Directory']
 }
 
 function selection(settings: MyPlugin['settings']): SyncFolderProfile {
@@ -100,16 +125,17 @@ function selection(settings: MyPlugin['settings']): SyncFolderProfile {
 }
 
 export function syncScopeSignature(settings: MyPlugin['settings']): string {
-    return serializeScope(selection(settings))
+    return serializeScope(selection(settings), settings.LEGACY_IGNORED_FILE_GLOBS)
 }
 
-function serializeScope(profile: SyncFolderProfile): string {
+function serializeScope(profile: SyncFolderProfile, ignored?: string[]): string {
     const scope: unknown[] = [profile.id, profile.name, [...profile.folders].sort(), [...profile.excludedFolders].sort()]
     if (profile.exportRules !== undefined) {
         const rules = validateExportRules(profile.exportRules)
         if (!rules) throw new Error('Export rules for the active folder profile are invalid. Review its settings before exporting.')
         if (rules.length) scope.push(rules)
     }
+    if (ignored?.length) scope.push({ ignored })
     return JSON.stringify(scope)
 }
 
@@ -123,7 +149,7 @@ function isInFolders(path: string, folders: ReadonlySet<string>): boolean {
     return false
 }
 
-function prepareSyncScope(plugin: Pick<MyPlugin, 'app' | 'settings'>, settings: MyPlugin['settings']) {
+function prepareSyncScope(plugin: Pick<MyPlugin, 'app' | 'settings' | 'matchIgnoredPaths'>, settings: MyPlugin['settings']) {
     const profile = selection(settings)
     const { vault } = plugin.app
     const included = new Set(profile.folders)
@@ -133,27 +159,30 @@ function prepareSyncScope(plugin: Pick<MyPlugin, 'app' | 'settings'>, settings: 
     if (absent.length) {
         throw new Error(`Sync profile "${profile.name}" has missing folders: ${absent.join(', ')}. Update it in Manage Profiles.`)
     }
-    const excludes = (path: string) => isInFolders(path, excluded)
-    const accepts = (path: string) => (!included.size || isInFolders(path, included)) && !excludes(path)
-    return { profile, included, excluded, accepts, excludes }
+    const ignores = settings.LEGACY_IGNORED_FILE_GLOBS ?? []
+    const outside = (path: string) => isInFolders(path, excluded)
+    const inScope = (path: string) => (!included.size || isInFolders(path, included)) && !outside(path)
+    return { profile, inScope, outside, ignores }
 }
 
-/** Проверяет один путь исходника без обхода хранилища. */
-export function describeSyncPath(plugin: Pick<MyPlugin, 'app' | 'settings'>, path: string, settings = plugin.settings):
+export function describeSyncPath(plugin: Pick<MyPlugin, 'app' | 'settings' | 'matchIgnoredPaths'>, path: string, settings = plugin.settings):
     { included: boolean; label: string } {
-    const { profile, accepts } = prepareSyncScope(plugin, settings)
-    return { included: !isSyncAuditReportPath(path) && accepts(path), label: profile.name }
+    const { profile, inScope, ignores } = prepareSyncScope(plugin, settings)
+    const included = !isSyncAuditReportPath(path) && inScope(path) &&
+        (!ignores.length || !plugin.matchIgnoredPaths([path], ignores).length)
+    return { included, label: profile.name }
 }
 
-export function resolveSyncScope(plugin: Pick<MyPlugin, 'app' | 'settings'>, settings = plugin.settings): SyncScope {
-    const { profile, included, excluded, accepts, excludes } = prepareSyncScope(plugin, settings)
+export function resolveSyncScope(plugin: Pick<MyPlugin, 'app' | 'settings' | 'matchIgnoredPaths'>, settings = plugin.settings): SyncScope {
+    const { profile, inScope, outside, ignores } = prepareSyncScope(plugin, settings)
     const allFiles = plugin.app.vault.getMarkdownFiles().filter(file => !isSyncAuditReportPath(file.path))
-    const files = !included.size && !excluded.size
-        ? allFiles
-        : allFiles.filter(file => accepts(file.path))
+    const ignored = new Set(ignores.length ? plugin.matchIgnoredPaths(allFiles.map(file => file.path), ignores) : [])
+    const excludes = (path: string) => outside(path) || ignored.has(path)
+    const files = !profile.folders.length && !profile.excludedFolders.length && !ignored.size ? allFiles
+        : allFiles.filter(file => inScope(file.path) && !ignored.has(file.path))
     const paths = new Set(files.map(file => file.path))
     return {
-        allFiles, files, paths, label: profile.name, profileId: profile.id, signature: serializeScope(profile),
+        allFiles, files, paths, label: profile.name, profileId: profile.id, signature: serializeScope(profile, ignores),
         contains: path => paths.has(path), excludes,
     }
 }

@@ -19,7 +19,6 @@ export function cursorConfiguration(plugin: MyPlugin): string {
     return JSON.stringify([settings, plugin.fields_dict])
 }
 
-/** Смещения редактора отсчитываются в UTF-16. На диске те же строки могут иметь окончания CRLF. */
 export function cursorCardOffset(target: CursorCardTarget, path: string, source: string): number {
     const { text, offset } = target
     if (path !== target.path || !Number.isSafeInteger(offset) || offset < 0 || offset > text.length) throw staleCursorCard()
@@ -36,7 +35,6 @@ export function staleCursorCard(): Error {
     return new Error('The card or its settings changed. Open its preview again. / Карточка или её настройки изменились. Откройте предпросмотр заново.')
 }
 
-/** Ограничиваем все коллекции записи одним объектом, сохраняя смещения штатного писателя ID. */
 export function retainCursorCard(file: AllFile, card: CardPreviewCandidate | undefined, target?: CursorCardTarget): void {
     if (!card || target && (card.identifier !== target.id || card.note.modelName !== target.model || card.note.deckName !== target.deck)) throw staleCursorCard()
     const edited = file.notes_to_edit.filter(item => item.note === card.note && item.identifier === card.identifier)
@@ -54,7 +52,6 @@ export function retainCursorCard(file: AllFile, card: CardPreviewCandidate | und
         if (!key || !needed.has(key) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/iu.test(link)) {
             file.formatter.detectedMedia.delete(link)
         } else {
-            // Один basename может принадлежать двум файлам хранилища. Не угадываем исходное вложение.
             if (sources.has(key) && sources.get(key) !== link) throw new Error('Ambiguous attachment name: ' + key + ' / Неоднозначное имя вложения.')
             sources.set(key, link)
         }

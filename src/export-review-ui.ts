@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
@@ -145,7 +143,6 @@ export function isReportedDuplicateAddError(error: string): boolean {
     return match !== null && isDuplicateFirstFieldErrorMessage(match[1])
 }
 
-/** После записи соседних ID строки могли сместиться. Привязываем выделение к единственному текущему маркеру. */
 async function openExportCardSource(app: App, path: string, issue: ExportCardIssue, t: UiText,
     syntax?: DuplicateMarkerSyntax, origin?: NavigationOrigin): Promise<void> {
     const { source, id } = issue
@@ -281,7 +278,6 @@ export function showDuplicateFirstFieldNotice(app: App, cards: readonly Reported
     showCardNotice(path, issue, t, details, buttons)
 }
 
-/** При неизвестном маршруте или нескольких колодах пользователь выбирает колоду в аудите. */
 export function singleAuditDeck(decks: readonly (string | undefined)[]): string | undefined {
     const first = decks[0]?.trim()
     return first && decks.every(deck => deck?.trim() === first) ? first : undefined
@@ -485,6 +481,7 @@ class ExportReviewModal extends ReviewModal {
             deck: t('Move cards', 'Переместить карточки'),
             create: t('Create note', 'Создать запись'),
             delete: t('Delete Anki note', 'Удалить запись Anki'),
+            spacing: t('Fix Markdown separator spacing', 'Исправить пробелы вокруг разделителя'),
             'id-date': t('Date the Markdown ID', 'Поставить дату рядом с ID'),
             suspend: t('Suspend all cards', 'Приостановить все карточки'),
             media: t('Update attachments', 'Обновить вложения'),

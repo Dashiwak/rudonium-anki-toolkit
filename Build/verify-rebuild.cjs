@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 "use strict";
 
-// Команда для сопровождающего. Исполняется отдельно от плагина, только на исходниках сборки.
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
@@ -26,7 +25,6 @@ function sha256(buffer) {
 }
 
 function runNpm(args, cwd) {
-    // В cmd передаются только фиксированные аргументы. Пути передаются через cwd.
     const windows = process.platform === "win32";
     const command = windows ? (process.env.ComSpec || "cmd.exe") : "npm";
     const parameters = windows ? ["/d", "/c", "npm " + args.join(" ")] : args;
@@ -57,7 +55,6 @@ function verifyRebuild(repository, releaseDirectory, upstreamDirectory) {
     const defaultRelease = kit && fs.existsSync(path.join(source, output)) ? path.join(source, output) : source;
     const release = fs.realpathSync(releaseDirectory ?? defaultRelease);
     const expected = assets.map(name => readAsset(release, name));
-    // Убираем возможность вложенного копирования, если TMPDIR указывает внутрь репозитория.
     const tempRoot = fs.realpathSync(os.tmpdir());
     const relativeTemp = path.relative(source, tempRoot);
     if (!path.isAbsolute(relativeTemp) && relativeTemp.split(path.sep)[0] !== "..") {
@@ -75,7 +72,6 @@ function verifyRebuild(repository, releaseDirectory, upstreamDirectory) {
                     if (kit && (file === supplied ||
                         path.dirname(file) === source && (/^Release-\d+\.\d+\.\d+$/.test(name) || name === "styles.css") ||
                         path.dirname(file) === path.join(source, "Build") && (name.startsWith(".build-") || name === "build-error.txt"))) return false;
-                    // main.js должен быть создан заново. manifest.json и styles.css могут быть исходными файлами.
                     if ([".git", "node_modules", ".rpt2_cache", ".rollup.cache"].includes(name) ||
                         name.endsWith(".tsbuildinfo") || file === path.join(source, "main.js") ||
                         (source !== release && file === release)) return false;
@@ -88,7 +84,6 @@ function verifyRebuild(repository, releaseDirectory, upstreamDirectory) {
             });
             console.log("Clean build " + number + "/2: " + (kit ? "source kit with locked upstream dependencies" : "npm ci, npm run build"));
             if (kit) {
-                // Два независимых запуска штатного сборщика. Аргументы с пробелами передаём напрямую даже на Windows.
                 const args = [path.join(worktree, "Build", "build-main.cjs")];
                 if (supplied) args.push(supplied);
                 const result = spawnSync(process.execPath, args, { cwd: worktree, stdio: "inherit" });

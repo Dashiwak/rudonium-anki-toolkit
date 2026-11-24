@@ -23,7 +23,7 @@ function fieldPattern(literal: string): string {
 export function delimitedRule(count: number, separator: string, multiline = false): string | undefined {
     if (!Number.isSafeInteger(count) || count < 2) return
     if (multiline && count === 2) return twoFieldBlock
-    if (!separator || separator.trim() !== separator || /[\x00-\x1f\x7f\u2028\u2029]/u.test(separator)) return
+    if (!separator || separator.trim() !== separator || /[\p{Cc}\u2028\u2029]/u.test(separator)) return
     const literal = separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const field = fieldPattern(literal)
     const between = padding + literal + padding

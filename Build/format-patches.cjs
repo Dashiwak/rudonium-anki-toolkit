@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 "use strict";
 
@@ -37,8 +35,6 @@ function patchLinkedCoverage(source) {
         }
         this.linkedBulletOverlap = makeSpanOverlap(linkedRanges)
     }`, "linked bullet range insertion");
-    // В оригинальном парсере findignore() проверяет, укладывается ли
-    // совпадение в один ранее занятый диапазон с допуском в один символ.
     const generator = /^(function\*\s*findignore\([^\r\n]+\)\s*:[^\r\n]+\{)[\s\S]*?^\}/m;
     if (generator.test(source)) {
         source = replaceOnce(source, generator,
@@ -87,7 +83,6 @@ function markdownSyntaxSpans(text: string) {
     return "import { makeSpanLookup, makeSpanOverlap } from './markdown-pipeline'\n" + source;
 }
 
-/** Сохраняет диапазоны распознанных блоков без изменения результата обычного сканирования. */
 function patchCardPreviewRanges(source, ts) {
     const file = ts.createSourceFile("file.ts", source, ts.ScriptTarget.Latest, true);
     const parser = file.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "AllFile");
@@ -142,6 +137,7 @@ export interface CardPreviewCandidate {
 $&
     /** UTF-16 offsets in the same Markdown snapshot passed to the parser. */
     previewCandidates?: CardPreviewCandidate[]
+    separatorRepairs?: Map<AnkiConnectNote, NonNullable<ReturnType<typeof separatorRepair>>>
     acceptExplicitType?: (source: string, inline: boolean) => boolean
 
     /** The upstream ID writer requires the insertion position to stay aligned with each card. */
@@ -216,7 +212,6 @@ function patchEmbeddedMedia(source) {
     if (!/\b(?:IMAGE_EXTS|AUDIO_EXTS|getAndFormatMedias)\b/.test(source)) return source;
     source = replaceOnce(source, /^([ \t]*const IMAGE_EXTS: string\[\] = \[[^\r\n]*?"\.tiff")(?=\])/m,
         '$1, ".webp"', "embedded image extensions");
-    // Для определения типа медиа приводим расширение к общему регистру. Имена файлов Anki сохраняют исходный регистр.
     source = replaceOnce(source, /^([ \t]*)if \(AUDIO_EXTS\.includes\(extname\(embed\.link\)\)\) \{/m,
         "$1const extension = extname(embed.link).toLowerCase()\n$1if (AUDIO_EXTS.includes(extension)) {", "embedded audio classification");
     return replaceOnce(source, /IMAGE_EXTS\.includes\(extname\(embed\.link\)\)/,
@@ -262,7 +257,8 @@ function patchFormatter(source) {
         "const masked = note_text.replace(regexp, match => {\n            matches.push(match)\n            return mask\n        })\n        return [masked, matches]", "Markdown mask collection");
     source = replaceOnce(source, /mask,\s*escape\s*\?\s*escapeHtml\(replacement\)\s*:\s*replacement/,
         "mask, () => escape ? escapeHtml(replacement) : replacement", "Markdown mask restoration");
-    return "import { memoizeMarkdownField } from './markdown-pipeline'\n" + source;
+    source = source.replace(/^(\s*const HIGHLIGHT_REGEXP)[^\r\n]*/m, "$1 = markdownHighlightPattern()");
+    return "import { markdownHighlightPattern, memoizeMarkdownField } from './markdown-pipeline'\n" + source;
 }
 
 module.exports = { patchIdWrites, patchLinkedCoverage, patchMarkdownConstants, patchFormatter, patchCardPreviewRanges };

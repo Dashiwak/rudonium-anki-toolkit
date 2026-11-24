@@ -94,7 +94,7 @@ async function setup(files, collection) {
         },
     };
     // Execute the actual injected AllFile page methods. Replace only upstream RegexNote's HTML renderer.
-    const modules = await load(real, api, { file: pageFile().replace("from './page-card.mjs'", "from './page-card'"), anki: "export {}", constants: "export {}" });
+    const modules = await load(real, api, { file: pageFile().replace("from './page-card.mjs'", "from './page-card'"), anki: "export {}" });
     const engine = modules["page-migration"];
     return { plugin, backups, calls,
         preview: (folder, model = "Basic") => engine.previewPageMigration(plugin, { folder, model, checkMissingIds: true }),
@@ -106,7 +106,7 @@ async function setup(files, collection) {
 }
 const file = (path, text) => ({ path, text });
 
-for (const location of ["heading", "yaml", "after-answer"]) test("preview, confirm, apply, export and rerun for eight source plugins with ID in " + location, async () => {
+for (const location of ["heading", "yaml", "after-answer"]) test("preview, confirm, apply, export and rerun for seven foreign source plugins with ID in " + location, async () => {
     const bridgeDeck = name => "Obsidian Flashcards::Vault::Bridge::" + name;
     const uuid = "91abe107-bcfe-47ad-b008-775faff1f444";
     const source = [
@@ -135,9 +135,11 @@ for (const location of ["heading", "yaml", "after-answer"]) test("preview, confi
     h.plugin.settings.PAGE_ID_LOCATION = location;
     for (const [scope, model] of [["General", "Basic"], ["Forge", "Forge"], ["Bridge", "Bridge"], ["Other", "Basic"]]) {
         const originals = source.map(f => f.text);
-        const touched = source.filter(f => f.path.startsWith(scope + "/"));
+        const scoped = source.filter(f => f.path.startsWith(scope + "/"));
+        const touched = scoped.filter(f => f !== source[0] && f !== source[9]);
         const plan = await h.preview(scope, model);
-        assert.equal(plan.rows.length, touched.length);
+        assert.equal(plan.rows.length, scoped.length);
+        for (const f of scoped.filter(f => !touched.includes(f))) assert.equal(plan.rows.find(r => r.path === f.path).status,"already");
         const links = new Map();
         for (const f of touched) {
             const index = source.indexOf(f), row = plan.rows.find(r => r.path === f.path);
@@ -175,13 +177,9 @@ for (const location of ["heading", "yaml", "after-answer"]) test("preview, confi
         const second = await h.preview(scope, model);
         assert.ok(second.rows.every(row => row.status === "already"));
     }
-    if (location === "heading") assert.match(source[0].text, /#anki-page\r\n<!--ID: 2001-->\r\n/u);
+    assert.equal(source[0].text, "# Native Q #anki-page\r\n<!--rudonium-page-route: [\"Archive\",\"Personal::Saved\"]-->\r\n\r\nNative A\r\n");
     assert.ok(source[6].text.includes('aliases: ["kept"]'));
-    assert.match(source[9].text, /2026-11-19/u);
-    if (location === "after-answer") {
-        assert.match(source[9].text, /OTA A\n<!--ID: 2010 \| 2026-11-19 @page-->/u);
-        assert.match(source[0].text, /Native A\r\n<!--ID: 2001 @page-->/u);
-    }
+    assert.match(source[9].text, /^START\n[\s\S]*<!--ID: 2010 \| 2026-11-19-->\nEND\n$/u);
     assert.match(source[3].text, /#anki-page \^af-k3f8x2m1qz/u);
     assert.deepEqual(collection, saved);
 });
@@ -244,7 +242,7 @@ test("copied page IDs are reserved across the chosen folder, including existing 
     assert.deepEqual(h.backups, []);
 });
 
-test("the migration wizard rejects a foreign answer containing Rudonium's local-notes boundary", async () => {
+test("native blocks containing local-notes boundaries remain untouched", async () => {
     const answer = "Vienna\n<!--rudonium-answer-end-->\nAnother paragraph to keep";
     const before = ["START", "Basic", "Front: Which city?", "Back: " + answer, "<!--ID: 2012-->", "END"].join("\n");
     const source = file("In/Old.md", before);
@@ -254,7 +252,7 @@ test("the migration wizard rejects a foreign answer containing Rudonium's local-
         h.plugin.settings.PAGE_ID_LOCATION = placement;
         const plan = await h.preview("In");
         assert.equal(plan.rows.length, 1);
-        assert.equal(plan.rows[0].status, "review");
+        assert.equal(plan.rows[0].status, "already");
         assert.equal(plan.rows[0].after, undefined);
         await assert.rejects(h.apply(plan, [source.path]), /stale/i);
     }

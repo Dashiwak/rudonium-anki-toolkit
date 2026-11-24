@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { parseYaml } from 'obsidian'
 import type { UiText } from './interface-language'
@@ -69,7 +67,6 @@ function readField(value: unknown): ExportRuleField | undefined {
     return undefined
 }
 
-/** Возвращает одно каноническое представление для настроек, кеша, предпросмотра и аудита. */
 export function validateExportRules(raw: unknown): ExportRule[] | undefined {
     if (!Array.isArray(raw) || raw.length > 64) return undefined
     const ids = new Set<string>()
@@ -97,8 +94,6 @@ export function validateExportRules(raw: unknown): ExportRule[] | undefined {
         }
         if (!model && !deck && !mapped.length && !tags.length) return undefined
         ids.add(id)
-        // Явно сохраняем строковый тип после проверки unknown: при выключенном strictNullChecks
-        // проверка необязательных значений через undefined не сужает их тип во всех версиях TypeScript.
         rules.push({ id, name,
             folder: typeof folder === 'string' ? folder : undefined,
             heading: typeof heading === 'string' ? heading : undefined,
@@ -158,7 +153,6 @@ function readHeadings(text: string, isProtected: (offset: number) => boolean): H
     return headings
 }
 
-/** Сначала ограничивает правила путём и свойствами файла, затем выбирает первое подходящее для карточки. */
 export function exportRuleMatcher(rules: readonly ExportRule[], path: string, text: string,
     frontmatter: { start: number; close: number } | undefined, protectedHeading: () => (offset: number) => boolean):
     ((offset: number) => { rule: ExportRule; properties: Properties } | undefined) {
@@ -190,7 +184,6 @@ function mappedValue(mapping: ExportRuleField, note: RuleNote, properties: Prope
     return value === undefined ? undefined : literal(value)
 }
 
-/** Применяет правило целиком. При несовместимой схеме или отсутствующем значении исходные поля остаются прежними. */
 export function applyExportRule(note: RuleNote, rule: ExportRule, properties: Properties,
     schema: Record<string, string[]>, linked: boolean, linkedModel: string | undefined, explicitDeck: boolean): ExportRuleOutcome {
     const outcome: ExportRuleOutcome = { rule: rule.name, deckApplied: false, mappedFields: [] }
@@ -208,7 +201,6 @@ export function applyExportRule(note: RuleNote, rule: ExportRule, properties: Pr
             remapped.set(mapping.target, value)
         }
         const changeModel = model !== note.modelName
-        // Значения исходных полей читаются до их назначения, поэтому допустим и обмен двух полей.
         const fields = changeModel ? Object.fromEntries(names.map(name => [name, remapped.get(name) ??
             (owns(note.fields, name) ? note.fields[name] : '')])) : { ...note.fields, ...Object.fromEntries(remapped) }
         if ((changeModel || remapped.has(names[0])) && !fields[names[0]]?.trim()) {
@@ -216,7 +208,6 @@ export function applyExportRule(note: RuleNote, rule: ExportRule, properties: Pr
         }
         note.fields = fields
         note.modelName = model
-        // Меняем только проект записи. Перед правкой связанной заметки Anki экспорт проверит её настоящий тип.
         if (linked && !linkedModel && changeModel) outcome.modelCheckRequired = true
     }
     if (rule.deck && !explicitDeck) {

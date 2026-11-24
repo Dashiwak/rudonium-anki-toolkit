@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type { App } from 'obsidian'
 import * as AnkiConnect from './anki'
@@ -30,7 +28,6 @@ const Segmenter = (Intl as typeof Intl & {
 }).Segmenter
 const graphemes = Segmenter ? new Segmenter() : undefined
 
-/** Декодирует сущности после удаления разметки, чтобы даже отдельный документ не ссылался на внешние ресурсы. */
 function fieldText(value: string): string {
     const source = value
         .replace(/<!--[\s\S]*?-->/g, '')
@@ -100,7 +97,6 @@ function location(source: NavigationSource, t: UiText): string {
         : t(`${source.path} · line ${source.line}`, `${source.path} · строка ${source.line}`)
 }
 
-/** Открывает существующий исходник и выделяет проверенный диапазон ID. Сообщает об ошибке, если позиция устарела. */
 export function openAuditSource(app: App, source: NavigationSource, origin?: NavigationOrigin, t: UiText = englishUi): Promise<void> {
     return openObsidianFile(app, source.path, origin, editor => {
         const first = source.line ?? source.markerLine
@@ -138,11 +134,9 @@ export function openAuditSource(app: App, source: NavigationSource, origin?: Nav
     })
 }
 
-/** Вызывается только при явном действии «Открыть в Anki». */
 export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnkiProfile, t: UiText = englishUi): Promise<void> {
     if (!Number.isSafeInteger(id) || id <= 0) throw new Error(t('This Anki note ID is invalid.', 'Некорректный ID записи Anki.'))
     if (auditProfile) {
-        // В другом профиле тот же числовой ID может относиться к другой записи.
         if (!('active' in auditProfile)) throw new Error(t('The audit could not confirm the Anki profile. Recheck before opening the note.',
             'При проверке не удалось подтвердить профиль Anki. Повторите проверку перед открытием записи.'))
         if (await readActiveAnkiProfile() !== auditProfile.active) {
@@ -150,12 +144,12 @@ export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnki
                 'После проверки профиль Anki изменился. Повторите проверку перед открытием записи.'))
         }
     }
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let timer: number | undefined
     try {
         const response = await Promise.race([
             AnkiConnect.invoke('guiBrowse', { query: `nid:${id}` }),
             new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error(t('AnkiConnect did not reply in time.', 'AnkiConnect не ответил вовремя.'))), browseTimeoutMs)
+                timer = window.setTimeout(() => reject(new Error(t('AnkiConnect did not reply in time.', 'AnkiConnect не ответил вовремя.'))), browseTimeoutMs)
             }),
         ])
         if (!Array.isArray(response)) throw new Error(t('Anki Browse did not return a card list.', 'Обозреватель Anki не вернул список карточек.'))
@@ -164,11 +158,10 @@ export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnki
         throw new Error(t(`Could not open Anki Browse. Search for nid:${id} in Anki. ${reason}`,
             `Не удалось открыть обозреватель Anki. Найдите запись вручную по запросу nid:${id}. ${reason}`))
     } finally {
-        clearTimeout(timer)
+        window.clearTimeout(timer)
     }
 }
 
-/** Для читаемого предпросмотра и исходного форматированного текста используем текстовые узлы DOM. */
 export function renderFieldComparison(container: HTMLElement, expected: string, actual: string | undefined, t: UiText): void {
     const pair = container.createDiv()
     pair.classList.add('rudonium-sync-difference-pair')

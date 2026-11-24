@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type { CachedMetadata, HeadingCache } from 'obsidian'
 
@@ -54,7 +52,6 @@ function commentFreeLine(text: string, comment: CommentEnd | undefined): { text:
         parts.push(text.slice(from, mark.index))
         from = mark.index
         if (mark[0][0] === '`') {
-            // Совпадающая серия обратных кавычек сохраняет маркеры комментариев внутри кода как обычный текст.
             const ticks = /`+/g
             ticks.lastIndex = markers.lastIndex
             let end: RegExpExecArray | null
@@ -70,7 +67,6 @@ function commentFreeLine(text: string, comment: CommentEnd | undefined): { text:
                 from = markers.lastIndex
             } else {
                 comment = mark[0] === '%%' ? '%%' : '-->'
-                // Сразу забираем начальный маркер, чтобы один %% не закрыл сам себя.
                 parts.push(' '.repeat(mark[0].length))
                 from = markers.lastIndex
             }
@@ -83,7 +79,6 @@ function position(line: EditorLine, col: number): HeadingCache['position']['star
     return { line: line.number, col, offset: line.offset + col }
 }
 
-/** Позиции заголовков в предпросмотре берём только из текущего текста редактора. */
 export function editorPreviewMetadata(text: string, cached?: CachedMetadata | null): CachedMetadata {
     const headings: HeadingCache[] = []
     const previousHeadings = new Map(cached?.headings?.map(heading => [heading.position.start.offset, heading]))

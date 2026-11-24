@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import * as AnkiConnect from './anki'
 import { sameFieldValue } from './anki-delta'
@@ -13,7 +11,6 @@ import { rememberAttachmentDeckMembers } from './audit-attachment-check'
 import { auditLinkedRow, rememberAuditLinkedRows } from './audit-card-status'
 import type { AuditCardRow } from './audit-card-status'
 
-/** Представление заметки после штатного разбора и форматирования Markdown. */
 export interface SyncAuditExpected {
     modelName: string
     fields: Record<string, string>
@@ -30,9 +27,7 @@ export interface SyncAuditDeckReference {
 export interface SyncAuditSource {
     id: number
     path: string
-    /** Номер строки начинается с единицы. */
     line?: number
-    /** Последняя строка блока и строка маркера ID для перехода в редакторе. */
     endLine?: number
     markerLine?: number
     auditCaption?: string
@@ -51,7 +46,6 @@ export interface SyncAuditFileError {
 export interface SyncAuditUnlinked {
     path: string
     count: number
-    /** Строки начала распознанных карточек без ID, когда их удалось определить. */
     lines?: number[]
     assignedDeck?: string
     deckRoute?: DeckRouteOrigin
@@ -67,20 +61,16 @@ interface SyncAuditFolderProfile {
 export interface SyncAuditInput {
     vaultName: string
     exportTag: string
-    /** Имя одной точной колоды. */
     deck: string
     folderProfile?: SyncAuditFolderProfile
     sources: readonly SyncAuditSource[]
-    /** Повторы маркеров в сохранённых файлах всего хранилища, включая нераспознанные карточки. */
     duplicateIds?: readonly SyncAuditGroup[]
     filesScanned: number
     fileErrors?: readonly SyncAuditFileError[]
     unlinked?: readonly SyncAuditUnlinked[]
     pendingDeletions?: readonly SyncAuditSource[]
     unparsedIds?: readonly SyncAuditSource[]
-    /** Явные назначения файлов, в том числе без распознанных карточек. */
     deckAssignments?: readonly SyncAuditDeckReference[]
-    /** Проверенные ответы notesInfo из этапа определения полей в этой проверке. */
     linkedDetails?: AuditNoteSnapshots
 }
 
@@ -200,7 +190,6 @@ function checkAbort(signal?: AbortSignal): void {
     if (signal?.aborted) throw new DOMException('Sync audit cancelled', 'AbortError')
 }
 
-/** Освобождает аудит при закрытии окна или зависшем AnkiConnect. Запрос содержит только чтение. */
 export function auditRead(
     action: 'findNotes' | 'notesInfo' | 'notesModTime' | 'getDecks' | 'deckNames' | 'deckNamesAndIds' | 'findCards' | 'cardsInfo' | 'cardsToNotes' |
         'modelNames' | 'modelFieldNames' | 'modelTemplates' | 'getActiveProfile' | 'getDeckConfig' | 'guiSelectedNotes' | 'multi' |
@@ -213,16 +202,15 @@ export function auditRead(
             cleanup()
             reject(new DOMException('Sync audit cancelled', 'AbortError'))
         }
-        const timeout = setTimeout(() => {
+        const timeout = window.setTimeout(() => {
             cleanup()
             reject(new DOMException(`AnkiConnect did not respond within ${timeoutMs / 1000} seconds`, 'TimeoutError'))
         }, timeoutMs)
         function cleanup(): void {
-            clearTimeout(timeout)
+            window.clearTimeout(timeout)
             signal?.removeEventListener('abort', abort)
         }
         signal?.addEventListener('abort', abort, { once: true })
-        // Штатный XHR может ещё завершиться позже. Его ответ уже не продолжит аудит.
         void Promise.resolve().then(() => {
             checkAbort(signal)
             return AnkiConnect.invoke(action, params)
@@ -246,7 +234,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function location(source: SyncAuditSource): SyncAuditSource {
-    // В отчёт передаём место ссылки, без содержимого полей карточки.
     const { id, path, line, endLine, markerLine, inExportScope, excludedByProfile, deckRoute } = source
     const assignedDeck = source.assignedDeck ?? source.expected?.deck
     return {
@@ -260,7 +247,6 @@ function location(source: SyncAuditSource): SyncAuditSource {
     }
 }
 
-/** Любой из несовпавших ID Anki может находиться в недоступном или изменяющемся исходнике. */
 export function markObsidianInventoryIncomplete(result: SyncAuditResult): void {
     result.vaultInventoryComplete = false
     for (const { id } of result.ankiOnly) result.unverifiedSourceIds.push(id)
@@ -268,7 +254,6 @@ export function markObsidianInventoryIncomplete(result: SyncAuditResult): void {
     result.counts.ankiOnlyIds = 0
 }
 
-/** Сохраняем иерархию колод, приводим регистр и Unicode к единому виду. */
 export function syncAuditDeckKey(deck: string): string {
     return deck.normalize('NFC').toLowerCase()
 }
@@ -327,11 +312,9 @@ function hasVaultLink(fields: ReadonlyMap<string, string>, vaultName: string): b
             if (!/^obsidian:\/\/(?:open|anki-card)\?/i.test(value)) continue
             try {
                 const url = new URL(value.replace(/&(?:amp|#0*38|#x0*26);/gi, '&'))
-                // Признак — ссылка на файл именно этого хранилища. Она могла быть добавлена вручную.
                 if (url.searchParams.get('vault')?.normalize('NFC') === vaultName.normalize('NFC') &&
                     url.searchParams.get('file')) return true
             } catch {
-                // Ошибочная ссылка не подтверждает связь с хранилищем.
             }
         }
     }
@@ -358,7 +341,6 @@ function readSnapshot(row: Record<string, unknown>): Snapshot | null {
     return { modelName: row.modelName, fields, tags: row.tags, cards }
 }
 
-/** Переиспользует ответ Anki в пределах одного аудита с ограниченным бюджетом памяти. */
 export class AuditNoteSnapshots {
     private readonly entries = new Map<number, Snapshot>()
     private remainingBytes = 24 * 1024 * 1024
@@ -418,7 +400,6 @@ function compareNote(source: SyncAuditSource, actual: Snapshot, deckOnly?: strin
     if (expected && expected.modelName !== actual.modelName) {
         difference.model = { expected: expected.modelName, actual: actual.modelName }
     }
-    // Штатный экспорт обновляет только известные ему поля. Дополнительные поля Anki не сравниваем.
     for (const [name, value] of Object.entries(expected?.fields ?? {})) {
         const stored = actual.fields.get(name)
         if (stored === undefined) difference.fields.push({ name, kind: 'missing', expected: value })
@@ -432,7 +413,6 @@ function compareNote(source: SyncAuditSource, actual: Snapshot, deckOnly?: strin
 
 type Progress = (progress: SyncAuditProgress) => void
 
-/** Обрабатывает один пакет за раз, чтобы не хранить все HTML-поля Anki в памяти. */
 async function readDetails(
     ids: readonly number[],
     consume: (id: number, snapshot: Snapshot) => void,
@@ -496,7 +476,6 @@ async function readDetails(
     return true
 }
 
-/** Сверяет колоды карточек по ID. Ошибка чтения колод сохраняет уже найденные различия полей и тегов. */
 async function compareDecks(
     comparisons: readonly Comparison[], inventory: AnkiDeckInventory, auditDeck: string,
     errors: string[], progress?: Progress, signal?: AbortSignal,
@@ -529,7 +508,6 @@ async function compareDecks(
         const ambiguous = new Set<number>()
         let timedOut = false
         try {
-            // Читаем расположение заново после notesInfo. Каждый внутренний запрос сохраняет лимит в 500 ID.
             if (useMulti && !grouped.length && cards.length - offset > batchSize) {
                 const actions: AuditBundleAction[] = []
                 for (let index = offset; index < Math.min(offset + batchSize * readBatchesPerRequest, cards.length);
@@ -564,7 +542,6 @@ async function compareDecks(
             errors.push(`getDecks: cards ${offset + 1}–${offset + batch.length} of ${cards.length}: ${String(error)}`)
             timedOut = isTimeout(error)
         }
-        // Аудит фильтрованной колоды учитывает текущее размещение. Карточки этой записи вне колоды в неё не входят.
         const temporary = inventory.kind === 'filtered' ? undefined :
             await checkTemporaryDecks(batch, decks, owners, inventory, errors, signal)
         let missing = 0
@@ -605,7 +582,6 @@ async function compareDecks(
     }
 }
 
-/** Проверяет ожидаемую исходную колоду и учитывает временное размещение отдельно. */
 async function checkTemporaryDecks(
     cards: readonly number[], decks: ReadonlyMap<number, string>, owners: ReadonlyMap<number, Comparison>,
     inventory: AnkiDeckInventory, errors: string[], signal?: AbortSignal,
@@ -626,7 +602,6 @@ async function checkTemporaryDecks(
             const expected = owners.get(card)!.expectedDeck
             const home = deckIds?.get(syncAuditDeckKey(expected))
             if (deckIds && !home) continue
-            // Вычитание по именам в старом интерфейсе может исключить текущую фильтрованную подколоду, даже если исходная колода родительская.
             const inChild = syncAuditDeckKey(decks.get(card)!).startsWith(`${syncAuditDeckKey(expected)}::`)
             const query = inventory.numericSearch && home ? `did:${home.id}`
                 : inventory.namedSearch && !inChild ? exactNamedDeckQuery(home?.name ?? expected) : undefined
@@ -678,7 +653,6 @@ function checkedIds(response: unknown, action: string): number[] {
     return response
 }
 
-/** Возвращает названия колод открытого профиля без изменения его состояния. */
 export async function readSyncAuditDeckNames(signal?: AbortSignal, timeoutMs = readTimeoutMs): Promise<string[]> {
     const names = await auditRead('deckNames', {}, signal, timeoutMs)
     checkAbort(signal)
@@ -694,12 +668,10 @@ function studyRead(signal?: AbortSignal) {
 }
 
 function exactNamedDeckQuery(deck: string): string | undefined {
-    // Зарезервированные слова и специальные символы поиска небезопасны в старых методах, принимающих только имя.
     return /^(?:current|filtered)$/i.test(deck) || /["\\*_\r\n]/.test(deck)
         ? undefined : `deck:"${deck}" -deck:"${deck}::*"`
 }
 
-/** Числовой поиск Anki ограничен одной точной текущей или домашней колодой. */
 async function readDeckInventory(deck: string, errors: string[], progress?: Progress,
     signal?: AbortSignal): Promise<AnkiDeckInventory> {
     const result: AnkiDeckInventory = { ids: new Set(), cards: 0, filtered: 0, complete: false }
@@ -734,7 +706,6 @@ async function readDeckInventory(deck: string, errors: string[], progress?: Prog
                 return result
             }
         } catch {
-            // Старые коннекторы могут не сообщать типы колод. Определяем непустую фильтрованную колоду по текущим карточкам.
             checkAbort(signal)
         }
         const numericId = result.deckIds?.get(syncAuditDeckKey(canonical))?.id
@@ -747,25 +718,21 @@ async function readDeckInventory(deck: string, errors: string[], progress?: Prog
                 checkAbort(signal)
                 if (isTimeout(error)) throw error
             }
-            // Старый поиск может понимать did как название поля и возвращать пустой список.
             if (candidates.length) {
                 try {
                     await readLightweightInventory(candidates, canonical, result, progress, signal)
                 } catch (error) {
                     checkAbort(signal)
                     if (isTimeout(error)) throw error
-                    // Совместимые реализации AnkiConnect могут не поддерживать один из облегчённых запросов.
                     result.ids.clear()
                     result.cards = 0
                     result.filtered = 0
                     const responsive = await readCardsInfoInventory(candidates, canonical, result, errors, progress, signal)
                     if (!responsive) return result
                     if (result.locationReadFailed && !result.complete) {
-                        // Некоторые коннекторы возвращают точные ID, но не могут отобразить изучаемые карточки в фильтрованных колодах.
                         await readNumericInventoryWithoutLocations(candidates, result, progress, signal)
                     }
                 }
-                // cardsToNotes дедуплицирует заметки. Повторный поиск выявляет пропажу отдельных карточек.
                 const current = new Set(checkedIds(await auditRead('findCards', { query }, signal), 'findCards'))
                 if (current.size !== candidates.length || candidates.some(id => !current.has(id))) {
                     result.complete = false
@@ -792,7 +759,6 @@ async function readDeckInventory(deck: string, errors: string[], progress?: Prog
     return result
 }
 
-/** Возвращает ID записей одной колоды для поиска соответствий в отчёте. */
 export async function readSyncAuditNoteInventory(deck: string, signal?: AbortSignal): Promise<ReadonlySet<number> | undefined> {
     const inventory = await readDeckInventory(deck, [], undefined, signal)
     return inventory.complete && inventory.exists ? inventory.ids : undefined
@@ -831,7 +797,6 @@ interface AuditBundleRow {
     error: unknown
 }
 
-/** Возвращает null, когда совместимая реализация AnkiConnect требует отдельных запросов чтения. */
 async function readAuditBundle(actions: readonly AuditBundleAction[], signal?: AbortSignal): Promise<AuditBundleRow[] | null> {
     try {
         const response = await auditRead('multi', {
@@ -848,7 +813,6 @@ async function readAuditBundle(actions: readonly AuditBundleAction[], signal?: A
     }
 }
 
-/** Получает только ID и размещение, без рендеринга вопросов и ответов. */
 async function readLightweightInventory(
     cards: readonly number[], canonical: string, result: AnkiDeckInventory, progress?: Progress, signal?: AbortSignal,
 ): Promise<void> {
@@ -889,7 +853,6 @@ async function readLightweightInventory(
     result.complete = true
 }
 
-/** Проверяет каждую карточку, если компактный поиск колод и записей недоступен. */
 async function readCardsInfoInventory(
     cards: readonly number[], canonical: string, result: AnkiDeckInventory, errors: string[],
     progress?: Progress, signal?: AbortSignal,
@@ -952,7 +915,6 @@ async function readCardsInfoInventory(
     return true
 }
 
-/** Проверяет, существуют ли в открытом профиле ID, отсутствующие в конкретной колоде. */
 export async function checkAnkiNoteExistence(ids: readonly number[], errors: string[], signal?: AbortSignal,
     onLookup?: () => void): Promise<Map<number, boolean>> {
     const result = new Map<number, boolean>()
@@ -964,7 +926,6 @@ export async function checkAnkiNoteExistence(ids: readonly number[], errors: str
         const requested = new Set(batch)
         try {
             if (useMulti && !grouped.length && ids.length - offset > batchSize) {
-                // Ограничиваем размер каждого запроса и сокращаем число HTTP-обращений для больших колод.
                 const actions: AuditBundleAction[] = []
                 const end = Math.min(offset + batchSize * readBatchesPerRequest, ids.length)
                 for (let index = offset; index < end; index += batchSize) {
@@ -990,7 +951,6 @@ export async function checkAnkiNoteExistence(ids: readonly number[], errors: str
     return result
 }
 
-/** Списком ID ускоряем большой проход, а отсутствующие ID подтверждаем адресным поиском. */
 export async function checkWarmAnkiNoteExistence(ids: readonly number[], errors: string[], signal?: AbortSignal,
     onLookup?: () => void): Promise<Map<number, boolean>> {
     if (ids.length < batchSize * 8 || ids.length > 30_000) return checkAnkiNoteExistence(ids, errors, signal, onLookup)
@@ -1002,7 +962,6 @@ export async function checkWarmAnkiNoteExistence(ids: readonly number[], errors:
         if (Array.isArray(response) && response.length <= 30_000) present = new Set(checkedIds(response, 'findNotes'))
     } catch {
         checkAbort(signal)
-        // Если коннектор не поддерживает этот запрос, повторяем его обычными адресными пакетами.
     }
     if (!present) return checkAnkiNoteExistence(ids, errors, signal, onLookup)
 
@@ -1015,7 +974,6 @@ export async function checkWarmAnkiNoteExistence(ids: readonly number[], errors:
     return result
 }
 
-/** Сверяет выбранную точную колоду Anki с Markdown. Только чтение. */
 export async function runSyncAudit(
     input: SyncAuditInput, onProgress?: Progress, signal?: AbortSignal,
 ): Promise<SyncAuditResult> {
@@ -1029,7 +987,6 @@ export async function runSyncAudit(
     const ankiIds = inventory.ids
     const inScope = (item: { id?: number; assignedDeck?: string; inExportScope?: boolean; expected?: SyncAuditExpected }): boolean => {
         if (item.inExportScope === false) return false
-        // Выбранная фильтрованная колода формируется поиском Anki. В область проверки входят только её текущие связанные ID.
         if (inventory.kind === 'filtered') return item.id !== undefined && ankiIds.has(item.id)
         const assigned = item.assignedDeck ?? item.expected?.deck
         return validDeck && assigned !== undefined && syncAuditDeckKey(assigned) === deckKey

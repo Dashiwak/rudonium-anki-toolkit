@@ -1,11 +1,9 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { pageContentTags } from './page-frontmatter'
-import { knowledgeBulletExpression, isKnowledgeBullet } from './card-format-presets'
+import { knowledgeBulletExpression, isKnowledgeBullet, isKnowledgeRule, currentCardExpression, remNoteExpression } from './card-format-presets'
 import { makeSpanOverlap } from './markdown-pipeline'
 import { activeCardMarkdown, archivedCardRanges } from './archived-card'
 import { readSuspendMarkers, suspendParserView } from './suspend-marker'
@@ -68,7 +66,6 @@ export function authoredFieldNames(file: AllFile, candidate: CardPreviewCandidat
     return [...authored];
 }
 
-/** Учитываем лишь поля с подтверждённым местом записи для данного формата. */
 export function oneWayNamedLayout(file: AllFile, candidate: CardPreviewCandidate, data: ParsedSettings,
     syntax?: DuplicateMarkerSyntax): OneWayNamedLayout | undefined {
     const { modelName } = candidate.note
@@ -109,7 +106,6 @@ export function authoredCardTagOverrides(content: string, bullets: readonly Link
     return overrides.size ? overrides : undefined
 }
 
-/** Для предпросмотра и экспорта действуют одинаковые правила обработки тегов из Markdown. */
 export function applyAuthoredTags(scanned: AllFile, content: string, bullets: readonly LinkedBullet[], tags: readonly string[],
     syntax?: DuplicateMarkerSyntax): void {
     if (scanned.pageCard) {
@@ -143,7 +139,6 @@ export function applyAuthoredTags(scanned: AllFile, content: string, bullets: re
     }
 }
 
-/** Объединяет группы тегов. При совпадении без учёта регистра сохраняет первое написание. */
 export function mergeTags(...groups: ReadonlyArray<readonly string[]>): string[] {
     const tags = new Map<string, string>()
     const add = (tag: string) => {
@@ -165,17 +160,14 @@ export { frontmatterBounds } from './markdown-pipeline'
 export function frontmatterTags(content: string, bounds = frontmatterBounds(content)): string[] {
     if (!bounds || bounds.close === content.length) return []
 
-    // Разбираем только текст между разделителями. Ошибку YAML обработает вызывающий метод.
     const properties = parseYaml(content.slice(bounds.start, bounds.close)) as { tags?: unknown } | null
     if (!properties || !Object.prototype.hasOwnProperty.call(properties, 'tags')) return []
-    // YAML-свойство может содержать список или одну строку. Приводим к одному виду.
     const values: unknown[] = Array.isArray(properties.tags) ? properties.tags : [properties.tags]
     const tags: string[] = []
     for (const value of values) {
         if (typeof value !== 'string') continue
         const tag = value.trim().replace(/^#/, '')
         if (!tag || /[\s#]/.test(tag) || /^\p{N}+$/u.test(tag)) continue
-        // Obsidian разделяет уровни косой чертой, Anki — двойным двоеточием.
         const parts = tag.split(/\/|::/)
         if (parts.some(part => !part)) continue
         tags.push(parts.join('::'))
@@ -195,7 +187,6 @@ export interface PortableMarkdownOptions {
     regexpOptions?: CustomRegexpOptions
 }
 
-/** Готовит настройки файла без чтения коллекции и копирования её списка ID. */
 export function portableFileData(data: ParsedSettings, file: TFile, ids: number[], syntax?: DuplicateMarkerSyntax): FileData {
     const parents: Array<TFolder | null> = []
     let source: TAbstractFile | null = file
@@ -204,7 +195,6 @@ export function portableFileData(data: ParsedSettings, file: TFile, ids: number[
         parents.push(parent)
         source = parent
     }
-    // Оригинальный менеджер исключал последний элемент цепочки родителей.
     parents.pop()
     const tags: string[] = []
     for (const parent of parents) {
@@ -333,7 +323,6 @@ function applyProfileExportRules(scanned: AllFile, data: ParsedSettings, content
     if (outcomes.size) rulesByFile.set(scanned, [...outcomes.values()])
 }
 
-/** Повреждённое число блокирует только этот файл до обращения к штатному парсеру. */
 function checkIdMarkerSafety(content: string, syntax: DuplicateMarkerSyntax = {}): void {
     if (!content.includes('ID')) return
     const bounds = frontmatterBounds(content)
@@ -376,7 +365,6 @@ function checkIdMarkerSafety(content: string, syntax: DuplicateMarkerSyntax = {}
     }
 }
 
-/** Разбирает карточки по общим правилам для предпросмотра, аудита и экспорта, сохраняя исходный текст. */
 export async function parsePortableMarkdown(app: App, data: ParsedSettings, file: TFile, content: string,
     ids: number[], options: PortableMarkdownOptions = {}): Promise<AllFile> {
     if (content.includes('RUDONIUM-ARCHIVE')) {
@@ -389,7 +377,6 @@ export async function parsePortableMarkdown(app: App, data: ParsedSettings, file
                 metadata: editorPreviewMetadata(active, options.metadata ?? app.metadataCache.getCache(file.path)),
                 bullets: options.bullets?.filter(bullet => !overlaps(bullet.start, bullet.end)),
             })
-            // Произвольное регулярное выражение может пересечь даже пустой участок архива.
             const candidates = scanned.previewCandidates ?? []
             const bounded = new Set(candidates.map(card => card.note))
             if (candidates.some(card => overlaps(card.start, card.end)) ||
@@ -469,6 +456,8 @@ export async function parsePortableMarkdown(app: App, data: ParsedSettings, file
     const bullets = options.bullets ?? findLinkedBullets(content, false, syntax)
     scanned.linkedBullets = bullets.flatMap(bullet => {
         const model = options.models?.get(bullet.id)
+        const rule = model && data.custom_regexps[model.name]
+        if (bullet.separatorRepair && rule && !isKnowledgeRule(rule) && currentCardExpression(rule) !== remNoteExpression) return []
         if (model && data.custom_regexps[model.name] === knowledgeBulletExpression && isKnowledgeBullet(content, bullet.start)) return []
         return model ? [{ ...bullet, model, ...(view && { start: view.toParsed(bullet.start), end: view.toParsed(bullet.end) }) }] : []
     })
@@ -506,7 +495,6 @@ export async function parsePortableMarkdown(app: App, data: ParsedSettings, file
         }
         const target = savedRoute?.deck ?? directive?.deck ?? fileData.template.deckName
         if (scanned.target_deck !== target) {
-            // Меняем только разобранные записи. Сохраняем байты Markdown и смещения карточек.
             scanned.target_deck = target
             for (const note of scanned.all_notes_to_add) note.deckName = target
             for (const { note } of scanned.notes_to_edit) note.deckName = target

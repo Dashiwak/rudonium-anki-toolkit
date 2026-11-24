@@ -116,7 +116,7 @@ async function host(files, collection) {
         "card-export-diagnostics", "bidirectional-markdown", "bidirectional-blocks", "bidirectional-fields", "duplicate-markers",
         "export-recovery", "linked-bullets", "page-migration-router", "migrate-forge-bridge", "migrate-ast-exporter",
         "migrate-deck", "migrate-yanki", "migrate-flashcards", "file", "anki", "constants"];
-    const modules = await load(real, api, { file: fixtureFile(), anki: "export {}", constants: "export {}" });
+    const modules = await load(real, api, { file: fixtureFile(), anki: "export {}" });
     const engine = modules["lost-id-recovery"];
     return { state, plugin, scan: (scope, signal) => engine.scanLostIds(plugin, scope, signal),
         apply: (plan, confirmed, signal) => engine.applyLostIds(plugin, plan, confirmed, signal),

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type MyPlugin from '../main'
 import * as AnkiConnect from './anki'
@@ -125,7 +123,6 @@ export function operationJournalPath({ app, manifest }: MyPlugin): string {
     return `${base}/export-operation-journal.json`
 }
 
-/** Черновик не заменяет последний исправный снимок, пока его не удалось прочитать обратно. */
 async function load(storage: Storage, path: string): Promise<Snapshot> {
     const candidates = await Promise.all([0, 1].map(async slot => {
         const file = `${path}.${slot}`
@@ -200,7 +197,6 @@ function targets(request: AnkiConnectRequest): Target[] {
 }
 
 function canReverseField(name: string, before: string, after: string): boolean {
-    // Пустое поле может управлять условием произвольного шаблона. Номера Cloze и обратный шаблон меняют состав карточек.
     const populated = (value: string) => !!value.replace(/<[^>]*>|&nbsp;|&#160;/gi, '').trim()
     return populated(before) && populated(after) && cardFieldHazards(name, before, after).length === 0
 }
@@ -217,7 +213,6 @@ function captureUndo(request: AnkiConnectRequest, row: ExportOperation,
         const fields: OriginalField[] = []
         for (const [name, after] of Object.entries(request.params.note.fields)) {
             const original = previous.get(name)
-            // Отмену сохраняем только для подтверждённых строковых значений поля.
             if (typeof after !== 'string' || original === undefined || !canReverseField(name, original, after)) return
             fields.push([name, original, digest(after)])
         }
@@ -232,7 +227,6 @@ function captureUndo(request: AnkiConnectRequest, row: ExportOperation,
     return JSON.stringify(undo).length <= maxUndoSize ? undo : undefined
 }
 
-/** Используется только под существующей блокировкой экспорта. Снимки служат для чтения, не для повторной отправки запросов. */
 export class ExportOperationJournal {
     private snapshot?: Snapshot
     private readonly packetRows = new Map<AnkiConnectRequest, ExportOperation[]>()
@@ -451,7 +445,6 @@ async function buildUndoPlan(row: RevertibleOperation): Promise<ExportUndoPlan> 
             changes.push({ name: tag, current: current ?? '', previous: current ? '' : tag })
         }
     }
-    // Связываем подтверждение с профилем, операцией, значениями и фактическими карточками.
     const fingerprint = digest(JSON.stringify([row, changes, note.cards]))
     return { key: row.key, noteId: row.noteId, profile: row.profile, changes, cardIds: note.cards, fingerprint }
 }
@@ -485,7 +478,6 @@ async function ensureJournalCurrent(storage: Storage, path: string, expected: Sn
     if (JSON.stringify(await load(storage, path)) !== JSON.stringify(expected)) throw new Error(outdatedUndo)
 }
 
-/** Подтверждённая отмена пишет только в Anki. Общая версия синхронизации сохраняет ручную правку как изменение Anki. */
 export function applyExportUndo(plugin: MyPlugin, plan: ExportUndoPlan): Promise<void> {
     return withFastScanReadLock(plugin, async () => {
         assertNoPendingWrites(plugin)
@@ -536,7 +528,6 @@ export function applyExportUndo(plugin: MyPlugin, plan: ExportUndoPlan): Promise
                 ? { ...row, status: 'confirmed' } : row) })
         } catch (error) {
             if (sent) {
-                // Намерение долговечно. Повтор не отправляем, пока пользователь не сверит результат.
                 throw new Error(uncertainUndo)
             }
             await ensureJournalCurrent(storage, path, pending)
@@ -547,7 +538,6 @@ export function applyExportUndo(plugin: MyPlugin, plan: ExportUndoPlan): Promise
     })
 }
 
-/** Сверка показывает нынешнее состояние Anki и не превращает ответ без доказательств в успешную запись. */
 export async function checkExportOperations(rows: readonly ExportOperation[], profile: string): Promise<ReadonlySet<string>> {
     const candidates = rows.filter(row => row.profile === profile && row.status === 'unknown' && row.kind !== 'create')
     if (!candidates.length) return new Set()

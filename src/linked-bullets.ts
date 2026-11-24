@@ -1,9 +1,8 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { separatorRepair, type SeparatorRepair } from './card-format-presets'
 import { activeCardMarkdown } from './archived-card'
 import { maskIdMarkerHtmlLiterals } from './id-marker-literals'
 import { readSuspendLine } from './suspend-label'
@@ -18,6 +17,7 @@ import { parseExplicitLinkedField } from './bidirectional-fields'
 export interface LinkedBullet {
     id: number
     markerLine?: number
+    separatorRepair?: SeparatorRepair
     /** The current Anki note type uses the reversible RemNote rule for this line. */
     remNoteAnswerSlot?: boolean
     /** This unscoped legacy ID requires an independent match by the configured one-way export rule. */
@@ -72,16 +72,13 @@ function lineContentEnd(text: string, lineBreak: number): number {
     return text[lineBreak - 1] === '\r' ? lineBreak - 1 : lineBreak
 }
 
-/** Ищет карточки проекта, ID которых стоит на следующей строке Markdown. */
 export function findLinkedBullets(content: string, trackLines = false, syntax?: DuplicateMarkerSyntax, inspectLegacy = false): LinkedBullet[] {
     if (content.includes('RUDONIUM-ARCHIVE')) content = activeCardMarkdown(content)
     const result: LinkedBullet[] = []
     if (!content.includes('ID:') || !content.includes('::')) return result
     content = content.slice(0, markedPageAnswerBoundary(content))
 
-    // Обычные ID-комментарии не требуют отдельной маски; примеры карточек не должны стать записями Anki.
     const visible = /%%|\$|\x60|<(?!!--[ \t]*ID:)|\\\[/u.test(content) ? maskIdMarkerHtmlLiterals(content, true) : content
-    // Храним смещения в исходном тексте, в том числе для строк Windows.
     const opening = /^\uFEFF?---[ \t]*\r?\n/.exec(content)
     const closing = opening && /^---[ \t]*(?:\r?\n|$)/m.exec(content.slice(opening[0].length))
     if (opening && !closing) return result
@@ -123,7 +120,6 @@ export function findLinkedBullets(content: string, trackLines = false, syntax?: 
             else if (depth <= level) level = 0
             continue
         }
-        // В старых словарях название раздела могло быть выделено жирным вместо ATX-заголовка.
         const bold = /^ {0,3}(\*\*|__)([^*_]+)\1[ \t]*$/u.exec(line)
         if (bold) {
             if (/^(?:карточки|cards)$/iu.test(bold[2])) level = 7
@@ -133,7 +129,6 @@ export function findLinkedBullets(content: string, trackLines = false, syntax?: 
         if (offset >= content.length || !line.includes('::')) continue
         const item = /^ {0,3}[-+*][ \t]+(.+)$/.exec(content.slice(start, endOfLine))
         if (!item || /(?:^|[ \t])Tags: /.test(item[1])) continue
-        // Сначала проверяем соседнюю строку. Поля черновика без ID разбирать не нужно.
         const nextBreak = content.indexOf('\n', offset)
         let end = lineContentEnd(content, nextBreak)
         const nextLine = visible.slice(offset, end)
@@ -151,15 +146,16 @@ export function findLinkedBullets(content: string, trackLines = false, syntax?: 
         if (!marker) continue
         const id = marker.id
         if (!Number.isSafeInteger(id) || id <= 0) continue
-        const [front, back, ...parts] = item[1].split(/[ \t]+::[ \t]+/).map(value => value.trim())
+        const repair = line === content.slice(start, endOfLine) ? separatorRepair(line, true) : undefined
+        const body = repair ? repair.after.slice(2) : item[1]
+        const [front, back, ...parts] = body.split(/[ \t]+::[ \t]+/).map(value => value.trim())
         // A cleared second slot belongs to the configured regex reader. Never take its next separator as the answer.
         if (!front || !back || /^::(?:[ \t]|$)/u.test(back)) continue
         const parsed = parseMetadata(parts)
         if (!parsed) continue
-        // За пределами раздела карточек нужны явный признак формата и датированный ID.
         const requiresExportMatch = !level && (!parts.length || !marker.metadata && !marker.warning)
         if (requiresExportMatch && !inspectLegacy) continue
-        const bullet: LinkedBullet = { id, front, back, ...parsed, start, end }
+        const bullet: LinkedBullet = { id, front, back, ...parsed, start, end, ...(repair && { separatorRepair: repair }) }
         if (requiresExportMatch) bullet.requiresExportMatch = true
         if (trackLines) bullet.markerLine = row + markerDistance
         result.push(bullet)
@@ -167,7 +163,6 @@ export function findLinkedBullets(content: string, trackLines = false, syntax?: 
     return result
 }
 
-/** Возвращает поля, явно заданные карточкой, с учётом фактического типа записи. */
 export function linkedBulletSourceFields(bullet: LinkedBullet, model: LinkedBulletModel): Record<string, string> {
     const fields: Record<string, string> = { Front: bullet.front, Back: bullet.back }
     for (const [name, value] of Object.entries(bullet.metadata)) {
@@ -180,7 +175,6 @@ export function linkedBulletSourceFields(bullet: LinkedBullet, model: LinkedBull
     return fields
 }
 
-/** По ID читаем фактический тип и список полей записи Anki. */
 export async function readLinkedBulletModels(ids: ReadonlySet<number>,
     snapshots?: Map<number, NoteSnapshot>,
     readNotes: (notes: number[]) => Promise<unknown> = notes =>

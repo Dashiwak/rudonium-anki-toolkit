@@ -12,7 +12,6 @@ const TAG_PREFIX:string = "Tags: "
 export const TAG_SEP:string = " "
 export const ID_REGEXP_STR: string = String.raw`\n?(?:<!--)?(?:ID: (\d+).*)`
 export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
-// Теги из полей распознаются после форматирования текста в HTML.
 const OBS_TAG_REGEXP: RegExp = /(?<![^\s>([])#((?=[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_/-]*[\p{L}\p{M}\p{Extended_Pictographic}_-])[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_-]+(?:\/[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_-]+)*)(?![\p{L}\p{M}\p{N}\p{Extended_Pictographic}\u200D_/-])(?![^<>]*>)/gu
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/

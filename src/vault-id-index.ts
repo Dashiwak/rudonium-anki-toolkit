@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import type { TFile } from 'obsidian'
 import type MyPlugin from '../main'
@@ -55,7 +53,6 @@ function matchesVersion(left: FileVersion, right: FileVersion): boolean {
         left.size === right.size && left.revision === right.revision
 }
 
-/** Использует актуальный список Markdown всего хранилища, включая файлы вне настроенной области экспорта. */
 export async function indexVaultIds(plugin: Pick<MyPlugin, 'app'>, files: readonly TFile[],
     syntax: DuplicateMarkerSyntax | undefined, pathRevision: (path: string) => number,
     options: IndexOptions = {},
@@ -63,7 +60,6 @@ export async function indexVaultIds(plugin: Pick<MyPlugin, 'app'>, files: readon
     const syntaxKey = JSON.stringify(syntax ?? {})
     let saved = indexes.get(plugin)
     if (!saved || saved.syntax !== syntaxKey) {
-        // Перестраиваем индекс после перезагрузки плагина, поскольку нельзя проверить изменения, сделанные без наблюдения за файлами.
         saved = { syntax: syntaxKey, files: new Map() }
         indexes.set(plugin, saved)
     }

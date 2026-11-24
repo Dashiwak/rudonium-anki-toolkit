@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 export type BidirectionalFieldDirection = 'both' | 'to-anki' | 'to-obsidian'
 
@@ -12,7 +10,7 @@ export interface BidirectionalFieldRule {
     direction: BidirectionalFieldDirection
 }
 
-export const explicitFieldLabel = /^([^\s:\x00-\x1f\x7f<>[\]][^:\x00-\x1f\x7f<>[\]]{0,79}):([ \t]*)(.*)$/u
+export const explicitFieldLabel = /^([^\s:\p{Cc}<>[\]][^:\p{Cc}<>[\]]{0,79}):([ \t]*)(.*)$/u
 
 const protectedNames = new Set(['front', 'back', 'file', 'context', 'add reverse', 'frontlang', 'backlang',
     'tags', 'text', 'image', 'occlusion', 'id', 'anki id', '__proto__', 'constructor', 'prototype'])
@@ -41,7 +39,6 @@ export function readBidirectionalFieldRules(value: unknown): BidirectionalFieldR
     return Array.from(rules.values())
 }
 
-/** Служебное поле может иметь произвольное имя в настройках конкретной модели. */
 export function isGeneratedBidirectionalField(settings: {
     FILE_LINK_FIELDS?: Record<string, string>
     CONTEXT_FIELDS?: Record<string, string>
@@ -55,7 +52,6 @@ export function parseExplicitLinkedField(part: string): { field: string; value: 
     return { field: marker[1], value: part.slice(marker[0].length), offset: marker[0].length }
 }
 
-/** Anki определяет создание карточки по лицевой стороне каждого шаблона. */
 export function readTemplateFieldReferences(value: unknown): ReadonlySet<string> | undefined {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return
     const templates: unknown[] = Object.values(value)

@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting, TFolder } from 'obsidian'
 import type MyPlugin from '../main'
@@ -64,7 +62,6 @@ function destination(plugin: MyPlugin, path: string, rules: Rules, t: UiText): s
     return `${resolved.deck || t('Set the default Deck in settings', 'Укажите колоду по умолчанию в настройках')} · ${describeDeckRoute(resolved, t)}`
 }
 
-/** Штатный список колод с поиском, точными значениями и ограниченным числом строк при открытии. */
 function searchDecks(parent: HTMLElement, selected: string,
     onSelect: (value: string) => void, t: UiText) {
     const search = parent.createEl('label', { text: t('Search anki decks', 'Поиск колод Anki') })
@@ -309,7 +306,6 @@ class DeckRoutingModal extends Modal {
             try {
                 await withFastScanReadLock(this.plugin, () => savePluginDataInOrder(this.plugin, async () => {
                     if (next.mode === 'deck') {
-                        // Список может устареть. Повторно проверяем явное назначение перед сохранением правила.
                         const kind = await readAnkiDeckKind(next.deck, (action, params) =>
                             auditRead(action, params, undefined, 5_000)).catch(() => 'unknown' as const)
                         if (kind === 'filtered') {
@@ -367,7 +363,6 @@ class DeckRoutingModal extends Modal {
     }
 }
 
-/** Назначение колод для папок не зависит от профиля, который выбирает файлы для экспорта. */
 export function installDeckRoutingSettings(container: HTMLElement, plugin: MyPlugin): void {
     const t = uiFor(plugin.settings)
     const row = new Setting(container).setName(t('Deck Assignments', 'Назначение колод'))

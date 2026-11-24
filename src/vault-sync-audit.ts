@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { mayHavePageTag } from './page-frontmatter'
 import { tableIdAdvice } from './card-export-diagnostics'
@@ -97,7 +95,6 @@ function modelSchema(ids: readonly number[], schemas: ReadonlyMap<number, string
     return ids.length ? JSON.stringify(ids.map(id => schemas.get(id) ?? null)) : ''
 }
 
-/** Лимит учитывает строки и примерную стоимость объектов, а также отдельное число файлов. */
 function cacheWeight(entry: MarkdownSnapshot, data: FileAuditData, retainedMarkerCount: number): number {
     let weight = 512 + 2 * (entry.path.length + entry.content.length) + entry.linkedIds.length * 8 + retainedMarkerCount * 48
     weight += (data.pendingDeletions.length + data.unparsedIds.length + data.deckAssignments.length + data.markdownWarnings.length) * 160
@@ -117,7 +114,6 @@ function cacheWeight(entry: MarkdownSnapshot, data: FileAuditData, retainedMarke
     return weight
 }
 
-/** У одной карточки с одним маркером точная строка уже есть в результате разбора. */
 function compactMarkers(markers: IdMarker[], data: FileAuditData): IdMarker[] | undefined {
     if (markers.length !== 1 || data.sources.length !== 1) return markers
     const marker = markers[0]
@@ -125,7 +121,6 @@ function compactMarkers(markers: IdMarker[], data: FileAuditData): IdMarker[] | 
     return marker.id === source.id && marker.line === source.markerLine ? undefined : markers
 }
 
-/** Позиции начала строк связывают координаты маркеров с диапазонами штатного парсера. */
 function fileLines(content: string) {
     let starts: number[] | undefined
     const lineStarts = () => starts ??= [0, ...Array.from(content.matchAll(/\r\n?|\n/g), match => match.index + match[0].length)]
@@ -151,7 +146,6 @@ function validId(id: number): boolean {
     return Number.isSafeInteger(id) && id > 0
 }
 
-/** Принимает смещения по порядку, просматривая отсортированные диапазоны только один раз. */
 function orderedCoverage(ranges: ReadonlyArray<[number, number]>): (offset: number) => boolean {
     let next = 0
     let coveredUntil = -1
@@ -187,7 +181,6 @@ async function readAuditProfile(expected: string | undefined, signal?: AbortSign
     }
 }
 
-/** Разбирает сохранённый файл независимо от колоды, которую пользователь проверяет сейчас. */
 async function collectFileAudit(
     manager: FileManager, data: Awaited<ReturnType<typeof settingToData>>,
     snapshot: MarkdownSnapshot, markers: readonly IdMarker[], linkedModels: ReadonlyMap<number, LinkedBulletModel>,
@@ -222,7 +215,6 @@ async function collectFileAudit(
         if (!range) return {}
         const [start, end] = range
         if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > content.length) return {}
-        // Для перехода к ID используем координату только если в диапазоне ровно один такой маркер.
         const offsets = markersById.get(id)
         const first = offsets ? firstOffsetAtLeast(offsets, start) : 0
         const offset = offsets?.[first]
@@ -231,8 +223,6 @@ async function collectFileAudit(
             markerLine: offset !== undefined && offset < end && (next === undefined || next >= end) ? lineAt(offset) : undefined }
     }
 
-    // Даём парсеру все числовые кандидаты этого файла, включая отсутствующие
-    // в Anki. Парсер всё равно сам проверит, принадлежит ли ID карточке.
     const ids = ankiIdNumberTokens(active)
     const parsed = await manager.parseMarkdown(file, content, ids, true, linkedModels, bullets,
         false, undefined, false, undefined, { signal })
@@ -299,8 +289,6 @@ async function collectFileAudit(
         })
     })
 
-    // В Anki может уже не быть заметки, но Markdown по-прежнему содержит
-    // распознанную карточку со связью. Для неё известен целевой deck файла.
     const isParsed = orderedCoverage(covered.sort((left, right) => left[0] - right[0]))
     const unresolvedBullets = bullets.filter(bullet => !isParsed(bullet.end - 1))
     for (const { id, start, end } of unresolvedBullets) {
@@ -309,7 +297,6 @@ async function collectFileAudit(
     }
     if (parsed.all_notes_to_add.length) {
         const positions = parsed.id_indexes.concat(parsed.inline_id_indexes, parsed.regex_id_indexes)
-        // Эти диапазоны упорядочены и не пересекаются. Позиции штатного парсера идут по типам карточек.
         const unresolvedStarts = unresolvedBullets.map(({ start }) => start)
         const groups = new Map<string, SyncAuditUnlinked>()
         parsed.all_notes_to_add.forEach((note, index) => {
@@ -349,7 +336,6 @@ async function collectFileAudit(
         pendingDeletions.push({ id, path, ...sourceLines(id, [start, end]), assignedDeck, deckRoute })
     }
 
-    // Отдельно показываем маркеры вне распознанных диапазонов.
     const isCovered = orderedCoverage(covered.sort((left, right) => left[0] - right[0]))
     for (const { id, offset: start } of idMarkers) {
         if (!isCovered(start)) {
@@ -360,7 +346,6 @@ async function collectFileAudit(
     return result
 }
 
-/** Перед сравнением с Anki разбирает сохранённый Markdown по правилам экспорта. */
 export function auditPluginSync(
     plugin: MyPlugin, onProgress?: (progress: VaultSyncAuditProgress) => void, signal?: AbortSignal,
     scope: VaultSyncAuditScope = 'default-deck', expectedFolderScopeSignature?: string,
@@ -380,7 +365,6 @@ export function auditPluginSync(
         }
         const auditInputs = () => {
             const settings = scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings))
-            // Настройки изображений действуют на будущие экспорты. Аудит использует последние подтверждённые соответствия имён.
             delete settings.IMAGE_OPTIMIZATION
             return [vault.getName(), settings, plugin.fields_dict] as const
         }
@@ -413,7 +397,6 @@ export function auditPluginSync(
         const imageAliasesByPath = await cachedImageAliases(plugin, activeProfile ?? null)
         checkAbort(signal)
 
-        // За пределами профиля тоже ищем источники уже существующих ID и их дубликаты.
         const { allFiles: files, paths: exportPaths } = folderScope
         const data = await settingToData(app, settings, fields, [])
         const manager = new FileManager(app, data, [], {}, [])
@@ -424,7 +407,6 @@ export function auditPluginSync(
         const reuseSettings = prior?.context === cacheContext
         const markerSyntax = JSON.stringify(settings.Syntax)
         const reuseMarkers = prior?.markerSyntax === markerSyntax
-        // Прерванная или неполная проверка не оставляет снимок для следующего запуска.
         auditCaches.delete(plugin)
         const cache = new Map<string, CachedFile>()
         let weight = 0
@@ -515,11 +497,8 @@ export function auditPluginSync(
             }
         }
 
-        // Перечитываем открытые заметки, даже если время файла и события хранилища не показывают изменений.
         const openFiles = openPaths.size ? files.filter(file => openPaths.has(file.path)) : []
         const visible = new Map<string, MarkdownSnapshot | undefined>()
-        // Ссылка может зависеть от любого файла, в том числе отсутствующего в ограниченном кеше разбора.
-        // Пропускаем проверку всего хранилища, если все сохранённые результаты разбора самодостаточны.
         const dependencies = prior?.dependencyObservations
         let reuseDependencies = !!prior && !!dependencies && reuseSettings && prior.revision === revision &&
             prior.metadata === metadata && dependencies.length === files.length &&
@@ -575,7 +554,6 @@ export function auditPluginSync(
             }
             metrics.markdownMs += performance.now() - readStarted
             checkAbort(signal)
-            // Размер запроса к Anki не зависит от числа одновременно читаемых файлов.
             const modelStarted = performance.now()
             const linkedIds: number[] = []
             for (const entry of batch) {
@@ -600,8 +578,6 @@ export function auditPluginSync(
                     } catch (error) {
                         checkAbort(signal)
                         if (error instanceof DOMException && error.name === 'TimeoutError') throw error
-                        // Некоторые версии AnkiConnect отклоняют весь запрос, если удалена одна запись.
-                        // Перечитываем схему только для подтверждённых ID; удалённые остаются в отчёте.
                         const problems: string[] = []
                         const existence = await checkAnkiNoteExistence([...ids], problems, signal)
                         if (problems.length || existence.size !== ids.size) throw error
@@ -615,7 +591,6 @@ export function auditPluginSync(
                     }
                 } catch (error) {
                     checkAbort(signal)
-                    // После тайм-аута не держим замок ещё на десятках недоступных пакетов.
                     if (error instanceof DOMException && error.name === 'TimeoutError') throw error
                     const message = `Could not read linked note types: ${String(error)}`
                     for (const id of ids) modelErrors.set(id, message)
@@ -640,7 +615,6 @@ export function auditPluginSync(
                     const cached = reuseSettings && previous && previous === entry && previous.schema === schema &&
                         (reuseDependencies || !previous.dependsOnVault)
                         ? previous : undefined
-                    // Повторы определяем по сохранённым маркерам, даже когда тип записи не удалось разобрать.
                     const compact = cached && !cached.markers ? cached.data.sources[0] : undefined
                     const markers = entry.markers ?? (compact ? [] : findIdMarkers(entry.content, settings.Syntax))
                     for (const { id, line } of markers) recordMarker(id, line, path, sourceScope)
@@ -661,8 +635,6 @@ export function auditPluginSync(
                             sources.push({ ...source, ...sourceScope })
                             continue
                         }
-                        // Храним в кеше поля, извлечённые непосредственно из Markdown. Применяем последние
-                        // подтверждённые соответствия имён только к ожидаемым полям этого аудита.
                         const fields = { ...expected.fields }
                         rewriteImageFields(fields, imageAliases)
                         sources.push({ ...source, ...sourceScope, expected: { ...expected, fields } })
@@ -682,14 +654,11 @@ export function auditPluginSync(
                     if (!local.errors.length && cache.size < cacheFileLimit) {
                         const retainedMarkers = cached ? cached.markers : compactMarkers(markers, local)
                         const estimated = cached?.weight ?? cacheWeight(entry, local, retainedMarkers?.length ?? 0)
-                        // Текущий список читается независимо от лимита. Не вытесняем ранние записи этого прохода.
                         if (weight + estimated <= cacheWeightLimit) {
-                            // Кеш хранит результат и исходный текст. Промежуточные блоки нужны только при новом разборе.
                             const retained = cached ?? {
                                 file, path, stamp: entry.stamp, content: entry.content, linkedIds, markers: retainedMarkers,
                                 pendingCreation: entry.pendingCreation,
                                 schema, data: local, weight: estimated,
-                                // Простой текст без ссылок или контекста можно повторно использовать после изменений в других файлах.
                                 dependsOnVault: !!data.add_context || !!data.add_file_link || /[![\]()<>`]/u.test(entry.content),
                             }
                             cache.set(path, retained)
@@ -751,8 +720,6 @@ export function auditPluginSync(
         }
         rememberAuditAttachmentSources(result, matchingAttachments)
         if (markdownWarnings.length) result.markdownWarnings = markdownWarnings
-        // Внешняя правка может обновить TFile.stat до того, как Obsidian отправит событие хранилища.
-        // Повторно проверяем метаданные без хранения или повторного чтения текста Markdown.
         if (currentRevision() !== revision || metadataRevision() !== metadata ||
             observations.some(entry => !sameSnapshot(entry, entry.file, pathRevision))) {
             result.fileErrors.push({ path: vaultName, message: 'The vault changed during the audit. Run the audit again for an up-to-date report.' })

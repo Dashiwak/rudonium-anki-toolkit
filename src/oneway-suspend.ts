@@ -42,7 +42,6 @@ export interface SuspendChange {
     operation: ExportPreviewOperation
 }
 
-/** Номера шаблонов Anki могут иметь пропуски. Позиция в массиве cards ничего не говорит о номере. */
 export function oneWaySuspendChange(path: string, mark: OneWaySuspendMark, cards: readonly SuspendCard[]): SuspendChange | undefined {
     if (!cards.length) throw new Error('No Anki cards for note ' + mark.id + ' / У записи Anki нет карточек.')
     const slots = mark.selection === 'all' ? null : new Set(mark.selection)

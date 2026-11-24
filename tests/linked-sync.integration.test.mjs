@@ -3,6 +3,14 @@ import { test } from 'node:test'
 import { checkSuspension } from './benchmark/suspend-sync.mjs'
 import { checkCursorSync } from './benchmark/cursor-sync.mjs'
 
+test('two-way change history preserves field values, directions and skipped conflicts', async () => {
+    await checkCursorSync(8, 2, true)
+})
+
+test('two-way history covers suspension, unknown writes and both sides of an explicit deletion', async () => {
+    await checkSuspension(9, false, false, true, true)
+})
+
 test('single-file bidirectional suspension respects sibling ordinals, cursor scope, retry, and opt-in deletion', async () => {
     await checkSuspension(11)
 })

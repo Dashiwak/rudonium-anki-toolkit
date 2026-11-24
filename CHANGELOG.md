@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.11.3 · Sync history / Журнал синхронизации
+
+- Added optional field-level sync history, clearer operation summaries, settings group controls and spacing recovery for supported card separators.
+- Добавлен журнал изменений полей при синхронизации. Обновлены уведомления, управление группами настроек и обработка пропущенных пробелов у разделителя карточки.
+
+[Release notes / Примечания к выпуску](docs/releases/0.11.3.md)
+
+## 0.11.2 · Migration and settings / Перенос карточек и настройки
+
+- Updated the source formats and folder picker in card migration, grouped settings and clarified sync results.
+- Обновлены список форматов и выбор папки в мастере переноса, группировка настроек и сообщения о результате синхронизации.
+
+[Release notes / Примечания к выпуску](docs/releases/0.11.2.md)
+
+## 0.11.1 · Settings layout / Расположение настроек
+
+- Moved connection, bidirectional sync and directive settings, and added the repeat-export benchmark to both READMEs.
+- Перенесены настройки подключения, двусторонней синхронизации и директив. В обе версии README добавлены результаты проверки повторного экспорта.
+
+[Release notes / Примечания к выпуску](docs/releases/0.11.1.md)
+
+## 0.11.0 · Bidirectional sync / Двусторонняя синхронизация
+
+- Edits on the first sync after startup and linked fields with trailing punctuation.
+- Обработка правок при первом запуске синхронизации и знаков в конце связанного поля.
+
+[Release notes / Примечания к выпуску](docs/releases/0.11.0.md)
+
 ## 0.10.13 · First bidirectional sync / Первый двусторонний перенос
 
 - Перенос правок после одностороннего экспорта, сохранение буквальных знаков равенства в конце вопроса и выравнивание настроек.

@@ -1,6 +1,6 @@
 import { uiFor } from './src/interface-language'
 import { openAuditForExportIssue, startSyncAudit, openSyncAuditDeckPicker } from './src/sync-audit-ui'
-import { openPageMigration, registerPageMigrationCommand } from './src/page-migration-ui'
+import { registerPageMigrationCommand } from './src/page-migration-ui'
 import { registerSupportCommand } from './src/interface-settings-ui'
 import { registerFrozenFieldsCommand } from './src/frozen-fields-ui'
 import { registerLostIdRecoveryCommand } from './src/lost-id-recovery-ui'
@@ -13,6 +13,8 @@ import { registerIdMarkerConversion } from './src/id-marker-conversion-ui'
 import { registerPageIdBulk } from './src/page-id-bulk-ui'
 import { registerPageFieldEditor } from './src/page-field-editor-ui'
 import { registerOpenCardInAnki } from './src/card-open-anki'
+import multimatch from 'multimatch'
+import { importLegacyScanScope } from './src/sync-profiles'
 import { pauseForMigration } from './src/plugin-migration'
 import { refreshNoteTypes } from './src/note-type-refresh'
 import { registerSetupCommand } from './src/first-connection'
@@ -57,6 +59,8 @@ function invalidPluginData(settings?: unknown): Error {
 
 export default class RudoniumAnkiPlugin extends Plugin {
 
+    readonly matchIgnoredPaths = multimatch
+
 	settings: PluginSettings
 	note_types: string[] = []
 	fields_dict: Record<string, string[]> = {}
@@ -83,6 +87,7 @@ export default class RudoniumAnkiPlugin extends Plugin {
 			},
 			EXPECTED_ANKI_PROFILE: "",
 			REQUIRE_ANKI_PROFILE: false,
+			SYNC_CHANGE_HISTORY: false,
 			BIDIRECTIONAL_SYNC: false,
 			BIDIRECTIONAL_PREVIEW: false,
 			BIDIRECTIONAL_CONFLICT_POLICY: "latest",
@@ -155,14 +160,13 @@ export default class RudoniumAnkiPlugin extends Plugin {
 
         // Read one consistent snapshot for settings and caches, including keys saved by newer versions.
         const options = { ...saved.settings }
-        delete options.IGNORED_FILE_GLOBS
         const syntax = options.Syntax ?? {}
         const preferences = options.Defaults ?? {}
         if (!isDataRecord(syntax) || !isDataRecord(preferences)) throw invalidPluginData(options)
         const tag = preferences.Tag ?? ""
         if (typeof tag !== "string") throw invalidPluginData(options)
         const values: DataRecord = { ...preferences, Tag: tag }
-        delete values["Scan Directory"]
+        importLegacyScanScope(options, values)
         if (!validSection(syntax, defaults.Syntax) || !validSection(values, defaults.Defaults)) throw invalidPluginData(options)
         for (const key of ["CUSTOM_REGEXPS", "FILE_LINK_FIELDS", "CONTEXT_FIELDS", "FOLDER_DECKS", "FOLDER_TAGS"]) {
             if (key in options && !isStringMap(options[key])) throw invalidPluginData(options)
@@ -214,7 +218,6 @@ export default class RudoniumAnkiPlugin extends Plugin {
     }
 
     async saveAllData(): Promise<void> {
-        // Сохранения от сканирования и настроек выполняются по очереди.
         await savePluginDataInOrder(this, async () => {
     		await this.saveData(
     				{
@@ -244,12 +247,11 @@ export default class RudoniumAnkiPlugin extends Plugin {
 
 
 	async scanVault(origin?: 'scheduled') {
-        // Существующая команда передаёт управление ускоренному сканированию.
         await scanVaultFast(this, origin)
     }
 
 	async onload() {
-        if (await pauseForMigration(this, () => this.startRudonium(), () => { if (this.rudoniumInitialized && !this.rudoniumStopped) openPageMigration(this) })) return
+        if (await pauseForMigration(this, () => this.startRudonium())) return
         await this.startRudonium()
     }
 
@@ -279,7 +281,6 @@ export default class RudoniumAnkiPlugin extends Plugin {
         }
         if (this.rudoniumStopped) return
         this.note_types = Object.keys(this.settings.CUSTOM_REGEXPS)
-        // После загрузки хешей включаем отслеживание файлов и команду полной проверки.
         registerFastScan(this, (deck, repair) => { void openAuditForExportIssue(this, deck, repair) }, () => refreshNoteTypes(this))
         registerSetupCommand(this, task => withFastScanReadLock(this, task), () => this.rudoniumStopped)
         registerCardPreview(this)
@@ -317,15 +318,12 @@ export default class RudoniumAnkiPlugin extends Plugin {
         this.rudoniumInitialized = true
     }
 
-	async onunload() {
+    onunload(): void {
         this.rudoniumStopped = true
         if (!this.rudoniumInitialized) return
-
-		try {
-			await this.saveAllData()
-		} catch (error) {
-			console.error('[Rudonium] Could not save plugin data during unload', error)
-			new Notice(uiFor(this.settings)('Could not save Rudonium settings.', 'Не удалось сохранить настройки Rudonium.'))
-		}
-	}
+        void this.saveAllData().catch(error => {
+            console.error('[Rudonium] Could not save plugin data during unload', error)
+            new Notice(uiFor(this.settings)('Could not save Rudonium settings.', 'Не удалось сохранить настройки Rudonium.'))
+        })
+    }
 }

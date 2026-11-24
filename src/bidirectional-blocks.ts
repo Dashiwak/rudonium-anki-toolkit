@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { activeCardMarkdown } from './archived-card'
 import { explicitFieldLabel as fieldLabel, isBidirectionalFieldName } from './bidirectional-fields'
@@ -61,7 +59,6 @@ export interface BidirectionalBlock {
 
 const fenceMarker = /^ {0,3}(`{3,}|~{3,})(.*)$/u
 
-/** Продолжение простого поля не может начать другой блок или поменять имя поля. */
 export function isExplicitFieldBoundary(line: string, block: Pick<BidirectionalBlock, 'begin' | 'closing' | 'blockSyntax'>): boolean {
     if (fieldLabel.test(line) || parseAnkiIdMarker(line) || line === block.begin || line === block.closing) return true
     if (!block.begin) return false
@@ -162,7 +159,6 @@ export function explicitBlockNamedFields(source: string, model: string, names: r
     return [...parsed.fields.keys()].filter(name => name !== names[0] && name !== names[1] && isWritableBlockExtraName(name))
 }
 
-/** Координаты берём только у явно подписанных полей. Формат и ID дополнительно проверяет штатный разборщик. */
 export function findBidirectionalBlocks(content: string, syntax: DuplicateMarkerSyntax = {},
     modelFields?: Readonly<Record<string, readonly string[]>>): BidirectionalBlock[] {
     if (content.includes('RUDONIUM-ARCHIVE')) content = activeCardMarkdown(content)
@@ -227,7 +223,6 @@ export function findBidirectionalBlocks(content: string, syntax: DuplicateMarker
         const markedExternal = !!readId(lines[index + 2]?.text ?? '') && !!readSuspendLine(lines[index + 1]?.text ?? '', syntax)
         const outside = index + (markedExternal ? 2 : 1)
         const external = readId(lines[outside]?.text ?? '')
-        // Два соседних ID означают неоднозначную привязку, которая остаётся для ручной проверки.
         if (existing && external || !existing && !external) continue
         const end = external ? outside : index
         const model = lines[start + 1].text.trim()

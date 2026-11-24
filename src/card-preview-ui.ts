@@ -1,8 +1,6 @@
 /*!
  * SPDX-License-Identifier: GPL-3.0-only
- * Rudonium Anki Toolkit — изменённый комплект от 2026-11-19.
- * Уведомления о происхождении и исходных разрешениях: NOTICE.md в корне выпуска.
- * Авторские уведомления и отдельные лицензии исходных компонентов сохраняются.
+ * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Notice, Modal, sanitizeHTMLToDom } from 'obsidian'
 import type { App } from 'obsidian'
@@ -37,8 +35,7 @@ function escapeHtml(value: string): string {
 
 function parseStaticMarkup(owner: Document | undefined, html: string): HTMLTemplateElement | undefined {
     if (!owner) return undefined
-    // Отдельный документ шаблона не имеет контекста просмотра и не запрашивает изображения по URL.
-    const template = owner.createElement('template')
+    const template = owner.createDocumentFragment().createEl('template')
     // Sanitize Anki HTML with the host API before applying the stricter offline preview allowlist.
     template.content.append(sanitizeHTMLToDom(html))
     for (const element of Array.from(template.content.querySelectorAll('*'))) {
@@ -50,7 +47,6 @@ function parseStaticMarkup(owner: Document | undefined, html: string): HTMLTempl
         } else {
             for (const attr of Array.from(element.attributes)) {
                 if (staticAttributes.has(attr.name)) continue
-                // Изображения из URI данных передаёт сам предпросмотр. Относительные пути и внешние URL остаются неактивными.
                 if (name === 'img' && attr.name === 'src' && localImage.test(attr.value)) continue
                 element.removeAttribute(attr.name)
             }
@@ -72,7 +68,6 @@ function fieldText(owner: Document | undefined, html: string, imageLabel: string
 
 function frameDocument(owner: Document | undefined, html: string, css = '', ordinal = 0): string {
     const markup = parseStaticMarkup(owner, html)?.innerHTML ?? escapeHtml(html)
-    // Экранируем закрывающий тег перед включением стилей в srcdoc.
     const style = css.replace(/</g, '\\3c ')
     const policy = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

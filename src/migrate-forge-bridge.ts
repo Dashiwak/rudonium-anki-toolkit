@@ -28,7 +28,7 @@ function contentRows(body: string): string[] {
 function question(row: string): string | undefined {
     const text = row.trimEnd()
     if (!text || text !== text.trimStart() || /^(?:#{1,6}(?:\s|$)|>|[-*+]\s|\d+[.)]\s|\||~~~|---|<!--|%%)/u.test(text) ||
-        /\^[-\w]+$|#anki-page|[\x00-\x1f`]/u.test(text)) return
+        /\^[-\w]+$|#anki-page|[\p{Cc}`]/u.test(text)) return
     return text
 }
 
@@ -83,7 +83,7 @@ export const detectAnkiForge: MigrationAdapter = (_path, text, context) => {
         const value = parsed && typeof parsed === 'object' && Object.prototype.hasOwnProperty.call(parsed, 'anki-deck')
             ? (parsed as Record<string, unknown>)['anki-deck'] : undefined
         if (retained === undefined || typeof value !== 'string' || !value.trim() || value !== value.trim() ||
-            /[\x00-\x1f\x7f]/u.test(value) || !/^["']?anki-deck["']?[ \t]*:[ \t]*(?![&*|>!])[\S][^\r\n]*$/mu.test(yaml) ||
+            /\p{Cc}/u.test(value) || !/^["']?anki-deck["']?[ \t]*:[ \t]*(?![&*|>!])[\S][^\r\n]*$/mu.test(yaml) ||
             /(?:^|\n)[ \t]*<<[ \t]*:/u.test(yaml)) {
             return review(source, context, 'Check the original anki-deck property.', 'Проверьте исходное свойство anki-deck.')
         }
