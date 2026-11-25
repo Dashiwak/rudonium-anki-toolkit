@@ -93,8 +93,8 @@ function yamlPrefix(yaml: string, props: Record<string, unknown>, extraTags: str
     const extra: string[] = []
     if (extraTags.length) {
         const existing: unknown = props.tags
-        const values = Array.isArray(existing) ? existing : typeof existing === 'string' ? [existing] : existing == null ? [] : undefined
-        if (!values || values.some(value => typeof value !== 'string' || !value.trim() || /[\s,]/u.test(value))) return
+        const values: unknown[] | undefined = Array.isArray(existing) ? existing : typeof existing === 'string' ? [existing] : existing == null ? [] : undefined
+        if (!values || !values.every((value): value is string => typeof value === 'string' && !!value.trim() && !/[\s,]/u.test(value))) return
         const missing = extraTags.filter(tag => !values.includes(tag))
         if (missing.length) {
             if (Object.prototype.hasOwnProperty.call(props, 'tags')) remove.add('tags')

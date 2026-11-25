@@ -2,9 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as fs from 'fs'
-import * as path from 'path'
-import * as crypto from 'crypto'
+import { files as fs, paths as path, hashes as crypto, bytes as binary, fileErrorCode } from './desktop-io'
 import type MyPlugin from '../main'
 import { TFile } from 'obsidian'
 import { withFastScanReadLock } from './fast-scan'
@@ -71,7 +69,7 @@ function failure(plugin: MyPlugin, english: string, russian: string): Error {
     return new Error(uiFor(plugin.settings)(english, russian))
 }
 
-function missing(error: unknown): boolean { return (error as NodeJS.ErrnoException)?.code === 'ENOENT' }
+function missing(error: unknown): boolean { return fileErrorCode(error) === 'ENOENT' }
 function key(path: string): string { return path.normalize('NFC').toLowerCase() }
 function object(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -107,7 +105,7 @@ async function checkedPath(root: string, relative: string, allowPrivate = false,
         const stamp = directoryStat ? [directoryStat.dev, directoryStat.ino, directoryStat.mtimeMs, directoryStat.ctimeMs, directoryStat.size].join(':') : ''
         let known = cache?.get(current)
         if (!known || known.stamp !== stamp) {
-            const siblings = await fs.promises.readdir(current).catch(error => {
+            const siblings = await fs.promises.readdir(current).catch((error: unknown): string[] => {
                 if (missing(error)) return []
                 throw error
             })
@@ -159,7 +157,7 @@ async function ensureFolder(root: string, relative: string, privateFolder = fals
         accumulated = accumulated ? `${accumulated}/${part}` : part
         const target = await checkedPath(root, accumulated, privateFolder)
         await fs.promises.mkdir(target, { mode: 0o700 }).catch(error => {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+            if (fileErrorCode(error) !== 'EEXIST') throw error
         })
         if (!(await fs.promises.lstat(target)).isDirectory()) throw new Error(`A folder became a file: ${accumulated}`)
     }
@@ -463,7 +461,7 @@ async function writeVaultFile(plugin: MyPlugin, entry: JournalEntry, bytes: Uint
         const file = indexedFile(plugin, entry.path)
         if (entry.markdown) {
             await vault.process(file, text => {
-                if (hash(Buffer.from(text, 'utf8')) !== expected || dirtyPaths(plugin).has(entry.path)) {
+                if (hash(binary.from(text, 'utf8')) !== expected || dirtyPaths(plugin).has(entry.path)) {
                     throw failure(plugin, 'A note changed while applying the import.', 'Заметка изменилась во время импорта.')
                 }
                 return readText(bytes)

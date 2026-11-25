@@ -4,7 +4,7 @@
  */
 import type { TFile } from 'obsidian'
 import type MyPlugin from '../main'
-import { savePluginDataInOrder, withFastScanReadLock } from './fast-scan'
+import { savePluginDataInOrder, withFastScanReadLock } from './scan-state'
 import { uiFor } from './interface-language'
 import { isSupportedZipImportPath } from './zip-import-archive'
 

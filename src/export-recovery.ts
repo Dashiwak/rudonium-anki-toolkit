@@ -208,7 +208,7 @@ export function hasRecoveredLinks(entry: RecoveryEntry, confirmedLinkedIds: read
 
 export function noteRecoverySignature(note: { fields: Record<string, string>; deckName: string; modelName: string }): string {
     const fields = Object.keys(note.fields).sort().map(name => [name, note.fields[name]])
-    return Md5.hashStr(JSON.stringify([note.modelName, note.deckName, fields])) as string
+    return Md5.hashStr(JSON.stringify([note.modelName, note.deckName, fields]))
 }
 
 export function readRecoverySlots(response: unknown, expectedLength: number,

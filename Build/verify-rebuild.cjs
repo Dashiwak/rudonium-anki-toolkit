@@ -90,7 +90,7 @@ function verifyRebuild(repository, releaseDirectory, upstreamDirectory) {
                 if (result.error) throw result.error;
                 if (result.status !== 0) throw new Error("Source-kit build failed (" + (result.status ?? result.signal) + ").");
             } else {
-                runNpm(["ci", "--no-audit", "--no-fund"], worktree);
+                runNpm(["ci", "--ignore-scripts", "--no-audit", "--no-fund"], worktree);
                 runNpm(["run", "build"], worktree);
             }
             for (const [index, name] of assets.entries()) {

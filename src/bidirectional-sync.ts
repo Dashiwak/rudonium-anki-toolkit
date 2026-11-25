@@ -19,7 +19,7 @@ import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from '
 import { showAnkiProfileProblem } from './anki-profile-ui'
 import { readRecoveryMarker } from './export-recovery'
 import { FileManager, frontmatterTags, mergeTags } from './files-manager'
-import { openOneWayHistory, prepareInitialSchema, saveBidirectionalEditors, settingsWithoutAuditMode, withFastScanReadLock } from './fast-scan'
+import { openOneWayHistory, prepareInitialSchema, saveBidirectionalEditors, settingsWithoutAuditMode, withFastScanReadLock } from './scan-state'
 import { oneWayFieldDigest } from './oneway-history'
 import type { OneWayHistory, OneWayReceipt, OneWayRecord } from './oneway-history'
 import { createFullMigrationBackup, ensureScheduledBackup } from './vault-backup'
@@ -42,7 +42,7 @@ import { checkCursorEditors } from './cursor-editor-guard'
 import { settingToData } from './setting-to-data'
 import { auditRead, checkAnkiNoteExistence } from './sync-audit'
 import { afterDeleteMode } from './deletion-policy'
-import { explicitDeletes, cleanConfirmedDeletes, deletionSignature, sourceRemoval, localDeleteEffect } from './deletion-source'
+import { explicitDeletes, cleanConfirmedDeletes, deletionSignature, sourceRemoval, localDeleteEffect, pageTrash } from './deletion-source'
 import type { ExplicitDeletes, SourceRemoval } from './deletion-source'
 import { describeSyncPath, resolveSyncScope, scanProfileFreeSettings, syncScopeSignature } from './sync-profiles'
 import { indexVaultIds } from './vault-id-index'
@@ -56,11 +56,11 @@ import { isBidirectionalFieldName, isGeneratedBidirectionalField, readBidirectio
 import type { BidirectionalFieldDirection } from './bidirectional-fields'
 import { cardFieldHazards, sameCardIds } from './anki-card-impact'
 import { openBidirectionalPreview } from './bidirectional-ui'
-import { checkedCount, deferredNotes, unconfirmedNotes, SyncOutcome } from './sync-outcome'
+import { checkedCount, deferredNotes, skippedFields, skippedNotes, unconfirmedNotes, SyncOutcome } from './sync-outcome'
 import { addPreviewPreference } from './bidirectional-preview-preference'
-import { ankiBrowseMessage, uiDiagnostic, uiFor } from './interface-language'
+import { ankiBrowseMessage, uiDiagnostic, uiFor, type UiText } from './interface-language'
 import { requireSettledZipImport } from './zip-import-guard'
-import type { BidirectionalPreviewChange, BidirectionalPreviewRow, BidirectionalSide } from './bidirectional-ui'
+import type { BidirectionalPreviewChange, BidirectionalPreviewRow, BidirectionalChoice, BidirectionalSide } from './bidirectional-ui'
 
 import { applySuspendCards, readSuspendCards, verifySuspendCards } from './suspend-anki'
 import type { SuspendCard } from './suspend-anki'
@@ -417,6 +417,17 @@ function activeBaseline(base: SyncValue, active: SyncValue): SyncValue {
     return { ...base, extra }
 }
 
+function keepFields(value: SyncValue, original: SyncValue | undefined, skipped?: readonly SyncChangeField[]): SyncValue {
+    if (!skipped?.length || !original) return value
+    const result = { ...value, extra: value.extra && { ...value.extra } }
+    for (const field of skipped) {
+        if (field === 'front' || field === 'back') result[field] = original[field]
+        else if (field === 'tags') result.tags = original.tags
+        else if (result.extra && original.extra?.[field.slice(6)] !== undefined) result.extra[field.slice(6)] = original.extra[field.slice(6)]
+    }
+    return result
+}
+
 function targetFor(link: Link, choices: SyncChoices = {}): { value: SyncValue; conflicts: SyncChangeField[] } {
     const { record, obsidian, anki } = link
     const pending = record?.pending
@@ -426,13 +437,13 @@ function targetFor(link: Link, choices: SyncChoices = {}): { value: SyncValue; c
         // Resume only slots still owned by the current source. A 0.9.7 regex
         // journal can contain an extra field whose Markdown writer has been retired.
         const target = activeBaseline(pending.target, obsidian)
-        if (matchesPendingSyncValue(obsidian, activeBaseline(pending.obsidian, obsidian), target) &&
-            matchesPendingSyncValue(anki, activeBaseline(pending.anki, anki), target)) {
+        if (matchesPendingSyncValue(obsidian, activeBaseline(pending.obsidian, obsidian), keepFields(target, obsidian, pending.skipped)) &&
+            matchesPendingSyncValue(anki, activeBaseline(pending.anki, anki), keepFields(target, anki, pending.skipped))) {
             return { value: target, conflicts: [] }
         }
         return mergeSyncValues(undefined, obsidian, anki, choices, directions)
     }
-    const merged = mergeSyncValues(record?.base, obsidian, anki, choices, directions, link.fieldBases, link.pairBases, link.initialTagBase)
+    const merged = mergeSyncValues(record?.base, obsidian, anki, choices, directions, link.fieldBases, link.pairBases, link.initialTagBase, record?.unbasedFields)
     // A manual arrow can also reverse an ordinary baseline-derived text change.
     for (const field of ['front', 'back'] as const) {
         const choice = choices[field]
@@ -464,47 +475,73 @@ function otherNoteDigest(link: Link, note: NoteSnapshot): string {
     return oneWayFieldDigest(JSON.stringify([note.modelName, other, [...note.tags].sort(), [...note.cards].sort((a, b) => a - b)]))
 }
 
-// A file timestamp also reflects prose, other cards and tags. Recreate the confirmed file
-// with only this field restored before using that timestamp to settle overlapping edits.
-function clockAppliesToField(link: Link, note: NoteSnapshot, key: string): boolean {
-    const localTime = link.source.stamp[0]
-    if (!validFileTime(localTime) || link.source.file.stat.mtime !== localTime || link.record?.pending) return false
-    const pair = key === 'front' || key === 'back' ? key : undefined
-    const extra = key.startsWith('extra:') ? key.slice(6) : undefined
-    if (!pair && !extra) return false
-    // Only after there is a two-way baseline can null represent incompatible legacy
-    // histories. On the first sync it means both sides changed since a one-way receipt.
-    if (link.record?.base && (pair && link.pairBases?.[pair] === null || extra && link.fieldBases?.get(extra) === null)) return false
-    const clock = link.record?.clockContext
-    const base = link.record?.base
-    // Only a first sync compares the file's save time directly with the linked note's.
-    // With an older two-way baseline and no clock fingerprint, an unrelated file edit
-    // cannot prove which overlapping change is newer. One-sided edits are already resolved.
-    if (!clock) return !base
-    if (!base || localTime <= clock.mtime || otherNoteDigest(link, note) !== clock.other) return false
-    const previous = pair ? base[pair] : base.extra?.[extra!]
-    if (previous === undefined) return false
-    const restore = (v: SyncValue): SyncValue => pair ? { ...v, [pair]: previous }
-        : { ...v, extra: { ...v.extra, [extra!]: previous } }
-    const baseline = activeBaseline(base, link.obsidian)
-    if (!syncValuesEqual(restore(link.anki), baseline) || !syncValuesEqual(restore(link.obsidian), baseline)) return false
+function addSpacingPatches(link: Link, patches: MarkdownPatch[]): void {
+    for (const offset of link.spacing?.offsets ?? []) {
+        const at = link.bullet.start + offset
+        const adjacent = patches.find(patch => patch.start === at)
+        if (adjacent) adjacent.text = ' ' + adjacent.text
+        else patches.push({ start: at, end: at, text: ' ' })
+    }
+}
+
+function savedCardMatchesFile(link: Link, base: SyncValue, expected: string): boolean {
+    const fields: Partial<Record<'Front' | 'Back', string>> = {}
+    for (const key of ['front', 'back'] as const) {
+        if (!fieldEqual(base, link.obsidian, key)) fields[labels[key]] = base[key]
+    }
+    const extras = Object.create(null) as Record<string, string>
+    for (const name of Object.keys(link.obsidian.extra ?? {})) {
+        if (base.extra?.[name] === undefined) return false
+        if (link.obsidian.extra![name] !== base.extra[name]) extras[name] = base.extra[name]
+    }
     try {
-        const pairField = pair ? { [labels[pair]]: previous } : {}
-        const extraField = extra ? { [extra]: previous } : {}
         const text = link.source.content
         const patches = 'explicitFields' in link.bullet
-            ? planExplicitBlockPatches(text, link.bullet, { ...pairField, ...extraField })
-            : planLinkedBulletPatches(text, link.bullet, pairField, undefined, extraField)
-        return oneWayFieldDigest(applyMarkdownPatches(text, patches)) === clock.file
+            ? planExplicitBlockPatches(text, link.bullet, { ...fields, ...extras })
+            : planLinkedBulletPatches(text, link.bullet, fields, undefined, extras)
+        addSpacingPatches(link, patches)
+        return oneWayFieldDigest(applyMarkdownPatches(text, patches)) === expected
     } catch {
         return false
+    }
+}
+
+function clockReviewReason(link: Link, note: NoteSnapshot, t: UiText): string | undefined {
+    const local = link.source.stamp[0], mod = note.mod
+    if (!validFileTime(local) || link.source.file.stat.mtime !== local || !validNoteTime(mod)) {
+        return t('A valid modification time is missing for the Obsidian file or the Anki note.',
+            'Не удалось получить время изменения файла Obsidian или записи Anki.')
+    }
+    if (Math.floor(local / 1000) === mod) {
+        return t('Both edits were saved in the same second. Anki records times in whole seconds.',
+            'Обе правки сохранены в одну секунду. Anki хранит время с точностью до секунды.')
+    }
+    const clock = link.record?.clockContext
+    const base = link.record?.base
+    if (!clock || !base) {
+        if (!base && !link.spacing) return
+        return t('There is no confirmed edit history that identifies the later card edit.',
+            'В истории сверок недостаточно данных, чтобы определить более позднюю правку карточки.')
+    }
+    if (local <= clock.mtime || validNoteTime(clock.mod) && mod < clock.mod) {
+        return t('A modification time is inconsistent with the last confirmed sync.',
+            'Время изменения расходится с данными последней подтверждённой синхронизации.')
+    }
+    // The older source's time bounds all its edits. Attribute the later save to this
+    // card before using it for conflicts; independent fields still use their baselines.
+    if (Math.floor(local / 1000) < mod) {
+        if (otherNoteDigest(link, note) !== clock.other) return t('Other Anki note data changed too, so its timestamp cannot identify the later card edit.',
+            'В записи Anki изменились и другие данные. По времени сохранения нельзя определить более позднюю правку карточки.')
+    } else if (!savedCardMatchesFile(link, base, clock.file)) {
+        return t('The Obsidian file also changed outside this card, so its timestamp cannot identify the later card edit.',
+            'В файле Obsidian были и другие изменения. По времени сохранения нельзя определить более позднюю правку карточки.')
     }
 }
 
 async function fillNoteTimes(notes: ReadonlyMap<number, NoteSnapshot>, ids: readonly number[], profile: string): Promise<void> {
     // Some AnkiConnect builds provide mod only through notesModTime. Query only the
     // notes needing a clock decision. A missing optional action leaves manual review.
-    const missing = ids.filter(id => notes.has(id) && notes.get(id)!.mod === undefined)
+    const missing = ids.filter(id => notes.has(id) && !validNoteTime(notes.get(id)!.mod))
     for (let offset = 0; offset < missing.length; offset += readBatchSize) {
         const batch = missing.slice(offset, offset + readBatchSize)
         await checkPinnedAnkiProfile(profile)
@@ -518,33 +555,39 @@ async function fillNoteTimes(notes: ReadonlyMap<number, NoteSnapshot>, ids: read
         if (!isResponseList(response) || response.length !== batch.length) continue
         const requested = new Set(batch), valid = new Map<number, number>()
         for (const row of response) {
-            if (!isRecord(row) || typeof row.noteId !== 'number' || !requested.delete(row.noteId) || !validNoteTime(row.mod)) break
-            valid.set(row.noteId, row.mod)
+            if (!isRecord(row) || typeof row.noteId !== 'number' || !requested.delete(row.noteId)) break
+            if (validNoteTime(row.mod)) valid.set(row.noteId, row.mod)
         }
-        if (valid.size === batch.length) for (const [id, mod] of valid) notes.get(id)!.mod = mod
+        if (!requested.size) for (const [id, mod] of valid) notes.get(id)!.mod = mod
     }
 }
 
 async function recommendLatest(links: readonly Link[], rows: readonly BidirectionalPreviewRow[],
-    notes: ReadonlyMap<number, NoteSnapshot>, profile: string): Promise<void> {
+    notes: ReadonlyMap<number, NoteSnapshot>, profile: string, t: UiText): Promise<void> {
     const byId = new Map(links.map(link => [link.bullet.id, link]))
     const candidates = new Map<number, BidirectionalPreviewChange[]>()
     for (const row of rows) {
-        const link = byId.get(row.id), note = notes.get(row.id)
-        if (!link || !note || row.issues?.length || row.duplicates?.length) continue
-        const candidatesForNote = row.changes.filter(change => change.decision === 'conflict' &&
-            change.canChooseDirection && !change.allowedSide &&
-            clockAppliesToField(link, note, change.key.slice(String(row.id).length + 1)))
-        if (candidatesForNote.length) candidates.set(row.id, candidatesForNote)
+        const link = byId.get(row.id)
+        if (!link || !notes.has(row.id) || link.record?.pending || row.issues?.length || row.duplicates?.length) continue
+        const changes = row.changes.filter(change => change.decision === 'conflict' && change.canChooseDirection && !change.allowedSide)
+        if (changes.length) candidates.set(row.id, changes)
     }
     await fillNoteTimes(notes, [...candidates.keys()], profile)
     for (const [id, changes] of candidates) {
-        const link = byId.get(id)!
-        const mod = notes.get(id)!.mod
-        const local = Math.floor(link.source.stamp[0] / 1000)
-        if (!validNoteTime(mod) || local === mod || mod <= (link.record?.clockContext?.mod ?? 0)) continue
-        link.clockMod = mod
-        for (const change of changes) change.recommendedSide = local > mod ? 'obsidian' : 'anki'
+        const link = byId.get(id)!, note = notes.get(id)!
+        const reason = clockReviewReason(link, note, t)
+        for (const change of changes) {
+            const field = change.key.slice(String(id).length + 1)
+            const anchor = field === 'front' || field === 'back' ? link.pairBases?.[field] : link.fieldBases?.get(field.slice(6))
+            if (link.record?.base && anchor === null) {
+                change.reviewReason = t('The two sync histories disagree about the last shared value.',
+                    'В истории односторонней и двусторонней синхронизации сохранены разные версии этого поля.')
+            } else if (reason) change.reviewReason = reason
+            else {
+                link.clockMod = note.mod!
+                change.recommendedSide = Math.floor(link.source.stamp[0] / 1000) > note.mod! ? 'obsidian' : 'anki'
+            }
+        }
     }
 }
 
@@ -562,6 +605,7 @@ function previewChanges(link: Link): BidirectionalPreviewChange[] {
     const target = targetFor(link)
     link = resolvedPageContext(link, target.value.front)
     const rows = fields.flatMap((field): BidirectionalPreviewChange[] => {
+        if (link.record?.pending?.skipped?.includes(field)) return []
         const sameAsLocal = fieldEqual(target.value, link.obsidian, field)
         const sameAsRemote = fieldEqual(target.value, link.anki, field)
         if (sameAsLocal && sameAsRemote) return []
@@ -581,6 +625,7 @@ function previewChanges(link: Link): BidirectionalPreviewChange[] {
     if (!link.extraDirections?.size) return rows
     for (const [field, direction] of link.extraDirections) {
         const key = `extra:${field}` as const
+        if (link.record?.pending?.skipped?.includes(key)) continue
         const local = link.obsidian.extra![field]
         const remote = link.anki.extra![field]
         if (local.normalize('NFC') === remote.normalize('NFC')) continue
@@ -588,6 +633,7 @@ function previewChanges(link: Link): BidirectionalPreviewChange[] {
         rows.push({ key: `${link.bullet.id}:${key}`, field, obsidian: local, anki: remote, merged,
             decision: target.conflicts.includes(key) ? 'conflict'
                 : merged.normalize('NFC') === local.normalize('NFC') ? 'obsidian' : 'anki',
+            canSkip: !link.record?.pending,
             canChooseDirection: !link.record?.pending && direction === 'both' && !link.outboundBlocked?.has(field),
             allowedSide: direction === 'to-anki' ? 'obsidian'
                 : direction === 'to-obsidian' || link.outboundBlocked?.has(field) ? 'anki' : undefined })
@@ -968,8 +1014,8 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
             }
             const supportedIds = new Set([...cards.map(card => card.id), ...(commands?.directives.map(d => d.id) ?? [])])
             const unsupported = markers.filter(marker => !supportedIds.has(marker.id)).length
-            if (unsupported) issues.push(t(`${path}: ${unsupported} ID markers have no verified field boundaries. Check their format in the rule wizard.`,
-                `${path}: маркеров ID без подтверждённых границ полей: ${unsupported}. Проверьте их формат в мастере правил.`))
+            if (unsupported) issues.push(t(`${path}: Could not match ${unsupported} Anki ID${unsupported === 1 ? '' : 's'} to editable card fields. Check the card format in the rule wizard.`,
+                `${path}: не удалось сопоставить ${unsupported} ID Anki с редактируемыми полями карточек. Проверьте формат карточек в мастере правил.`))
             if (cards.length) { source.cards = cards; sources.push(source) }
         },
     })
@@ -982,7 +1028,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
     const missing = new Set<number>()
     const snapshots = await readNotes(noteIds, profile, missing)
     const descriptions = {
-        'trash-page': t('Move page to vault trash', 'Переместить страницу в корзину'),
+        'trash-page': t('Move page to trash', 'Переместить страницу в корзину'),
         'remove-block': t('Remove source block', 'Удалить исходный блок'),
         'strike-block': t('Strike through the entire card', 'Зачеркнуть всю карточку'),
         'hide-block': t('Hide the card in an HTML comment', 'Скрыть карточку в HTML-комментарии'),
@@ -1315,8 +1361,6 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
                     link.initialTagBase = (await priorOneWay()).get(id, snapshot.modelName)?.matchedTags ?? []
                 }
                 const fieldChanges = previewChanges(link)
-                if (spacing) fieldChanges.push({ key: id + ':spacing', field: t('Markdown separator spacing', 'Пробелы вокруг разделителя'),
-                    decision: 'merge', obsidian: spacing.before, anki: '', merged: spacing.after })
                 if (datePatch) fieldChanges.push({ key: id + ':id-date', field: t('ID date in Markdown', 'Дата ID в Markdown'),
                     decision: 'merge', obsidian: content.slice(datePatch.start, datePatch.end), anki: '', merged: datePatch.text })
                 if (block && needsReparse(block)) {
@@ -1397,7 +1441,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
         }
     }
     if (index.complete && plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY !== 'skip') {
-        await recommendLatest(links, rows, snapshots, profile)
+        await recommendLatest(links, rows, snapshots, profile, t)
     }
     await requireExpectedAnkiProfile(plugin, profile)
     if (currentRevision() !== startRevision || configuration(plugin) !== config) {
@@ -1424,7 +1468,7 @@ async function buildPlan(plugin: MyPlugin, scope: Scope, currentRevision: () => 
         links, pauses, deletions, readers, directivePatterns, expressions: data.custom_regexps, modelFields: data.fields_dict, pageModel: data.page_model, rows, issues, scanned: noteIds.length, complete: index.complete, cursor: target }
 }
 
-interface Operation { link: Link; target: SyncValue; patches: MarkdownPatch[]; requests: AnkiConnect.AnkiConnectRequest[] }
+interface Operation { link: Link; target: SyncValue; remoteTarget: SyncValue; skipped?: SyncChangeField[]; patches: MarkdownPatch[]; requests: AnkiConnect.AnkiConnectRequest[] }
 
 function needsReparse(card: SourceCard): boolean {
     if ('metadata' in card) return !!card.requiresExportMatch
@@ -1597,7 +1641,7 @@ async function verifyAnkiTargets(plugin: MyPlugin, group: readonly Operation[], 
     observed?: ReadonlyMap<number, NoteSnapshot>): Promise<ReadonlyMap<number, NoteSnapshot>> {
     const saved = observed ?? await readNotes(group.map(item => item.link.bullet.id), profile)
     await requireExpectedAnkiProfile(plugin, profile)
-    for (const { link, target, requests } of group) {
+    for (const { link, remoteTarget: target, requests } of group) {
         const id = link.bullet.id
         const note = saved.get(id)
         const clean = note && sourceFieldsSnapshot(note, link.bullet, link.generated, true)
@@ -1622,11 +1666,13 @@ function confirmedFieldReceipt(item: Operation, note: NoteSnapshot | undefined):
     const present: string[] = []
     const values = Object.create(null) as Record<string, string>
     const pair = explicitBlock(link.bullet)?.fieldPair ?? ['Front', 'Back']
-    for (const name of pair) {
+    for (const [index, name] of pair.entries()) {
+        if (item.skipped?.includes(index === 0 ? 'front' : 'back')) continue
         const value = rawField(note, name)
         if (value !== undefined) values[name] = value
     }
     for (const name of eligible) {
+        if (item.skipped?.includes(`extra:${name}`)) continue
         const value = rawField(note, name)
         if (value === undefined) continue
         const labeled = Object.prototype.hasOwnProperty.call(link.bullet.extra ?? {}, name) || !!target.extra?.[name]
@@ -1647,34 +1693,40 @@ function needsUpdate(link: Link, target: SyncValue): boolean {
         !syncValuesEqual(link.obsidian, target) || !syncValuesEqual(link.anki, target)
 }
 
-function selectedForLink(link: Link, choices: ReadonlyMap<string, BidirectionalSide>): SyncChoices {
+function selectedForLink(link: Link, choices: ReadonlyMap<string, BidirectionalChoice>): SyncChoices {
     const id = link.bullet.id
     const selected: SyncChoices = {}
     for (const field of fields) {
         const choice = choices.get(`${id}:${field}`)
-        if (choice) selected[field] = choice
+        if (choice && choice !== 'skip') selected[field] = choice
     }
     for (const field of link.extraDirections?.keys() ?? []) {
         const key = `extra:${field}` as const
         const choice = choices.get(`${id}:${key}`)
-        if (choice) selected[key] = choice
+        if (choice && choice !== 'skip') selected[key] = choice
     }
     return selected
 }
 
-function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSide>): Operation[] {
+function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalChoice>): Operation[] {
     return plan.links.flatMap((link): Operation[] => {
         const id = link.bullet.id
         const block = explicitBlock(link.bullet)
-        const { value: target, conflicts } = targetFor(link, selectedForLink(link, choices))
-        if (conflicts.length || !needsUpdate(link, target)) return []
+        const skipped = link.record?.pending?.skipped ?? [...fields, ...Array.from(link.extraDirections?.keys() ?? [], name => `extra:${name}` as const)]
+            .filter(field => choices.get(`${id}:${field}`) === 'skip')
+        const { value, conflicts } = targetFor(link, selectedForLink(link, choices))
+        if (conflicts.some(field => !skipped.includes(field)) || !needsUpdate(link, value)) return []
+        const target = keepFields(value, link.obsidian, skipped)
+        const remoteTarget = keepFields(value, link.anki, skipped)
+        if (skipped.length && !link.record?.pending && !previewChanges(link).some(change =>
+            choices.get(change.key) !== 'skip')) return []
         link = resolvedPageContext(link, target.front)
         const localFields: Partial<Record<'Front' | 'Back', string>> = {}
         const remoteFields: Record<string, string> = {}
         for (const field of ['front', 'back'] as const) {
             if (!fieldEqual(link.obsidian, target, field)) localFields[labels[field]] = target[field]
             const remoteName = block?.fieldPair?.[field === 'front' ? 0 : 1] ?? labels[field]
-            if (!fieldEqual(link.anki, target, field)) remoteFields[remoteName] =
+            if (!fieldEqual(link.anki, remoteTarget, field)) remoteFields[remoteName] =
                 (block ? writeEditableAnkiBlockField(target[field], block, field === 'back' && hasLinkedAnswerSlot(block.format)) : writeEditableAnkiField(target[field])) +
                 (link.ankiBacklinks[field === 'front' ? 0 : 1] ?? '')
         }
@@ -1688,7 +1740,7 @@ function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSid
             const value = target.extra![field]
             if (link.obsidian.extra![field].normalize('NFC') !== value.normalize('NFC')) localExtras[field] = value
             const before = link.anki.extra![field]
-            if (before.normalize('NFC') !== value.normalize('NFC')) {
+            if (before.normalize('NFC') !== remoteTarget.extra![field].normalize('NFC')) {
                 if (link.outboundBlocked?.has(field) || cardFieldHazards(field, before, value).length) throw stalePlan()
                 remoteFields[field] = block ? writeEditableAnkiBlockField(value, block, true) : writeEditableAnkiField(value, true)
             }
@@ -1698,22 +1750,17 @@ function operationsFor(plan: Plan, choices: ReadonlyMap<string, BidirectionalSid
         const patches = 'explicitFields' in link.bullet
             ? planExplicitBlockPatches(link.source.content, link.bullet, { ...localFields, ...localExtras }, tags)
             : planLinkedBulletPatches(link.source.content, link.bullet, localFields, tags, localExtras)
-        for (const offset of link.spacing?.offsets ?? []) {
-            const at = link.bullet.start + offset
-            const adjacent = patches.find(patch => patch.start === at)
-            if (adjacent) adjacent.text = ' ' + adjacent.text
-            else patches.push({ start: at, end: at, text: ' ' })
-        }
+        addSpacingPatches(link, patches)
         if (link.datePatch) patches.push(link.datePatch)
         const requests: AnkiConnect.AnkiConnectRequest[] = []
         if (Object.keys(remoteFields).length) requests.push(AnkiConnect.updateNoteFields(id, remoteFields))
         const prior = new Set(link.anki.tags.map(tag => tag.toLowerCase()))
-        const next = new Set(target.tags.map(tag => tag.toLowerCase()))
-        const added = target.tags.filter(tag => !prior.has(tag.toLowerCase()))
+        const next = new Set(remoteTarget.tags.map(tag => tag.toLowerCase()))
+        const added = remoteTarget.tags.filter(tag => !prior.has(tag.toLowerCase()))
         const removed = link.anki.tags.filter(tag => !next.has(tag.toLowerCase()))
         if (added.length) requests.push(AnkiConnect.addTags([id], added.join(' ')))
         if (removed.length) requests.push(AnkiConnect.removeTags([id], removed.join(' ')))
-        return [{ link, target, patches, requests }]
+        return [{ link, target, remoteTarget, skipped: skipped.length ? skipped : undefined, patches, requests }]
     })
 }
 
@@ -1866,7 +1913,19 @@ async function applyPauseUpdates(plugin: MyPlugin, plan: Plan, state: Bidirectio
     await state.checkpoint(updates)
 }
 
-async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<string, BidirectionalSide>,
+function rowDetail(row: BidirectionalPreviewRow, t: UiText): string | undefined {
+    const conflict = row.changes.find(change => change.decision === 'conflict' && !change.recommendedSide)
+    if (row.issues?.length) return row.issues[0]
+    if (conflict) {
+        const action = t('Choose a sync direction in the preview.', 'Выберите направление синхронизации в предпросмотре.')
+        return conflict.field + ' — ' + [conflict.reviewReason, action].filter(Boolean).join(' ')
+    }
+    if (row.changes.some(change => change.key === row.id + ':delete' || change.key === row.id + ':deletion')) {
+        return t('Review the deletion in the sync preview.', 'Проверьте удаление в предпросмотре синхронизации.')
+    }
+}
+
+async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<string, BidirectionalChoice>,
     onPartial?: () => void, mode: 'preview' | 'manual' | 'background' = 'preview'): Promise<string> {
     const t = uiFor(plugin.settings)
     const changes = syncHistoryEnabled(plugin) ? new BidirectionalChanges(plugin, plan.profile) : undefined
@@ -1884,15 +1943,24 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         if (configuration(plugin) !== plan.configuration || currentRevision() !== plan.revision) throw stalePlan()
         const { vault } = plugin.app
         const outcomeCounts = new SyncOutcome()
-        const planned = operationsFor(plan, choices)
         const errors: string[] = []
+        const skippedChoices = [...choices].filter(([, choice]) => choice === 'skip')
+        const skippedNotice = skippedChoices.length ? skippedFields(skippedChoices.length, t) : ''
+        if (changes && skippedChoices.length) for (const row of plan.rows) {
+            const skipped = row.changes.filter(change => choices.get(change.key) === 'skip')
+            if (skipped.length) changes.add({ path: row.path, noteId: row.id, direction: 'none', action: 'skip',
+                detail: t('Skipped in the preview: ', 'Пропущено в предпросмотре: ') + skipped.map(change => change.field).join(', ') })
+        }
         if (changes && mode === 'preview') for (const row of plan.rows) {
             const conflict = row.changes.some(change => change.decision === 'conflict' && !choices.has(change.key))
             if (!conflict && !row.issues?.length && !row.duplicates?.length) continue
             changes.add({ path: row.path, noteId: row.id, direction: 'none', action: 'skip',
-                detail: row.issues?.join(' ') || (row.duplicates?.length ? t('Duplicate ID.', 'Повторяющийся ID.')
+                detail: rowDetail(row, t) || (row.duplicates?.length ? t('Duplicate ID.', 'Повторяющийся ID.')
                     : t('Conflict left unresolved.', 'Конфликт остался нерешённым.')) })
         }
+        if (skippedChoices.length && !plan.deletions.size && !plan.links.some(link => link.record?.pending) &&
+            plan.rows.every(row => row.changes.every(change => choices.get(change.key) === 'skip'))) return skippedNotice
+        const planned = operationsFor(plan, choices)
         let browseNotice = ''
         const defer = (item: Operation) => {
             const message = uiDiagnostic(ankiBrowseMessage(item.link.bullet.id, item.link.obsidian.front), t)
@@ -1912,6 +1980,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         if (!operations.length && !chosenPauses.length && !plan.deletions.size) {
             if (errors.length) onPartial?.()
             if (browseNotice) return browseNotice
+            if (skippedNotice && !errors.length) return skippedNotice
             return errors[0] ?? (mode === 'background'
                 ? t('No changes applied.', 'Изменения не применялись.')
                 : t('There are no changes with a confirmed choice.', 'Нет изменений с подтверждённым вариантом.'))
@@ -1931,7 +2000,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
             if (group.length === 0) bySource.set(link.source, group)
             group.push(item)
             if (item.patches.length || item.requests.length) pending.push([id, {
-                ...link.record, pending: { obsidian: link.obsidian, anki: link.anki, target, ankiBacklinks: link.ankiBacklinks,
+                ...link.record, pending: { obsidian: link.obsidian, anki: link.anki, target, skipped: item.skipped, ankiBacklinks: link.ankiBacklinks,
                     sourceSuffixes: link.generated && sourceSuffixMap(link.generated, 'before'),
                     targetSourceSuffixes: link.pageContextField && !fieldEqual(link.obsidian, target, 'front') ? link.sourceSuffixes : undefined,
                     extraDirections: link.extraDirections && Object.fromEntries(link.extraDirections) },
@@ -1969,32 +2038,38 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
         const fileHashes = new Map<SourceFile, string>()
         const confirm = (item: Operation, sourceHash: string | undefined, note?: NoteSnapshot) => {
             const { link, target } = item
-            if (link.spacing) outcomeCounts.record('normalize', link.bullet.id)
-            if (item.requests.some(request => request.action === 'updateNoteFields') || link.datePatch ||
-                !syncValuesEqual({ ...link.obsidian, tags: target.tags }, target)) outcomeCounts.record('edit', link.bullet.id)
-            if (item.requests.some(request => request.action === 'addTags' || request.action === 'removeTags') ||
-                !fieldEqual(link.obsidian, target, 'tags')) outcomeCounts.record('tags', link.bullet.id)
+            if (item.requests.some(request => request.action === 'updateNoteFields')) outcomeCounts.record('edit', link.bullet.id, 'Anki')
+            if (link.datePatch || !syncValuesEqual({ ...link.obsidian, tags: target.tags }, target)) outcomeCounts.record('edit', link.bullet.id, 'Obsidian')
+            if (item.requests.some(request => request.action === 'addTags' || request.action === 'removeTags')) outcomeCounts.record('tags', link.bullet.id, 'Anki')
+            if (!fieldEqual(link.obsidian, target, 'tags')) outcomeCounts.record('tags', link.bullet.id, 'Obsidian')
             const receipt = confirmedFieldReceipt(item, note)
             if (receipt) fieldReceipts.push(receipt)
             const prior = item.link.namedFieldModel === item.link.record?.namedFieldModel ? item.link.record?.base?.extra : undefined
-            const base = prior ? { ...item.target, extra: { ...prior, ...item.target.extra } } : item.target
+            const agreed = keepFields(item.target, link.record?.base, item.skipped)
+            const base = prior ? { ...agreed, extra: { ...prior, ...agreed.extra } } : agreed
+            const unbasedFields = item.skipped?.filter(field => !link.record?.base || link.record.unbasedFields?.includes(field) ||
+                field.startsWith('extra:') && link.record.base.extra?.[field.slice(6)] === undefined)
             if (prior && item.link.pageShared) for (const name of Object.keys(item.link.pageShared)) delete base.extra![name]
             const [frontName, backName] = explicitBlock(item.link.bullet)?.fieldPair ?? ['Front', 'Back']
-            const front = receipt?.fields?.[frontName], back = receipt?.fields?.[backName]
+            const hash = (field: 'front' | 'back', name: string) => {
+                const value = receipt?.fields?.[name]
+                return value === undefined ? link.record?.pairReceipt?.[field] : oneWayFieldDigest(value)
+            }
+            const front = hash('front', frontName), back = hash('back', backName)
             const pairReceipt = front !== undefined && back !== undefined
-                ? { model: item.link.model, front: oneWayFieldDigest(front), back: oneWayFieldDigest(back) } : undefined
+                ? { model: item.link.model, front, back } : undefined
             const source = item.link.source
             let clockContext: SyncRecord['clockContext']
-            if (note && validFileTime(source.file.stat.mtime)) {
+            if (!item.skipped && note && validFileTime(source.file.stat.mtime)) {
                 let file = fileHashes.get(source)
                 if (!file) {
                     file = oneWayFieldDigest(fieldOutputs.get(source) ?? source.content)
                     fileHashes.set(source, file)
                 }
-                clockContext = { file, other: otherNoteDigest(item.link, note), mtime: source.file.stat.mtime, mod: note.mod }
+                clockContext = { file, other: otherNoteDigest(item.link, note), mtime: source.file.stat.mtime, mod: validNoteTime(note.mod) ? note.mod : undefined }
             }
-            confirmed.push([item.link.bullet.id, { ...item.link.record, pending: undefined, base, pairReceipt, clockContext, namedFieldModel: item.link.namedFieldModel,
-                sourceSuffixes: item.link.sourceSuffixes, deletionSource: sourceHash }])
+            confirmed.push([item.link.bullet.id, { ...item.link.record, pending: undefined, base, unbasedFields: unbasedFields?.length ? unbasedFields : undefined, pairReceipt, clockContext, namedFieldModel: item.link.namedFieldModel,
+                sourceSuffixes: item.link.sourceSuffixes, deletionSource: item.skipped ? undefined : sourceHash }])
         }
         if (!chosenPauses.length && !plan.deletions.size && canBatchFields(operations)) {
             try {
@@ -2026,7 +2101,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                     }
                     for (const item of group) {
                         if (!item.requests.length) continue
-                        const { link, target } = item
+                        const { link, remoteTarget: target } = item
                         const id = link.bullet.id
                         let expected = link.anki
                         let fieldsWritten = false
@@ -2139,8 +2214,9 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                             const paused = pause.slots.some(slot => !slot.suspended && pause.merge.target.has(slot.cardId))
                             const resumed = pause.slots.some(slot => slot.suspended && !pause.merge.target.has(slot.cardId))
                             const action = paused && resumed ? 'status' : paused ? 'suspend' : 'resume'
-                            outcomeCounts.record(action, pause.id)
-                        } else if (pause.merge.localChange) outcomeCounts.record('status', pause.id)
+                            outcomeCounts.record(action, pause.id, 'Anki')
+                        }
+                        if (pause.merge.localChange) outcomeCounts.record('status', pause.id, 'Obsidian')
                     }
                 } catch (error) {
                     changes?.add({ action: 'error', direction: 'none', path: pauses.length === 1 ? pauses[0].source.path : '',
@@ -2203,6 +2279,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                     const result = cleanConfirmedDeletes(expectedText, commands, new Set(ids),
                         afterDeleteMode(plugin.settings), plugin.settings.TRASH_DELETED_PAGES === true, ranges,
                         t('Deleted from Anki', 'Удалено из Anki'), localRemovalRows)
+                    const movePage = result.trash ? await pageTrash(plugin.app) : undefined
                     const verifyLocal = async () => {
                         guard()
                         if (source.path !== source.file.path || vault.getAbstractFileByPath(source.path) !== source.file ||
@@ -2251,7 +2328,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                             fields: snapshotFields(note).map(([name, before]) => ({ name, before })) })
                     }
                     if (!problems.length) for (const id of active) {
-                        if (presence.get(id) === false) outcomeCounts.record('delete', id)
+                        if (presence.get(id) === false) outcomeCounts.record('delete', id, 'Anki')
                     }
                     if (problems.length || ids.some(id => presence.get(id) !== false)) throw stalePlan()
                     await verifyLocal()
@@ -2265,9 +2342,9 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                         guard()
                     }
                     ownWritePath = source.path
-                    if (result.trash) {
+                    if (movePage) {
                         if (ids.length !== 1 || plugin.settings.TRASH_DELETED_PAGES !== true) throw stalePlan()
-                        await vault.trash(source.file, false)
+                        await movePage(source.file)
                         if (vault.getAbstractFileByPath(source.path)) throw stalePlan()
                     } else if (result.text !== expectedText) {
                         await vault.process(source.file, text => {
@@ -2283,7 +2360,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                             fields: [{ name: 'Markdown', ...field }] })
                     }
                     await state.checkpoint(ids.filter(id => !explicitIds.has(id)).map(id => [id, undefined] as const))
-                    for (const id of ids) if (group.evidence.get(id) === null) outcomeCounts.record('cleanup', id)
+                    for (const id of ids) if (group.evidence.get(id) === null) outcomeCounts.record('cleanup', id, 'Obsidian')
                 }
             } catch (error) {
                 changes?.add({ action: 'error', direction: 'none', path: deletionPath, detail: uiDiagnostic(error, t) })
@@ -2291,7 +2368,7 @@ async function applyPlan(plugin: MyPlugin, plan: Plan, choices: ReadonlyMap<stri
                 if (error instanceof AnkiProfileError) profileProblem = error
             }
         }
-        const summary = [outcomeCounts.message(t), browseNotice].filter(Boolean).join('\n')
+        const summary = [outcomeCounts.message(t), skippedNotice, browseNotice].filter(Boolean).join('\n')
         if (profileProblem) {
             showAnkiProfileProblem(plugin, profileProblem, dispatchedWrite ? 'in-progress' : 'before-write', summary)
         }
@@ -2353,6 +2430,7 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
         const automatic = !previewRequested && plugin.settings.BIDIRECTIONAL_PREVIEW !== true
         let applicable = plan
         const held = new Set<number>()
+        const skipped = new Set(plan.rows.filter(row => row.recoverable).map(row => row.id))
         const automaticChoices = new Map<string, BidirectionalSide>()
         if (automatic) {
             for (const row of plan.rows) {
@@ -2379,7 +2457,7 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 for (const row of plan.rows) {
                     if (!held.has(row.id)) continue
                     checks.add({ path: row.path, noteId: row.id, direction: 'none', action: 'skip',
-                        detail: row.issues?.join(' ') || (row.duplicates?.length ? t('Duplicate ID.', 'Повторяющийся ID.')
+                        detail: rowDetail(row, t) || (row.duplicates?.length ? t('Duplicate ID.', 'Повторяющийся ID.')
                             : t('Needs confirmation in the preview.', 'Требуется подтверждение в предпросмотре.')) })
                 }
                 if (pending || !plan.complete || plan.issues.length) checks.add({ path: scope.currentFile?.path ?? '', direction: 'none',
@@ -2398,19 +2476,24 @@ export async function runBidirectionalSync(plugin: MyPlugin, scope: Scope = {}, 
                 new Notice(t('Could not check all vault IDs. ', 'Не удалось проверить все ID хранилища. ') + detail)
                 return 'failed'
             }
+            if (skipped.size && plugin.settings.SKIP_SYNC_ERRORS !== true) {
+                const problem = plan.rows.find(row => row.recoverable)
+                const detail = problem && rowDetail(problem, t)
+                if (!scope.scheduled) new Notice([checkedCount(plan.scanned, 'note', t), t('Sync paused before applying changes. Review the card error in the preview.',
+                    'Синхронизация приостановлена до внесения изменений. Откройте предпросмотр, чтобы проверить ошибку карточки.'),
+                    detail && uiDiagnostic(detail, t)].filter(Boolean).join('\n'), 10000)
+                return 'stopped'
+            }
             let partial = false
             const result = canApply ? await applyPlan(plugin, applicable, automaticChoices, () => { partial = true }, scope.scheduled ? 'background' : 'manual') : ''
             if (!scope.scheduled) {
                 const checked = checkedCount(plan.scanned, 'note', t)
-                const problem = plan.issues[0] ?? plan.rows.find(row => row.issues?.length)?.issues?.[0]
+                const firstHeld = plan.rows.find(row => held.has(row.id) && rowDetail(row, t))
+                const problem = plan.issues[0] ?? (firstHeld && rowDetail(firstHeld, t))
                 const detail = problem ? uiDiagnostic(problem, t) : ''
-                const deferred = held.size ? deferredNotes(held.size, t) : ''
-                const lines = [checked, result, deferred, detail].filter(Boolean)
-                if (lines.length === 1) {
-                    lines.push(plan.scanned ? t('No changes.', 'Изменений нет.')
-                        : t('No linked notes found. To create a note, place the cursor in the card and run Preview Current Card.',
-                            'Связанных записей не найдено. Чтобы создать запись, поставьте курсор в карточку и выполните «Предпросмотр текущей карточки».'))
-                }
+                const deferred = held.size > skipped.size ? deferredNotes(held.size - skipped.size, t) : ''
+                const lines = [checked, result, skipped.size && skippedNotes(skipped.size, t), deferred, detail].filter(Boolean)
+                if (lines.length === 1) lines.push(t('No changes.', 'Изменений нет.'))
                 new Notice(lines.join('\n'), partial || detail ? 10000 : 4000)
             } else if (result && partial) {
                 new Notice(result, 10000)

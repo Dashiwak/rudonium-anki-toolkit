@@ -1,6 +1,6 @@
 {
   "name": "rudonium-anki-toolkit",
-  "version": "0.11.3",
+  "version": "0.12.4",
   "description": "This is an Anki integration plugin! Designed for efficient bulk exporting.",
   "main": "main.js",
   "scripts": {
@@ -30,7 +30,6 @@
     "@wdio/spec-reporter": "^8.12.2",
     "obsidian": "^1.4.11",
     "rollup": "2.79.1",
-    "rollup-plugin-node-polyfills": "^0.2.1",
     "showdown-highlight": "^3.1.0",
     "ts-node": "^10.9.1",
     "tslib": "^2.6.1",
@@ -57,5 +56,12 @@
   "peerDependencies": {
     "@codemirror/state": "^6.0.0",
     "@codemirror/view": "^6.0.0"
+  },
+  "overrides": {
+    "minimatch@5.0.1": "5.1.9",
+    "minimatch@~3.0.2": "3.1.5",
+    "magic-string@0.25.9": {
+      "sourcemap-codec": "npm:@jridgewell/sourcemap-codec@1.4.15"
+    }
   }
 }

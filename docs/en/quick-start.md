@@ -6,7 +6,7 @@ Your first export will send one card from a saved Markdown note to Anki.
 
 Already have card files from another plugin? From Quick Start choose **Migrate existing card files**. The [migration guide](migrate-card-files.md) explains the preview, source formats and full vault backup.
 
-Quick Start opens automatically when the vault has no configured format or complete block markers. You can reopen it from **Anki Connection → First Run** or the **Quick Start** command. Anki can be offline when the wizard opens.
+Quick Start opens automatically when the vault has no configured format or complete block markers. You can reopen it from **Anki Connection → Quick Start → Set up sync** or the **Quick Start** command. Anki can be offline when the wizard opens.
 
 ## Install or update
 
@@ -36,8 +36,10 @@ In plugin settings, choose the default deck from the active Anki profile. A subd
 In a Markdown note inside your selected folder, enter this line and save the note.
 
 ```markdown
-What is the capital of Austria? :: Vienna
+- Which lake in Siberia is the deepest on Earth? :: Lake Baikal
 ```
+
+For a rule you can paste into the plugin settings, see the [RemNote regular expression](../../README.md#enter-the-remnote-rule-manually).
 
 1. Put the cursor inside the example and run **Preview Current Card** from the command palette. Check its question, answer and deck.
 2. Select **Sync this card**. Review the proposed creation and confirm the export. Rudonium writes the Anki note ID next to the card. Keep this ID with the card when editing it.

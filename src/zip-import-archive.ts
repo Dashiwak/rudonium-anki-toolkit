@@ -2,10 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as fs from 'fs'
-import * as path from 'path'
-import * as os from 'os'
-import * as crypto from 'crypto'
+import { files as fs, paths as path, temporaryDirectory, hashes as crypto, bytes as binary } from './desktop-io'
+import type { FileHandle, Bytes } from './desktop-io'
 import { restoreVaultZip } from './vault-backup-zip'
 
 export interface ZipImportProgress {
@@ -85,7 +83,7 @@ async function copySource(source: string | File, target: string, onProgress?: Pr
             size = initial.size
             name = path.basename(source)
             if (size > maxArchiveBytes) throw new Error('The ZIP archive is larger than the supported 2 GiB import size.')
-            const buffer = Buffer.allocUnsafe(1024 * 1024)
+            const buffer = binary.allocUnsafe(1024 * 1024)
             while (bytes < size) {
                 abort(signal)
                 const amount = Math.min(buffer.length, size - bytes)
@@ -131,7 +129,7 @@ async function copySource(source: string | File, target: string, onProgress?: Pr
     }
 }
 
-async function writeFully(file: import('fs/promises').FileHandle, bytes: Uint8Array): Promise<void> {
+async function writeFully(file: FileHandle, bytes: Uint8Array): Promise<void> {
     let offset = 0
     while (offset < bytes.length) {
         const { bytesWritten } = await file.write(bytes, offset, bytes.length - offset, null)
@@ -140,7 +138,7 @@ async function writeFully(file: import('fs/promises').FileHandle, bytes: Uint8Ar
     }
 }
 
-async function readChecked(root: string, entry: Pick<ZipImportEntry, 'path' | 'size'>, expectedHash?: string): Promise<Buffer> {
+async function readChecked(root: string, entry: Pick<ZipImportEntry, 'path' | 'size'>, expectedHash?: string): Promise<Bytes> {
     const filename = path.join(root, ...entry.path.split('/'))
     const file = await fs.promises.open(filename, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
     try {
@@ -162,7 +160,7 @@ async function readChecked(root: string, entry: Pick<ZipImportEntry, 'path' | 's
 export async function prepareZipImportArchive(source: string | File, onProgress?: Progress,
     signal?: AbortSignal): Promise<ZipImportArchive> {
     abort(signal)
-    const temporary = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'rupos-zip-import-'))
+    const temporary = await fs.promises.mkdtemp(path.join(temporaryDirectory(), 'rupos-zip-import-'))
     await fs.promises.chmod(temporary, 0o700)
     const staging = path.join(temporary, 'files')
     let successful = false

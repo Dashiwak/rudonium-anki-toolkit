@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { cleanupTemporaryDirectory } = require("./workflow-files.cjs");
+const { cleanupTemporaryDirectory, copyTree, regularBytes, scanTree } = require("./workflow-files.cjs");
 const overlay = require("./overlay-source.cjs");
 const { copySuppliedSource } = require("./upstream-source.cjs");
 const { bundleNotice, configureRollup } = require("./release-rollup.cjs");
@@ -97,6 +97,17 @@ function verifyRuntimeManifest(script, packaged, expected) {
     if (!script.includes(bundleNotice(release, releaseLicense))) {
         throw new Error("The version in main.js does not match the release manifest.json.");
     }
+}
+
+function copyMaintainedInputs(checkout, source) {
+    for (const name of ["package.json", "package-lock.json", "main.ts", "styles.css", "tsconfig.json", "wdio.conf.ts", "rollup.config.js"]) {
+        fs.writeFileSync(path.join(source, name), regularBytes(path.join(checkout, name)));
+    }
+    const maintained = path.join(checkout, "src");
+    const staging = path.join(source, "src");
+    const manifest = scanTree(maintained);
+    fs.rmSync(staging, { recursive: true, force: true });
+    copyTree(maintained, staging, manifest);
 }
 
 function nameBuildPackage(source, manifest) {
@@ -221,18 +232,22 @@ async function build() {
             repository: "https://github.com/ObsidianToAnki/Obsidian_to_Anki",
             ...acquired,
         });
-        nameBuildPackage(source, release);
+        const maintained = fs.existsSync(path.join(__dirname, "overlay-files.json"));
+        if (maintained) copyMaintainedInputs(kit, source);
+        else nameBuildPackage(source, release);
 
         stage = "Install locked dependencies";
         console.log("Installing locked build dependencies...");
-        npm(["ci", "--no-audit", "--no-fund", "--loglevel=http"], source);
+        npm(["ci", "--ignore-scripts", "--no-audit", "--no-fund"], source);
         stage = "Collect dependency notices";
         collectDependencyNotices(source);
         copyLegalDocuments(source);
-        console.log(`Applying ${release.name} ${release.version} patches...`);
-        stage = "Apply source patches";
-        require("./install.cjs").install(source);
-        configureRollup(source, release, releaseLicense);
+        if (!maintained) {
+            console.log(`Applying ${release.name} ${release.version} patches...`);
+            stage = "Apply source patches";
+            require("./install.cjs").install(source);
+            configureRollup(source, release, releaseLicense);
+        }
         fs.writeFileSync(manifestPath, releaseBytes);
         console.log("Checking TypeScript...");
         stage = "TypeScript";
@@ -311,4 +326,4 @@ if (require.main === module) build().catch(error => {
     process.exitCode = 1;
 });
 
-module.exports = { prepareRepository, verifyRuntimeManifest, npm };
+module.exports = { copyMaintainedInputs, prepareRepository, verifyRuntimeManifest, npm };

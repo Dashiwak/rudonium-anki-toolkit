@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as path from 'path'
-import { promises as fs } from 'fs'
+import { paths as path, fileOperations as fs, bytes as binary } from './desktop-io'
+import type { DesktopFileOperations, DesktopPaths, DirectoryEntry } from './desktop-io'
 import { Notice } from 'obsidian'
 import type { FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
@@ -11,7 +11,7 @@ import { activeAnkiBackupProfile, backupAnkiCollection } from './anki-backup'
 import { AnkiProfileError, checkPinnedAnkiProfile, requireExpectedAnkiProfile } from './anki-profile'
 import { restoreVaultZip, verifyVaultZip, writeVaultZip } from './vault-backup-zip'
 import type { VaultZipProgress } from './vault-backup-zip'
-import { withFastScanReadLock } from './fast-scan'
+import { withFastScanReadLock } from './scan-state'
 import { uiDiagnostic, uiFor } from './interface-language'
 import type { UiText } from './interface-language'
 import { archiveFolderIncluded, archiveScopeSignature, readArchiveSettings } from './archive-settings'
@@ -125,7 +125,7 @@ function desktop(plugin: MyPlugin) {
     return { fs, path, base: adapter.getBasePath() }
 }
 
-function isIn(path: typeof import('path'), root: string, candidate: string): boolean {
+function isIn(path: DesktopPaths, root: string, candidate: string): boolean {
     const relative = path.relative(root, candidate)
     return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
 }
@@ -204,7 +204,7 @@ function checkedManifest(raw: unknown): BackupManifest | undefined {
     return value as BackupManifest
 }
 
-async function readManifest(fs: typeof import('fs').promises, file: string): Promise<BackupManifest> {
+async function readManifest(fs: DesktopFileOperations, file: string): Promise<BackupManifest> {
     const initial = await fs.lstat(file)
     if (!initial.isFile() || initial.size <= 0 || initial.size > maxManifestBytes) {
         throw new Error('The backup metadata must be a regular file no larger than 16 MiB.')
@@ -216,7 +216,7 @@ async function readManifest(fs: typeof import('fs').promises, file: string): Pro
             info.size !== initial.size || info.mtimeMs !== initial.mtimeMs || info.ctimeMs !== initial.ctimeMs) {
             throw new Error('The backup metadata changed while opening it.')
         }
-        const bytes = Buffer.alloc(info.size + 1)
+        const bytes = binary.alloc(info.size + 1)
         let length = 0
         while (length < bytes.length) {
             const result = await handle.read(bytes, length, bytes.length - length, null)
@@ -275,7 +275,7 @@ export async function inspectVaultBackupSource(plugin: MyPlugin, archive: string
 async function* matchingBackups(loc: Awaited<ReturnType<typeof destination>>,
     matches: (manifest: BackupManifest) => boolean): AsyncGenerator<SavedBackup> {
     const { fs, path, directory } = loc
-    const entries = await fs.readdir(directory, { withFileTypes: true }).catch(error => {
+    const entries = await fs.readdir(directory, { withFileTypes: true }).catch((error: unknown): DirectoryEntry[] => {
         if (missing(error)) return []
         throw error
     })
@@ -353,13 +353,12 @@ export async function ensureScheduledBackup(plugin: MyPlugin, expectedProfile?: 
         const loc = await destination(plugin, settings, false)
         const now = Date.now()
         const cutoff = now - settings.intervalDays * dayMs
-        let created = true
-        for await (const _backup of matchingBackups(loc, manifest => manifest.vaultRoot === loc.root &&
+        const candidates = matchingBackups(loc, manifest => manifest.vaultRoot === loc.root &&
             (!profile || manifest.profile === profile) && sameBackupScope(manifest.scope, scope) &&
-            manifest.completedAt <= now && manifest.completedAt > cutoff)) {
-            created = false
-            break
-        }
+            manifest.completedAt <= now && manifest.completedAt > cutoff)
+        let created: boolean
+        try { created = (await candidates.next()).done === true }
+        finally { await candidates.return(undefined) }
         if (created) {
             const folder = await createSnapshot(await destination(plugin, settings, true), profile, t, scope)
             new Notice(t(`Backup verified. Continuing export.\n${folder}`,

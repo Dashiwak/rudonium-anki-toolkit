@@ -83,9 +83,9 @@ for (const { model, marker, front, back, service, yaml, footer } of cases) test(
     const app = {
         metadataCache: { getCache() { return null } },
         workspace: { getLeavesOfType: () => [], getActiveFile: () => file, on() {}, onLayoutReady(callback) { callback() } },
+        fileManager: { trashFile: async f => { assert.equal(f, file); trashed = true } },
         vault: { getMarkdownFiles: () => trashed ? [] : [file],
             getAbstractFileByPath: path => !trashed && path === file.path ? file : null,
-            trash: async (f, system) => { assert.equal(f, file); assert.equal(system, false); trashed = true },
             getName: () => 'Vault', configDir: '.obsidian',
             on(type, listener) { if (type === 'modify') modified = listener },
             adapter: { exists: async p => checkpoint.has(p), read: async p => checkpoint.get(p),
@@ -134,13 +134,13 @@ for (const { model, marker, front, back, service, yaml, footer } of cases) test(
     edit(file.text.replace('A question', 'A revised question').replace('An answer', 'An answer from Obsidian'))
     dialog = await preview()
     assert.deepEqual(dialog.preview.rows[0].changes.map(change => change.decision), ['obsidian', 'obsidian'])
-    assert.match(await dialog.apply(new Map()), /Updated 1 note\./)
+    assert.match(await dialog.apply(new Map()), /Updated 1 note in (?:Anki|Obsidian)\./)
     assert.deepEqual(requests, [{ [front]: 'A revised question', [back]: 'An answer from Obsidian' }])
     fields[front].value = 'Front from Anki'
     fields[back].value = 'Back from Anki'
     dialog = await preview()
     assert.deepEqual(dialog.preview.rows[0].changes.map(change => change.decision), ['anki', 'anki'])
-    assert.match(await dialog.apply(new Map()), /Updated 1 note\./)
+    assert.match(await dialog.apply(new Map()), /Updated 1 note in (?:Anki|Obsidian)\./)
     assert.equal(file.text, properties + '# Front from Anki #anki-page' + meta + 'Back from Anki\r\n' + savedFooter + tail)
     // Normal command bypasses the dialog by default, in both a no-op and a safe inbound write.
     delete plugin.settings.BIDIRECTIONAL_PREVIEW

@@ -125,6 +125,7 @@ function patchMain(source, ts) {
         await this.initializeRudonium()
     }\n\n` +
         `    private async initializeRudonium(): Promise<void> {\n        if (this.rudoniumStopped) return\n${body.trimEnd()}\n        this.rudoniumInitialized = true\n    `);
+    source = replaceOnce(source, /async onload\(\)\s*\{/, "onload(): void {\n        void this.loadRudonium().catch((error: unknown) => {\n            if (this.rudoniumStopped) return\n            console.error('[Rudonium] Could not start plugin', error)\n            new Notice(uiFor(this.settings)('Could not start Rudonium. See the console for details.',\n                'Не удалось запустить Rudonium. Подробности в консоли.'))\n        })\n    }\n\n    private async loadRudonium(): Promise<void> {");
     editBody("onunload", body => `\n        this.rudoniumStopped = true\n        if (!this.rudoniumInitialized) return\n${body}`);
     source = replaceOnce(source, /(?=\basync saveAllData\(\))/,
         `private rudoniumDataExtras: Record<string, unknown> = {}
@@ -659,6 +660,9 @@ function install(directory) {
         ["src/constants.ts", patchMarkdownConstants],
         ["src/format.ts", patchFormatter],
     ]);
+    if (fs.existsSync(path.join(__dirname, "overlay-files.json"))) {
+        edits.set("src/settings.ts", () => fs.readFileSync(overlay.file("settings.ts"), "utf8"));
+    }
     const sources = [];
     for (const [file, patch] of edits) {
         const fullPath = path.join(root, file);

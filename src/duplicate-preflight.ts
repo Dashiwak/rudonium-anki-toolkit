@@ -241,6 +241,7 @@ export class DuplicatePreflight {
                 if (candidates.length) matches.set(target, candidates)
             }
         } catch {
+            // Keep the matches confirmed before the lookup failed.
         }
         return matches
     }

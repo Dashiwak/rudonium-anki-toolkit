@@ -2,9 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as fs from 'fs'
-import * as path from 'path'
-import * as crypto from 'crypto'
+import { files as fs, paths as path, hashes as crypto } from './desktop-io'
+import type { DesktopFiles as FileSystem, DesktopPaths, DesktopHashes } from './desktop-io'
 import type { App, FileSystemAdapter, TFile } from 'obsidian'
 import { rudoniumPluginId } from './plugin-identity'
 import type { ImageOptimizationSettings } from './image-optimizer'
@@ -30,9 +29,9 @@ interface StoredReceipt extends ImageReplacementReceipt {
 }
 
 interface DesktopFiles {
-    fs: typeof import('fs')
-    path: typeof import('path')
-    crypto: typeof import('crypto')
+    fs: FileSystem
+    path: DesktopPaths
+    crypto: DesktopHashes
     root: string
 }
 

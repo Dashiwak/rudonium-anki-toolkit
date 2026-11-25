@@ -92,7 +92,7 @@ export async function auditAttachmentPresence(app: App, result: SyncAuditResult,
                 issues.push({ kind: 'missing-local', name: link, sources: [path] })
             } else {
                 const key = filenameKey(name)
-                const entry = local.get(key) ?? { name, files: new Set<string>(), notes: new Set<string>(), distinctNames: new Map() }
+                const entry = local.get(key) ?? { name, files: new Set<string>(), notes: new Set<string>(), distinctNames: new Map<string, Set<string>>() }
                 entry.files.add(destination.path)
                 entry.notes.add(path)
                 const remoteKey = filenameKey(remoteName)

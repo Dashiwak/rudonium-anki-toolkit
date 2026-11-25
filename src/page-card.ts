@@ -418,7 +418,7 @@ export function findPresetBlocks(text: string, readers: readonly PresetReader[],
             const names = reader.layout?.names ?? ['Front', 'Back']
             if (!spans || spans.length < names.length || !spans.slice(0, names.length).every((span, index) => span && (span[0] < span[1] || index === 1 && hasLinkedAnswerSlot(reader.format)))) continue
             const fields = new Map(names.map((name, i) => {
-                let [from, to] = spans![i]
+                let [from, to] = spans[i]
                 if (from === to && hasLinkedAnswerSlot(reader.format) && body.startsWith('::', from) &&
                     /[ \t]/u.test(body[from - 1])) {
                     // Keep the conventional space in front of the next separator when refilling the answer.

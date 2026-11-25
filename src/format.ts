@@ -1,6 +1,5 @@
 import { markdownHighlightPattern, memoizeMarkdownField } from './markdown-pipeline'
 import { AnkiConnectNote } from './interfaces/note-interface'
-import { basename, extname } from 'path'
 import { Converter } from 'showdown'
 import { CachedMetadata } from 'obsidian'
 import * as c from './constants'
@@ -101,16 +100,18 @@ export class FormatConverter {
 		for (let embed of this.file_cache.embeds) {
 			if (note_text.includes(embed.original)) {
 				this.detectedMedia.add(embed.link)
-				const extension = extname(embed.link).toLowerCase()
+				const filename = embed.link.split(/[\\/]/u).pop() ?? ''
+				const suffix = filename.lastIndexOf('.')
+				const extension = suffix > 0 ? filename.slice(suffix).toLowerCase() : ''
 				if (AUDIO_EXTS.includes(extension)) {
-					note_text = note_text.replace(new RegExp(c.escapeRegex(embed.original), "g"), "[sound:" + basename(embed.link) + "]")
+					note_text = note_text.replace(new RegExp(c.escapeRegex(embed.original), "g"), "[sound:" + filename + "]")
 				} else if (IMAGE_EXTS.includes(extension)) {
 					note_text = note_text.replace(
 						new RegExp(c.escapeRegex(embed.original), "g"),
-						'<img src="' + basename(embed.link) + '" alt="' + embed.displayText + '">'
+						'<img src="' + filename + '" alt="' + embed.displayText + '">'
 					)
 				} else {
-					console.warn("Unsupported extension: ", extname(embed.link))
+					console.warn("Unsupported extension: ", extension)
 				}
 			}
 		}

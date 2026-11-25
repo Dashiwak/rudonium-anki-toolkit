@@ -24,7 +24,7 @@
 .rudonium-settings-group > summary:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
 .rudonium-settings-group > .rudonium-settings-group-body { padding: 0 .8rem .5rem; }
 .rudonium-settings-group-body > p:first-child { color: var(--text-muted); margin-block: .25rem .6rem; }
-.rudonium-settings-about { margin-block-start: 1.2rem; padding-block-start: .4rem; border-top: 1px solid var(--background-modifier-border); }
+.rudonium-settings-about { margin-block-start: 1.2rem; padding-block-start: .4rem; }
 .rudonium-settings-about .setting-item { padding-block: .55rem; }
 .anki-settings-disclosure[data-rudonium-settings-group] { margin-block: .75rem 1.25rem; }
 .anki-settings-disclosure[data-rudonium-settings-group] > summary { cursor: pointer; font-weight: var(--font-medium, 500); }
@@ -36,15 +36,25 @@
   text-align: start;
 
   & .rudonium-settings-header {
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: var(--size-4-2, 8px);
-    padding-inline: var(--rudonium-setting-inset);
+    inline-size: 100%;
+    padding-block: .25rem .5rem;
+  }
+
+  & .rudonium-settings-help {
+    min-inline-size: 0;
+    margin-inline-start: auto;
+    text-align: end;
+    overflow-wrap: anywhere;
   }
 
   & .rudonium-section-controls {
     display: inline-flex;
+    flex-shrink: 0;
     gap: var(--size-2-1, 2px);
   }
 
@@ -53,25 +63,54 @@
     outline-offset: 1px;
   }
 
+  & hr {
+    display: none;
+  }
+
+  & .setting-group,
+  & .setting-items {
+    box-sizing: border-box;
+    min-inline-size: 0;
+    inline-size: 100%;
+    border: 0;
+    box-shadow: none;
+  }
+
   & .setting-item {
+    box-sizing: border-box;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--size-4-2, 8px);
-    padding-inline: var(--rudonium-setting-inset);
+    flex-flow: row wrap;
+    align-items: center;
+    gap: var(--size-4-2, 8px) var(--rudonium-setting-inset);
+    inline-size: 100%;
+    padding: .8rem var(--rudonium-setting-inset);
+    border: 0;
+    box-shadow: none;
     text-align: start;
+  }
+
+  & .setting-item.rudonium-settings-section {
+    display: block;
+    min-inline-size: 0;
+    inline-size: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
   }
 
   & .setting-item-info,
   & .setting-item-control {
-    flex: none;
     margin-inline: 0;
     min-inline-size: 0;
     max-inline-size: 100%;
   }
 
+  & .setting-item-info {
+    flex: 1 1 18rem;
+  }
+
   & .setting-item-control {
-    align-self: stretch;
+    flex: 1 1 16rem;
   }
 
   & .setting-item-control,
@@ -79,7 +118,9 @@
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-start;
+    gap: var(--size-4-2, 8px);
   }
 
   & .setting-item-control:empty,
@@ -92,28 +133,42 @@
     max-inline-size: 100%;
   }
 
+  & .setting-item-control :is(input[type="text"], input[type="search"], input[type="number"], select, textarea) {
+    inline-size: min(22rem, 100%);
+  }
+
   & .rudonium-default-deck-setting-list {
     max-width: min(22rem, 100%);
   }
 
   & .anki-settings-disclosure[data-rudonium-settings-group] {
+    box-sizing: border-box;
+    display: block;
+    min-inline-size: 0;
+    inline-size: 100%;
+    margin-block: .75rem;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-m, 8px);
   }
 
   & .anki-settings-disclosure[data-rudonium-settings-group] > summary {
     display: list-item;
-    list-style-position: outside;
-    margin-inline: calc(var(--rudonium-setting-inset) - 1px);
-    padding: .65rem 0;
+    list-style-position: inside;
+    margin: 0;
+    padding: .75rem var(--rudonium-setting-inset);
+    overflow-wrap: anywhere;
   }
 
-  & .anki-settings-disclosure[data-rudonium-settings-group] > div {
-    padding-inline: calc(var(--rudonium-setting-inset) - 1px);
+  & .anki-settings-disclosure[data-rudonium-settings-group] > .rudonium-settings-group-body {
+    box-sizing: border-box;
+    min-inline-size: 0;
+    inline-size: 100%;
+    padding: 0 var(--rudonium-setting-inset) .5rem;
   }
 
   & .rudonium-settings-about {
     padding-inline: var(--rudonium-setting-inset);
+    border: 0;
   }
 
   & .anki-settings-disclosure .setting-item,
@@ -126,6 +181,7 @@
   }
 
   & .anki-settings-table :is(th, td) {
+    border: 0;
     text-align: start;
   }
 }
@@ -499,11 +555,80 @@
   width: min(58rem, calc(100vw - 2rem));
 }
 
+.rudonium-connection-status {
+  display: flex;
+  align-items: flex-start;
+  gap: .65rem;
+  padding: .8rem 1rem;
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.rudonium-connection-status.is-offline,
+.rudonium-connection-status.is-problem {
+  color: var(--text-error);
+  background: var(--background-modifier-error);
+}
+
+.rudonium-connection-status.is-connected {
+  color: var(--text-success);
+}
+
+.rudonium-connection-status p {
+  margin: .25rem 0 0;
+  color: var(--text-normal);
+}
+
+.modal-button-container.rudonium-connection-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: .75rem 0;
+}
+
 .rudonium-first-connection-card {
   margin: .8rem 0;
   padding: .8rem 1rem;
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
+}
+
+.rudonium-copy-block {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  margin-block: .4rem;
+  padding: .25rem;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.rudonium-copy-block pre {
+  min-inline-size: 0;
+  margin: 0;
+  padding: .25rem;
+  overflow-x: auto;
+  user-select: text;
+}
+
+.rudonium-copy-block > .clickable-icon {
+  flex: none;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  --icon-size: 1rem;
+}
+
+.rudonium-copy-block > button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.rudonium-copy-status {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
 }
 
 .rudonium-first-connection-form {
@@ -821,12 +946,6 @@ button.rudonium-hidden,
   height: calc(100vh - 1rem);
   max-height: calc(100vh - 1rem);
 }
-.rudonium-archived-card-body {
-  text-decoration-line: line-through;
-  text-decoration-color: var(--text-muted);
-}
-.rudonium-archived-card-body .rudonium-archived-card-status { display: inline-block; text-decoration-line: none; }
-
 .rudonium-history-filters {
     display: flex;
     align-items: center;

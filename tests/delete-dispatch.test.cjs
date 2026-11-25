@@ -28,12 +28,13 @@ async function fixture(text = input, options = {}) {
         checkAnkiNoteExistence: async ids => new Map(ids.map(id => [id, h.present.has(id)])) }
     const modules = await load(allNames, api, { anki: "import { transport } from './host'; export const invoke = transport" })
     const { explicitDeletes } = modules['deletion-source']
-    const app = { vault: {
+    const app = { vault: { configDir: '.obsidian', adapter: {
+        exists: async path => path === '.obsidian/app.json' && h.preferences !== undefined,
+        read: async () => JSON.stringify(h.preferences) },
         read: async f => { if (h.switchOnTrashRead && h.writes.length) h.active = 'other'; return f.text },
         process: async (f,change) => { if (h.failProcess) throw Error('disk busy'); f.text = change(f.text) },
         getAbstractFileByPath: path => !h.trash.length && path === vaultFile.path ? vaultFile : null,
-        trash: async (f,system) => h.trash.push([f.path,system]),
-    } }
+    }, fileManager: { trashFile: async f => h.trash.push(f.path) } }
     const Manager = managerType({ ...api, ...modules['anki-id-marker'], ...modules['suspend-label'], ...modules['duplicate-markers'], ...modules['deletion-source'], ...modules['export-plan'], ...modules['export-batch'], AnkiConnect: {invoke: call},
         AnkiProfileError: class extends Error {}, readReviewedNoteSnapshots: async ids => readSnapshot(ids),
         snapshotKey: n => JSON.stringify([n.noteId,n.modelName]), snapshotFields: note => Object.entries(note.fields).map(([name, field]) => [name, field.value]),
@@ -117,7 +118,7 @@ test('backup, unique ownership and Anki errors preserve authored commands', asyn
     assert.equal(h.file.text,input)
 })
 
-test('whole-page DELETE verifies profile after the last vault read, retries to recoverable vault trash', async () => {
+test('whole-page DELETE verifies profile after the last vault read, retries using the Obsidian trash preference', async () => {
     const page = '# Capital #anki-page\nRetire.?\nID: 7\nParis'
     const h = await fixture(page,{switchOnTrashRead:true})
     await h.run()
@@ -126,7 +127,7 @@ test('whole-page DELETE verifies profile after the last vault read, retries to r
     h.switchOnTrashRead = false
     h.active = 'personal'
     await h.run()
-    assert.deepEqual(h.trash,[[h.file.path,false]])
+    assert.deepEqual(h.trash,[h.file.path])
     assert.equal(h.writes.length,1)
 })
 
@@ -265,4 +266,16 @@ test('one-way dispatch writes and logs the verified spacing correction only afte
     await h.run()
     assert.equal(rows.length, 1)
     assert.deepEqual(h.writes, [])
+})
+
+test('whole-page cleanup keeps a recoverable source when Obsidian is configured for permanent deletion', async () => {
+    const page = '# Capital #anki-page\nRetire.?\nID: 7\nParis'
+    const h = await fixture(page, { preferences: { trashOption: 'none' } })
+    const failed = await h.run()
+    assert.deepEqual(h.trash, [])
+    assert.equal(h.file.text, page)
+    assert.ok(failed.retryPaths.has(h.file.path))
+    h.preferences.trashOption = 'system'
+    await h.run()
+    assert.deepEqual(h.trash, [h.file.path])
 })

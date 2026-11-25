@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import type { App, TFile } from 'obsidian'
 import { activeCardMarkdown, archivedCardRanges, wrapArchivedCard } from './archived-card'
 import { makeSpanOverlap } from './markdown-pipeline'
 import { checkPinnedAnkiProfile } from './anki-profile'
@@ -22,6 +23,21 @@ import { cardMetadataEnd } from './bidirectional-markdown'
 interface Span { start: number; end: number }
 interface Card extends Span { id: number; format?: string; tagEnd?: number; answerBoundary?: number }
 export interface SourceRemoval extends Span { id: number; page: boolean; bounded?: boolean }
+
+export async function pageTrash(app: App): Promise<(file: TFile) => Promise<void>> {
+    const { adapter, configDir } = app.vault
+    const path = configDir + '/app.json'
+    if (await adapter.exists(path)) {
+        const value: unknown = JSON.parse(await adapter.read(path))
+        if (!value || typeof value !== 'object' || Array.isArray(value) ||
+            ('trashOption' in value && value.trashOption !== 'local' && value.trashOption !== 'system')) {
+            throw new Error('The card page was kept. Choose system trash or Obsidian trash in Files and links.')
+        }
+    }
+    const manager: typeof app.fileManager & { trashFile?(file: TFile): Promise<void> } = app.fileManager
+    if (typeof manager?.trashFile !== 'function') throw new Error('Obsidian cannot apply its file deletion preference.')
+    return manager.trashFile.bind(manager)
+}
 
 function afterLine(text: string, end: number): number {
     return end + (text.startsWith('\r\n', end) ? 2 : text[end] === '\n' ? 1 : 0)
@@ -47,7 +63,7 @@ function protectExistingArchives(text: string, spans: readonly Span[]): void {
 }
 
 export function deletionSignature(text: string, path: string, removal: SourceRemoval): string {
-    return Md5.hashStr(JSON.stringify([path, removal.id, removal.page, text.slice(removal.start, removal.end)])) as string
+    return Md5.hashStr(JSON.stringify([path, removal.id, removal.page, text.slice(removal.start, removal.end)]))
 }
 
 function replaceRanges<T extends Span>(text: string, spans: readonly T[], replacement: (span: T) => string): string {

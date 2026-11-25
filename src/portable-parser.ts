@@ -204,7 +204,7 @@ export function portableFileData(data: ParsedSettings, file: TFile, ids: number[
         }
     }
     tags.push(...data.template.tags)
-    const result: FileData = JSON.parse(JSON.stringify({ ...data, EXISTING_IDS: [] }))
+    const result: FileData = structuredClone({ ...data, EXISTING_IDS: [] })
     result.EXISTING_IDS = ids
     result.FROZEN_REGEXP = data.FROZEN_REGEXP
     result.DECK_REGEXP = data.DECK_REGEXP

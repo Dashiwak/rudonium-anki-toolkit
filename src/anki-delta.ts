@@ -29,6 +29,7 @@ export interface ExistingNoteSource {
     deckRule?: DeckRouteOrigin
     authoredFields?: readonly string[]
     namedLayout?: OneWayNamedLayout
+    repairedPair?: readonly string[]
     sharedPageFields?: readonly string[]
 }
 
@@ -247,7 +248,9 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
         const base = prior && Object.prototype.hasOwnProperty.call(prior.fields, name) ? prior.fields[name] : undefined
         const fixed = source.sharedPageFields?.includes(name) === true
         const unchangedSource = base !== undefined && base === oneWayFieldDigest(wanted)
-        if (unchangedSource && !fixed && !removed.includes(name)) {
+        const repairedText = source.repairedPair?.includes(name) && isNonemptyPlainText(wanted) &&
+            isNonemptyPlainText(remote) && !cardFieldHazards(name, remote, wanted).length
+        if (unchangedSource && !fixed && !repairedText && !removed.includes(name)) {
             kept?.push(name)
             continue
         }
@@ -256,7 +259,7 @@ async function planProtectedFields(source: ExistingNoteSource, actual: NoteSnaps
         // A concurrent deletion or a change affecting study cards still needs a choice.
         const editedText = base !== undefined && !unchangedSource && hazards.length === 0 &&
             isNonemptyPlainText(remote) && isNonemptyPlainText(wanted)
-        if (fixed || editedText || base !== undefined && base === oneWayFieldDigest(remote)) {
+        if (fixed || editedText || repairedText || base !== undefined && base === oneWayFieldDigest(remote)) {
             const cardImpact = hazards.length ? await readImpact(hazards) : undefined
             if (cardImpact && !policy.reviewOperation) {
                 needsStudyReview(name)
@@ -528,6 +531,7 @@ async function planDeckMoves(sources: ReadonlyMap<number, ExistingNoteSource>, s
         try {
             confirmed.set(target, await findAnkiDeckCardIds(targetId, ids, readAnki))
         } catch {
+            continue
         }
     }
     for (const [id, ids] of filteredByNote) {
@@ -673,6 +677,7 @@ export async function findOpenNotesForUpdate(
             return new Set(selected.filter(id => planned.has(id)))
         }
     } catch {
+        // The Anki browser can be closed during an export.
     }
     return new Set()
 }

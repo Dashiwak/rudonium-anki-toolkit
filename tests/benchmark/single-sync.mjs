@@ -209,7 +209,7 @@ function expectChange(dialog, decision) {
     assert.deepEqual(row.changes.map(change => [change.field, change.decision]), [['Back', decision]])
 }
 async function applyOne(dialog, choices = new Map()) {
-    assert.equal(await dialog.apply(choices), 'Updated 1 note.')
+    assert.match(await dialog.apply(choices), /^Updated 1 note in (?:Anki|Obsidian)\.$/)
 }
 async function steady(currentOnly) {
     const dialog = await preview(currentOnly)

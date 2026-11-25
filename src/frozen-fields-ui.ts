@@ -75,11 +75,11 @@ export function openFrozenFields(plugin: MyPlugin): void {
     let pattern: RegExp
     let shared: FrozenFields | undefined
     let edit: ReturnType<FrozenFields['replaceAll']>
-    const pageSettings = () => ({ file: plugin.settings.FILE_LINK_FIELDS?.[page!.model],
-        context: plugin.settings.CONTEXT_FIELDS?.[page!.model] })
+    const pageSettings = (card: PageCard) => ({ file: plugin.settings.FILE_LINK_FIELDS?.[card.model],
+        context: plugin.settings.CONTEXT_FIELDS?.[card.model] })
     const fieldChoices = (all: string[] = dictionary[model.value] ?? []) => {
-        return page ? all.filter(name => isBidirectionalFieldName(name) && !page!.namedFields?.has(name) &&
-            pageFieldIsAvailable(name, page!, all, pageSettings())) : all.slice()
+        return page ? all.filter(name => isBidirectionalFieldName(name) && !page.namedFields?.has(name) &&
+            pageFieldIsAvailable(name, page, all, pageSettings(page))) : all.slice()
     }
     let names: string[] = []
     let rows: Array<{ field: string; value: string }> = []
@@ -146,7 +146,7 @@ export function openFrozenFields(plugin: MyPlugin): void {
         names = fieldChoices()
         try {
             shared = prepareFrozenFields(original, marker, model.value, dictionary[model.value], pattern, t,
-                page ? { page, syntax: plugin.settings.Syntax, ...pageSettings() } : undefined)
+                page ? { page, syntax: plugin.settings.Syntax, ...pageSettings(page) } : undefined)
             rows = [...shared.values].map(([field, value]) => ({ field, value }))
             if (!rows.length && names.length) rows.push({ field: names[0], value: '' })
             drawRows()

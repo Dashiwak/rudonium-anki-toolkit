@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks'
 import { pathToFileURL } from 'node:url'
 import overlay from '../../Build/overlay-source.cjs'
 import { loadSync } from './load-sync.mjs'
-import { MarkdownView, useHost } from './host.mjs'
+import { MarkdownView, previewCursorExport, useHost } from './host.mjs'
 
 /** A real sync plan with mock desktop I/O. Record each Anki ID actually read and written. */
 export async function checkCursorSync(count, repeats = 1, withHistory = false) {
@@ -72,7 +72,7 @@ export async function checkCursorSync(count, repeats = 1, withHistory = false) {
         read: async f => f.text, process: async (f, fn) => write(f, fn(f.text)) }
     const app = { vault, metadataCache: { getCache: () => null }, workspace: { getLeavesOfType: () => leaves,
         on() {}, onLayoutReady(fn) { fn() }, getActiveFile: () => file } }
-    const plugin = { app, added_media: [], file_hashes: {}, manifest: { id: 'rudonium-anki-toolkit' }, addCommand() {}, registerEvent() {}, registerView() {}, register() {},
+    const plugin = { app, previewCursorExport, added_media: [], file_hashes: {}, manifest: { id: 'rudonium-anki-toolkit' }, addCommand() {}, registerEvent() {}, registerView() {}, register() {},
         settings: { BIDIRECTIONAL_SYNC: true, BIDIRECTIONAL_PREVIEW: true, SKIP_SYNC_ERRORS: true, EXPECTED_ANKI_PROFILE: profile, REQUIRE_ANKI_PROFILE: true,
             Defaults: { Deck: 'Knowledge' }, CUSTOM_REGEXPS: {}, Syntax: {} }, fields_dict: { Basic: ['Front', 'Back'] } }
     useHost(host)
@@ -105,7 +105,7 @@ export async function checkCursorSync(count, repeats = 1, withHistory = false) {
             fetchedNotes: queries.length - at, uniqueIds: new Set(queries.slice(at)).size })
     }
     const apply = async (dialog, choices = new Map()) => {
-        assert.equal(await dialog.apply(choices), 'Updated 1 note.')
+        assert.match(await dialog.apply(choices), /^Updated 1 note in (?:Anki|Obsidian)\.$/)
     }
     try {
         const state = () => runtime.BidirectionalState.open(vault.adapter,

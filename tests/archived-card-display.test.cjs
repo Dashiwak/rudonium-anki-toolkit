@@ -15,26 +15,61 @@ function classList() {
 
 test('Reading View strikes only proven legacy sections and preserves the status, neighboring sections and markup', async () => {
     const { 'archived-card-display': { registerArchivedCardDisplay }, 'archived-card': { wrapArchivedCard } } =
-        await load(['archived-card-display', 'archived-card'], {})
-    let post, unload, attached = 0
+        await load(['archived-card-display', 'archived-card'], {}, {}, { NodeFilter: { SHOW_TEXT: 4 } })
+    let post, unload
     const children = []
-    const doc = { head: { appendChild() { attached++ } }, createElement() { return { remove() { attached-- } } } }
-    const element = { ownerDocument: doc, classList: classList(), closest: () => null, querySelectorAll: () => children,
+    const marks = new Set()
+    const text = { nodeValue: 'First line', parentElement: null }
+    let activations = 0
+    const link = Object.assign(new EventTarget(), { href: 'https://example.org/card',
+        closest() { return null }, insertBefore() {},
+        createEl(tag) {
+            assert.equal(tag, 's')
+            const mark = {
+                childNodes: [],
+                appendChild(node) { this.childNodes.push(node); node.parentElement = this },
+                closest() { return this },
+                replaceWith(node) { assert.equal(node, this.childNodes[0]); node.parentElement = link; marks.delete(this) },
+            }
+            marks.add(mark)
+            return mark
+        },
+    })
+    link.addEventListener('click', () => { activations++ })
+    text.parentElement = link
+    const statusText = { nodeValue: 'Удалено из Anki', parentElement: link }
+    const doc = { createTreeWalker(_element, filter) {
+        assert.equal(filter, 4)
+        const pending = children.length ? [text, statusText] : [text]
+        return { nextNode: () => pending.shift() }
+    } }
+    const element = { ownerDocument: doc, classList: classList(), closest: () => null,
+        querySelectorAll: selector => selector === 'strong' ? children : [...marks],
         querySelector: selector => selector === '.' + statusClass ? children.find(node => node.classList.contains(statusClass)) : undefined }
     registerArchivedCardDisplay({ register: fn => { unload = fn }, registerMarkdownPostProcessor: fn => { post = fn } })
     const draw = (first, last, text = archived) => post(element, { sourcePath: 'Dictionary.md',
         getSectionInfo: () => ({ text, lineStart: first, lineEnd: last }) })
     draw(2, 4)
     assert.equal(element.classList.contains(bodyClass), true)
+    assert.equal(marks.size, 1)
+    assert.ok(marks.has(text.parentElement))
+    link.dispatchEvent(new Event('click'))
     draw(0, 4)
+    assert.equal(marks.size, 0)
+    link.dispatchEvent(new Event('click'))
+    assert.equal(activations, 2, 'archiving and clearing keep the original link handler')
+    assert.equal(link.href, 'https://example.org/card')
+    assert.equal(text.parentElement, link, 'clearing the semantic strike keeps the original link and text node')
     assert.equal(element.classList.contains(bodyClass), false, 'mixed section containing adjacent active text')
     draw(2, 8)
     assert.equal(element.classList.contains(bodyClass), false, 'the section includes the following active card')
-    const status = { textContent: 'Удалено из Anki', classList: classList() }
+    const status = { textContent: 'Удалено из Anki', classList: classList(), contains: node => node === statusText }
     children.push(status)
     draw(1, 7)
     assert.equal(element.classList.contains(bodyClass), true)
     assert.equal(status.classList.contains(statusClass), true)
+    assert.equal(marks.size, 1, 'status label is outside the semantic strike')
+    assert.equal(statusText.parentElement, link)
     draw(6, 7)
     assert.equal(element.classList.contains(bodyClass), false, 'status alone is always legible')
     assert.equal(status.classList.contains(statusClass), false)
@@ -58,15 +93,13 @@ test('Reading View strikes only proven legacy sections and preserves the status,
             assert.equal(element.classList.contains(bodyClass), false, mode + ' has its own native presentation')
         }
     }
-    assert.equal(attached, 0, 'the bundled stylesheet handles every document without inserting a style node')
     unload()
-    assert.equal(attached, 0)
 })
 
 test('Live Preview restricts legacy formatting to visible text and leaves native modes and Source mode intact', async () => {
     let viewClass
     const live = {}, effect = { define: () => ({ of: value => value }) }
-    const cm = { Decoration: { none: [], set: spans => spans, mark: () => ({ range: (from, to) => [from, to] }) },
+    const cm = { Decoration: { none: [], set: spans => spans, mark: options => { assert.equal(options.tagName, 's'); return { range: (from, to) => [from, to] } } },
         ViewPlugin: { fromClass: klass => (viewClass = klass) }, EditorView: { baseTheme: value => value } }
     const api = { editorLivePreviewField: live, StateEffect: effect, ...cm }
     const { 'archived-card-display': { registerArchivedCardDisplay } } = await load(['archived-card-display'], api)

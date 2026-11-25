@@ -52,6 +52,7 @@ export function ownedMissingStudyLink(fields: readonly [string, string][], vault
                     source.split('/').some(part => !part || part === '.' || part === '..') || source.includes('\\') || Array.from(source).some(character => character.charCodeAt(0) < 32)) continue
                 paths.add(source)
             } catch {
+                continue
             }
         }
     }

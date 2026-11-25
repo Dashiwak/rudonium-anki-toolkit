@@ -96,7 +96,9 @@ function validRow(raw: unknown): raw is SyncHistoryRow {
         (row.noteId === undefined || Number.isSafeInteger(row.noteId) && row.noteId > 0) &&
         (row.omittedFields === undefined || Number.isSafeInteger(row.omittedFields) && row.omittedFields > 0) &&
         (row.fields === undefined || Array.isArray(row.fields) && row.fields.length <= fieldLimit &&
-            row.fields.every(field => field && typeof field.name === 'string' && optional(field.before) && optional(field.after)))
+            row.fields.every((field: unknown) => field !== null && typeof field === 'object' &&
+                'name' in field && typeof field.name === 'string' &&
+                (!('before' in field) || optional(field.before)) && (!('after' in field) || optional(field.after))))
 }
 
 async function load(plugin: MyPlugin): Promise<Snapshot> {

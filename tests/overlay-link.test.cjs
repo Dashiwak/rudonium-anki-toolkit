@@ -28,6 +28,7 @@ test("All desktop overlay modules link with their real local exports", async () 
         "obsidian": ["App", "ItemView", "MarkdownView", "Modal", "Notice",
             "Setting", "TFile", "TFolder", "editorInfoField", "editorLivePreviewField",
             "parseLinktext", "parseYaml", "sanitizeHTMLToDom", "setIcon"],
+        "@codemirror/language": ["syntaxTree", "syntaxTreeAvailable"],
         "@codemirror/state": ["Prec", "StateEffect"],
         "@codemirror/view": ["Decoration", "EditorView", "ViewPlugin", "WidgetType"],
         "ts-md5": ["Md5"],

@@ -723,7 +723,7 @@ export function applyPageMigration(plugin: MyPlugin, plan: PageMigrationPlan, se
                             keys: new Set(foreignMigrationKeys(text)) }
                         editorClaims.set(view, claims)
                     }
-                    if (claims.ids.has(draft.candidate.id!) || draft.candidate.externalKey && claims.keys.has(draft.candidate.externalKey)) return true
+                    if (claims.ids.has(draft.candidate.id) || draft.candidate.externalKey && claims.keys.has(draft.candidate.externalKey)) return true
                 }
                 return false
             }

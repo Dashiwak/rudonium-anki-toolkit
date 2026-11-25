@@ -78,7 +78,7 @@ function linesOf(content: string): Line[] {
     const lines: Line[] = []
     let start = 0
     for (const match of content.matchAll(/\r\n|\n|\r/gu)) {
-        const end = match.index!
+        const end = match.index
         lines.push({ start, end, text: content.slice(start, end) })
         start = end + match[0].length
     }

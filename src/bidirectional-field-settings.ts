@@ -184,13 +184,13 @@ export function installBidirectionalSettings(container: HTMLElement, plugin: MyP
     addPreviewPreference(options, plugin, 'settings')
     toggleRow(new Setting(options)
         .setName(t('Apply the newer edit', 'Применять более позднюю правку'))
-        .setDesc(t('If both sides edited a field, sync compares the Obsidian file and Anki note timestamps. Fields with an uncertain order are skipped. Turn this off to review all conflicts manually.',
-            'Если поле изменили с обеих сторон, сравнивается время изменения файла Obsidian и записи Anki. Если порядок правок неясен, поле пропускается. Выключите, чтобы разбирать все конфликты вручную.')),
+        .setDesc(t('When both sides change the same field, use the later edit. If the timestamps fall in the same second or cannot reliably identify the later field edit, choose a version in the preview. Turn this off to review every conflict.',
+            'Если одно поле изменилось с обеих сторон, применяется более поздняя правка. Если обе правки сделаны в одну секунду или их порядок неясен, выберите версию в предпросмотре. Выключите, чтобы разбирать все конфликты вручную.')),
         'BIDIRECTIONAL_CONFLICT_POLICY', 'latest', 'skip')
     toggleRow(new Setting(options)
         .setName(t('Skip recoverable card errors', 'Пропускать ошибки отдельных карточек'))
-        .setDesc(t('Continue with other cards when a record cannot be processed.',
-            'Продолжать обработку остальных карточек, если отдельную запись не удалось обработать.')),
+        .setDesc(t('During two-way sync, continue with the other cards if one has a recoverable error. Turn this off to review the error before applying changes. During one-way export, this setting groups these errors into a single notice.',
+            'При двусторонней синхронизации ошибка отдельной карточки пропускается, а остальные карточки обрабатываются дальше. Выключите, чтобы проверить ошибку перед применением изменений. При одностороннем экспорте эта настройка объединяет такие ошибки в одно уведомление.')),
         'SKIP_SYNC_ERRORS', true, false)
     let previewButton: HTMLButtonElement | undefined
     new Setting(options)

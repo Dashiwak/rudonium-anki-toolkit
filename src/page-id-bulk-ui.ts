@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import { checkedCount } from './sync-outcome'
 import { Modal, Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { uiDiagnostic, uiFor } from './interface-language'
@@ -115,8 +116,8 @@ class PageIdBulkModal extends Modal {
     private renderPlan(plan: PageIdBulkPlan): void {
         const t = uiFor(this.plugin.settings)
         this.results.empty()
-        this.status.setText(t(`Checked ${plan.scanned} Markdown files. Ready to move: ${plan.files.length}. For review: ${plan.skipped.length}.`,
-            `Проверено Markdown-файлов: ${plan.scanned}. Готовы к переносу: ${plan.files.length}. Требуют проверки: ${plan.skipped.length}.`))
+        this.status.setText(checkedCount(plan.scanned, 'file', t) + ' ' + t(`Ready to move: ${plan.files.length}. For review: ${plan.skipped.length}.`,
+            `Готовы к переносу: ${plan.files.length}. Требуют проверки: ${plan.skipped.length}.`))
         if (plan.files.length) {
             const tools = this.results.createDiv({ cls: 'modal-button-container' })
             tools.createEl('button', { text: t('Select all', 'Выбрать все') }).onclick = () => {

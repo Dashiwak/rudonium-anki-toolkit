@@ -93,10 +93,59 @@ test('manual no-change notices show the checked count and a separate outcome in 
         assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
         assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
         const message = h.host.notices.at(-1)
-        assert.equal(message.split('\n')[0], `Проверено: ${count} ${noun}.`)
-        if (count) assert.equal(message.split('\n')[1], 'Изменений нет.')
-        else assert.match(message, /Предпросмотр текущей карточки/u)
+        assert.equal(message.split('\n')[0], `${noun === 'запись' ? 'Проверена' : noun === 'записи' ? 'Проверены' : 'Проверено'} ${count} ${noun}.`)
+        assert.equal(message.split('\n')[1], 'Изменений нет.')
     }
+})
+
+test('a two-way vault sync skips the active prose file and updates linked notes in both directions', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    useHost(h.host)
+    const plain = { path: 'Untitled.md', text: 'Draft', stat: { mtime: 1, ctime: 1, size: 5 } }
+    const files = [plain, h.file]
+    h.plugin.app.workspace.getActiveFile = () => plain
+    h.plugin.app.vault.getMarkdownFiles = () => files
+    h.plugin.app.vault.getAbstractFileByPath = path => files.find(file => file.path === path) ?? null
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+
+    let buffer = 'Edited draft'
+    const view = Object.assign(new MarkdownView(), {
+        file: plain, data: plain.text, getMode: () => 'source', getViewData: () => buffer,
+        async save() {
+            this.data = plain.text = buffer
+            plain.stat.mtime++
+            plain.stat.size = buffer.length
+        },
+    })
+    h.plugin.app.workspace.getLeavesOfType = () => [{ view }]
+    h.edit(initial.replace('Old :: Answer', 'Old :: Local edit'))
+    h.host.notes.get(sibling).fields.Back.value = 'Anki edit'
+    const request = h.host.request
+    h.host.request = async (action, params) => {
+        if (action !== 'updateNoteFields') return request(action, params)
+        assert.deepEqual(params.note, { id, fields: { Back: 'Local edit' } })
+        h.host.notes.get(id).fields.Back.value = params.note.fields.Back
+        return null
+    }
+    assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'completed')
+    assert.equal(h.host.notices.at(-1), 'Checked 0 notes.\nNo changes.')
+    assert.equal(plain.text, buffer)
+    assert.equal(h.host.notes.get(id).fields.Back.value, 'Answer')
+    assert.ok(h.file.text.includes('Neighbor :: Still here'))
+    buffer = 'Final draft'
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+    assert.equal(h.host.notes.get(id).fields.Back.value, 'Local edit')
+    assert.ok(h.file.text.includes('Neighbor :: Anki edit'))
+    assert.equal(plain.text, buffer)
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+    assert.equal(h.host.notices.at(-1), 'Checked 2 notes.\nNo changes.')
+
+    buffer += '\n<!--ID: ' + (sibling + 1) + ' -->\n'
+    await view.save()
+    await runtime.previewBidirectionalSync(h.plugin, { currentOnly: true })
+    assert.match(h.host.dialog.preview.issues.join(' '), /Untitled\.md: Could not match 1 Anki ID to editable card fields/)
 })
 
 test('preview off syncs an independent card and keeps deletion or conflict for manual review', async t => {
@@ -117,12 +166,12 @@ test('preview off syncs an independent card and keeps deletion or conflict for m
         assert.equal(h.host.dialog, undefined, kind)
         assert.match(h.file.text,/Neighbor :: New independent answer/,kind)
         assert.equal(h.host.calls.some(call=>call.action==='deleteNotes'),false)
-        assert.match(h.host.notices.at(-1), /Updated 1 note\./, kind)
+        assert.match(h.host.notices.at(-1), /Updated 1 note in (?:Anki|Obsidian)\./, kind)
         assert.doesNotMatch(h.host.notices.join(' '), /awaiting review|Preview now/i)
         h.host.notices.length = 0
         assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'completed', kind)
         assert.equal(h.host.dialog, undefined, kind)
-        assert.match(h.host.notices.at(-1), /Checked 2 notes\.\nDeferred 1 note for review\.$/, kind)
+        assert.match(h.host.notices.at(-1), /Checked 2 notes\.\nDeferred 1 note for review\.\n/, kind)
         h.host.notices.length = 0
         assert.equal(await runtime.scanVaultFast(h.plugin, 'scheduled'), 'completed', kind)
         assert.deepEqual(h.host.notices, [], 'a timer must not repeat a prompt for an unresolved item')
@@ -153,7 +202,7 @@ test('a vault with only an unresolved field gives a quiet completion on every ma
     for (let attempt = 0; attempt < 2; attempt++) {
         h.host.notices.length = 0
         assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
-        assert.match(h.host.notices.at(-1) ?? '', /Checked 1 note\.\nDeferred 1 note for review\.$/)
+        assert.match(h.host.notices.at(-1) ?? '', /Checked 1 note\.\nDeferred 1 note for review\.\nFront — A valid modification time is missing/)
         assert.equal(h.host.dialog, undefined)
         assert.equal(h.file.text, prefix + original)
         assert.equal(h.host.notes.get(id).fields.Front.value, 'Edited in Anki')
@@ -170,10 +219,11 @@ test('first bidirectional run keeps ambiguous fields quiet; both manual and enab
     assert.equal(h.host.dialog, undefined)
     assert.equal(h.file.text, initial)
     assert.equal(h.host.notes.get(id).fields.Back.value, 'Different answer in Anki')
-    assert.doesNotMatch(h.host.notices.at(-1), /Back|awaiting review|Preview now/i)
+    assert.match(h.host.notices.at(-1), /Back — A valid modification time is missing/)
+    assert.match(h.host.notices.at(-1), /Choose a sync direction in the preview/)
     h.plugin.settings.INTERFACE_LANGUAGE = 'ru'
     assert.equal(await runtime.scanVaultFast(h.plugin, true), 'completed')
-    assert.match(h.host.notices.at(-1), /Проверено: 2 записи\.\nОтложена 1 запись для проверки\./u)
+    assert.match(h.host.notices.at(-1), /Проверены 2 записи\.\nОтложена 1 запись для проверки\./u)
     assert.equal(h.host.dialog, undefined)
     for (const explicit of [true, false]) {
         h.plugin.settings.BIDIRECTIONAL_PREVIEW = !explicit
@@ -329,7 +379,7 @@ test('retrying a one-way export report after enabling bidirectional sync cannot 
     }
 })
 
-test('a manual sync reports slow work and distinguishes an unlinked draft from unchanged linked cards', async t => {
+test('a manual sync reports slow work and counts only linked notes', async t => {
     const runtime = await loadSync(overlay.directory)
     t.after(runtime.dispose)
     const h = fixture(runtime, 'keep')
@@ -351,7 +401,7 @@ test('a manual sync reports slow work and distinguishes an unlinked draft from u
     assert.match(h.host.notices.at(-1), /Checked 2 notes\.\nNo changes\./)
     h.edit('- New :: Draft\n')
     assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
-    assert.match(h.host.notices.at(-1), /No linked notes.*Preview Current Card/)
+    assert.equal(h.host.notices.at(-1), 'Checked 0 notes.\nNo changes.')
     assert.equal(h.host.dialog, undefined)
 })
 
@@ -590,7 +640,7 @@ test('latest chooses the saved edit of an isolated field and rechecks its clocks
     const epoch = 1_780_000_000
     for (const scenario of ['anki', 'obsidian', 'same-second', 'missing', 'policy-skip', 'other-prose',
         'unmapped-anki-field', 'stale-anki', 'stale-local', 'override', 'notesModTime', 'same-fields-separate-edits',
-        'legacy-overlap', 'legacy-separate-edits']) {
+        'legacy-overlap', 'legacy-separate-edits', 'newer-prose', 'same-baseline-second', 'older-unmapped-field']) {
         const h = fixture(runtime, 'keep'), live = h.host.notes.get(id)
         const fallback = scenario === 'notesModTime'
         // A confirmed baseline written without a usable file time has the legacy on-disk shape.
@@ -610,21 +660,22 @@ test('latest chooses the saved edit of an isolated field and rechecks its clocks
         await h.apply()
         if (scenario === 'policy-skip') h.plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY = 'skip'
         let local = initial.replace('Old :: Answer', 'Old :: From Obsidian')
-        if (scenario === 'other-prose' || scenario === 'legacy-overlap') local += 'A private paragraph changed later.'
-        if (scenario === 'unmapped-anki-field') live.fields.Unmapped = {value: 'changed'}
+        if (['other-prose', 'legacy-overlap', 'newer-prose'].includes(scenario)) local += 'A private paragraph changed later.'
+        if (['unmapped-anki-field', 'older-unmapped-field'].includes(scenario)) live.fields.Unmapped = {value: 'changed'}
         const separate = scenario === 'same-fields-separate-edits' || scenario === 'legacy-separate-edits'
         if (separate) local = initial.replace('Old ::', 'Changed question ::')
         h.edit(local)
-        h.file.stat.mtime = (epoch + (scenario === 'obsidian' ? 10 : 5)) * 1000 + 740
+        const localLater = ['obsidian', 'newer-prose', 'same-baseline-second', 'older-unmapped-field'].includes(scenario)
+        h.file.stat.mtime = (epoch + (localLater ? 10 : 5)) * 1000 + 740
         live.fields.Back.value = 'From Anki'
-        live.mod = epoch + (scenario === 'same-second' ? 5 : 7)
+        live.mod = epoch + (scenario === 'same-second' ? 5 : scenario === 'same-baseline-second' ? 0 : 7)
         if (scenario === 'missing') delete live.mod
         const preview = await h.preview()
         const row = preview.preview.rows.find(r => r.id === id)
         assert.ok(row, scenario)
         const back = row.changes.find(c => c.key.endsWith(':back'))
         assert.ok(back.canChooseDirection, scenario)
-        const hold = ['same-second','missing','policy-skip','other-prose','unmapped-anki-field','legacy-overlap'].includes(scenario)
+        const hold = ['same-second','missing','policy-skip','newer-prose','unmapped-anki-field','legacy-overlap'].includes(scenario)
         if (separate) {
             assert.equal(back.decision, 'anki')
             await preview.apply(new Map())
@@ -632,7 +683,7 @@ test('latest chooses the saved edit of an isolated field and rechecks its clocks
             assert.equal(live.fields.Front.value,'Changed question')
         } else {
             assert.equal(back.decision, 'conflict', scenario)
-            assert.equal(back.recommendedSide, hold ? undefined : scenario === 'obsidian' ? 'obsidian' : 'anki', scenario)
+            assert.equal(back.recommendedSide, hold ? undefined : localLater ? 'obsidian' : 'anki', scenario)
             if (scenario.startsWith('stale-')) {
                 if (scenario === 'stale-anki') live.mod++
                 else h.file.stat.mtime++
@@ -642,25 +693,103 @@ test('latest chooses the saved edit of an isolated field and rechecks its clocks
                 assert.equal(live.fields.Back.value,'From Obsidian')
             } else {
                 await runtime.scanVaultFast(h.plugin, false, true)
-                assert.equal(live.fields.Back.value, scenario === 'obsidian' ? 'From Obsidian' : 'From Anki', scenario)
-                assert.ok(h.file.text.includes('Old :: ' + (hold || scenario === 'obsidian' ? 'From Obsidian' : 'From Anki')), scenario)
+                assert.equal(live.fields.Back.value, localLater && !hold ? 'From Obsidian' : 'From Anki', scenario)
+                assert.ok(h.file.text.includes('Old :: ' + (hold || localLater ? 'From Obsidian' : 'From Anki')), scenario)
             }
         }
         assert.ok(h.file.text.includes('<!--ID: '+ id +' -->'))
     }
 })
 
+test('the later saved card resolves overlapping question and answer edits after reopening the vault', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const epoch = 1_780_000_000
+    for (const newer of ['anki', 'obsidian']) {
+        const h = fixture(runtime, 'keep'), live = h.host.notes.get(id)
+        h.file.stat.mtime = epoch * 1000
+        live.mod = epoch
+        const initialRequest = h.host.request
+        h.host.request = (action, params) => {
+            if (action !== 'updateNoteFields') return initialRequest(action, params)
+            assert.equal(params.note.id, id)
+            for (const [key, value] of Object.entries(params.note.fields)) live.fields[key].value = value
+            return null
+        }
+        await h.apply()
+        const reopened = { ...h.plugin }
+        h.edit(initial.replace('Old :: Answer', 'Local question :: Local answer'))
+        h.file.stat.mtime = (epoch + (newer === 'anki' ? 2 : 7)) * 1000
+        live.mod = epoch + 4
+        live.fields.Front.value = 'Remote question'
+        live.fields.Back.value = 'Remote answer'
+        const prefix = newer === 'anki' ? 'Remote' : 'Local'
+        assert.equal(await runtime.scanVaultFast(reopened), 'completed')
+        assert.equal(live.fields.Front.value, prefix + ' question')
+        assert.equal(live.fields.Back.value, prefix + ' answer')
+        assert.equal(h.file.text, initial.replace('Old :: Answer', prefix + ' question :: ' + prefix + ' answer'))
+        assert.doesNotMatch(h.host.notices.at(-1), /Deferred/)
+        assert.equal(await runtime.scanVaultFast(reopened), 'completed')
+        assert.match(h.host.notices.at(-1), /No changes\./)
+    }
+})
+
+test('recoverable card errors stop automatic writes only when skipping is off; conflicts still require a direction', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const skip of [true, false]) {
+        const h = fixture(runtime, 'keep')
+        h.plugin.settings.SKIP_SYNC_ERRORS = skip
+        await h.apply()
+        h.host.notes.get(id).fields.Front.value = '<table><tr><td>Rich HTML</td></tr></table>'
+        h.host.notes.get(sibling).fields.Back.value = 'Healthy edit'
+        assert.equal(await runtime.scanVaultFast(h.plugin), skip ? 'completed' : 'stopped')
+        assert.equal(h.file.text.includes('Neighbor :: Healthy edit'), skip)
+        assert.match(h.host.notices.at(-1), skip ? /Skipped 1 note because of card errors/ : /Sync paused before applying changes/)
+        assert.doesNotMatch(h.host.notices.at(-1), /Deferred/)
+        h.host.notes.get(id).fields.Front.value = 'Anki conflict'
+        h.edit(h.file.text.replace('- Old ::', '- Obsidian conflict ::'))
+        assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+        assert.match(h.host.notices.at(-1), /Deferred 1 note for review\./)
+        assert.match(h.host.notices.at(-1), /Choose a sync direction in the preview/)
+        assert.ok(h.file.text.includes('Obsidian conflict'))
+        assert.equal(h.host.notes.get(id).fields.Front.value, 'Anki conflict')
+    }
+})
+
+test('applying a preview records the reason for a conflict left for manual review', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    h.plugin.settings.SYNC_CHANGE_HISTORY = true
+    await h.apply()
+    h.edit(initial.replace('Old :: Answer', 'Local question :: Answer'))
+    h.host.notes.get(id).fields.Front.value = 'Anki question'
+    h.host.notes.get(sibling).fields.Back.value = 'Unrelated safe change'
+    const preview = await h.preview()
+    assert.match(preview.preview.rows.find(row => row.id === id).changes[0].reviewReason, /modification time/)
+    await preview.apply(new Map())
+    assert.ok(h.file.text.includes('Neighbor :: Unrelated safe change'))
+    assert.ok(h.file.text.includes('Local question :: Answer'))
+    const history = await runtime.readSyncChanges(h.plugin)
+    assert.ok(history.some(row => row.noteId === id && row.action === 'skip' && /Choose a sync direction/.test(row.detail)))
+})
+
 test('a first sync uses each linked note time in a shared file, invalid clocks stay manual', async t => {
     const runtime = await loadSync(overlay.directory)
     t.after(runtime.dispose)
     const epoch = 1_780_000_000
-    for (const scenario of ['single','multiple','wrong-unit','bad-lookup']) {
+    for (const scenario of ['single','multiple','wrong-unit','bad-lookup','repaired-unit']) {
         const h = fixture(runtime,'keep')
         if (scenario !== 'multiple') h.edit(prefix + original)
         h.file.stat.mtime = epoch * 1000
         const mod = epoch + 10, n = h.host.notes.get(id)
-        n.mod = scenario === 'wrong-unit' ? mod * 1000 : mod
+        n.mod = ['wrong-unit', 'repaired-unit'].includes(scenario) ? mod * 1000 : mod
         n.fields.Front.value = 'First edit from Anki'
+        if (scenario === 'repaired-unit') {
+            const previous = h.host.request
+            h.host.request = (action, p) => action === 'notesModTime' ? p.notes.map(noteId => ({ noteId, mod })) : previous(action, p)
+        }
         if (scenario === 'bad-lookup') {
             delete n.mod
             const previous = h.host.request
@@ -670,11 +799,29 @@ test('a first sync uses each linked note time in a shared file, invalid clocks s
         const dialog = await h.preview()
         const change = dialog.preview.rows.find(row => row.id === id).changes.find(field => field.key === id+':front')
         assert.equal(change.decision, 'conflict')
-        const remoteWins = scenario === 'single' || scenario === 'multiple'
+        const remoteWins = ['single', 'multiple', 'repaired-unit'].includes(scenario)
         assert.equal(change.recommendedSide, remoteWins ? 'anki' : undefined, scenario)
         await runtime.scanVaultFast(h.plugin,false,true)
         assert.equal(h.file.text.includes('First edit from Anki'), remoteWins, scenario)
     }
+})
+
+test('a missing timestamp for one note does not discard valid dates for other notes in the batch', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep'), epoch = 1_780_000_000
+    useHost(h.host)
+    h.file.stat.mtime = epoch * 1000
+    h.host.notes.get(id).fields.Back.value = 'Ambiguous remote answer'
+    h.host.notes.get(sibling).fields.Back.value = 'Later verified answer'
+    const previous = h.host.request
+    h.host.request = (action, params) => action === 'notesModTime'
+        ? params.notes.map(noteId => ({ noteId, mod: noteId === sibling ? epoch + 10 : null }))
+        : previous(action, params)
+    assert.equal(await runtime.scanVaultFast(h.plugin), 'completed')
+    assert.equal(h.file.text, initial.replace('Neighbor :: Still here', 'Neighbor :: Later verified answer'))
+    assert.match(h.host.notices.at(-1), /Updated 1 note in Obsidian\./)
+    assert.match(h.host.notices.at(-1), /Deferred 1 note for review\./)
 })
 
 test('a reversible ordinary field can override the suggested baseline direction in preview', async t => {
@@ -777,4 +924,100 @@ test('linked punctuation survives edits in both directions without changing neig
     await h.apply()
     assert.equal(h.file.text, expected)
     assert.equal((await h.preview()).preview.canApply, false)
+})
+
+test('skipping one ordinary import in manual vault preview applies its sibling and offers the skipped field again', async t => {
+    const runtime = await loadSync(overlay.directory); t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep')
+    await h.apply()
+    h.host.notes.get(id).fields.Back.value = 'Deferred answer'
+    h.host.notes.get(sibling).fields.Back.value = 'Accepted answer'
+    const previewVault = async () => {
+        useHost(h.host)
+        h.host.dialog = null
+        await runtime.previewBidirectionalSync(h.plugin)
+        assert.ok(h.host.dialog)
+        return h.host.dialog
+    }
+    const dialog = await previewVault()
+    const back = dialog.preview.rows.find(row => row.id === id).changes.find(change => change.field === 'Back')
+    assert.equal(back.decision, 'anki')
+    assert.equal(back.canChooseDirection, true)
+    const result = await dialog.apply(new Map([[back.key, 'skip']]))
+    assert.match(result, /Updated 1 note in Obsidian/)
+    assert.match(result, /skip/i)
+    assert.equal(h.file.text, initial.replace('Still here', 'Accepted answer'))
+    assert.equal(h.host.notes.get(id).fields.Back.value, 'Deferred answer')
+    const next = await previewVault()
+    assert.deepEqual(next.preview.rows.flatMap(row => row.changes.map(change => change.key)), [back.key])
+    assert.equal(next.preview.rows[0].changes[0].decision, 'anki')
+    await next.apply(new Map())
+    assert.equal(h.file.text, initial.replace('Still here', 'Accepted answer').replace('Answer', 'Deferred answer'))
+})
+
+test('partial preview keeps a skipped conflict through restart, interruption and reversal of a confirmed field', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    for (const hasBaseline of [false, true]) for (const failFirst of [false, true]) {
+        const h = fixture(runtime, 'keep'), remote = h.host.notes.get(id)
+        if (hasBaseline) await h.apply()
+        h.plugin.settings.BIDIRECTIONAL_CONFLICT_POLICY = 'skip'
+        h.edit(initial.replace('Old :: Answer', 'Local question :: Local answer'))
+        remote.fields.Front.value = 'Remote question'
+        remote.fields.Back.value = 'Remote answer'
+        const app = h.plugin.app
+        const write = app.vault.process
+        if (failFirst) app.vault.process = async () => { throw Error('Interrupted Markdown write') }
+        const manual = await h.preview()
+        const message = await manual.apply(new Map([[id + ':front','skip'],[id + ':back','anki']]))
+        if (failFirst) {
+            assert.match(message, /Interrupted Markdown write/)
+            assert.ok(h.file.text.includes('Local question :: Local answer'))
+            app.vault.process = write
+            await runtime.previewBidirectionalSync({ ...h.plugin }, { currentOnly: true })
+            const retry = h.host.dialog
+            assert.equal(typeof retry.apply, 'function')
+            const retried = await retry.apply(new Map())
+            assert.doesNotMatch(retried, /Interrupted|Could not/)
+        }
+        assert.ok(h.file.text.includes('Local question :: Remote answer'))
+        assert.equal(remote.fields.Front.value, 'Remote question')
+        await runtime.previewBidirectionalSync({ ...h.plugin }, { currentOnly: true })
+        const row = h.host.dialog.preview.rows.find(row => row.id === id)
+        assert.equal(row.changes.find(change => change.key === id + ':front').decision, 'conflict')
+        assert.ok(!row.changes.some(change => change.key === id + ':back'))
+        h.edit(h.file.text.replace('Local question :: Remote answer', 'Local question :: Answer'))
+        await runtime.previewBidirectionalSync({ ...h.plugin }, { currentOnly: true })
+        const changed = h.host.dialog.preview.rows.find(row => row.id === id)
+        assert.equal(changed.changes.find(change => change.key === id + ':back').decision, 'obsidian')
+    }
+})
+
+test('a lost Anki acknowledgement after partial Apply never writes the skipped field on retry', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const h = fixture(runtime, 'keep'), remote = h.host.notes.get(id)
+    await h.apply()
+    h.edit(initial.replace('Old :: Answer', 'Local Q :: Local A'))
+    remote.fields.Front.value = 'Remote Q'
+    remote.fields.Back.value = 'Remote A'
+    const previous = h.host.request
+    let writes = 0
+    h.host.request = async (action, params) => {
+        if (action !== 'updateNoteFields') return previous(action, params)
+        assert.deepEqual(Object.keys(params.note.fields), ['Back'])
+        writes++
+        remote.fields.Back.value = params.note.fields.Back
+        throw Error('Response lost after Anki updated Back')
+    }
+    const result = await (await h.preview()).apply(new Map([[id + ':front','skip'],[id + ':back','obsidian']]))
+    assert.match(result,/Response lost/)
+    assert.equal(remote.fields.Back.value, 'Local A')
+    await runtime.previewBidirectionalSync({ ...h.plugin }, { currentOnly: true })
+    assert.doesNotMatch(await h.host.dialog.apply(new Map()), /Response lost|Could not/)
+    assert.equal(writes, 1)
+    assert.equal(remote.fields.Front.value, 'Remote Q')
+    assert.ok(h.file.text.includes('Local Q :: Local A'))
+    const row = (await h.preview()).preview.rows.find(row => row.id === id)
+    assert.deepEqual(row.changes.map(change => [change.key,change.decision]),[[id + ':front','conflict']])
 })

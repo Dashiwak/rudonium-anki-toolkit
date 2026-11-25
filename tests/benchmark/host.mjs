@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 globalThis.window ??= { setTimeout, clearTimeout, setInterval, clearInterval }
 let host
+export function previewCursorExport(source, target) {
+    return host.runtime.previewVaultExport(this, undefined, new Set([source]), target)
+}
 export function useHost(value) { host = value }
 export class MarkdownView {}
 export class TFolder {}

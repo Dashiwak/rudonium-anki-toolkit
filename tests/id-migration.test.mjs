@@ -43,7 +43,7 @@ export class Modal {
     open() { this.onOpen?.(); modals.push(this); }
     close() { const index = modals.indexOf(this); if (index >= 0) modals.splice(index, 1); }
 }`);
-for (const name of ['plugin-migration','plugin-identity','interface-language','modal-layout']) {
+for (const name of ['desktop-io','plugin-migration','plugin-identity','interface-language','modal-layout']) {
     const code = stripTypeScriptTypes(readFileSync(join(kit, name + '.ts'), 'utf8'), { mode: 'transform' })
         .replaceAll("from 'obsidian'", "from './obsidian.mjs'")
         .replaceAll("from './export-image-replacement'", "from './image-receipts.mjs'")

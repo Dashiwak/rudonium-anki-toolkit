@@ -2,7 +2,7 @@
 import { Notice, Setting } from 'obsidian'
 import type { ToggleComponent } from 'obsidian'
 import type MyPlugin from '../main'
-import { withFastScanReadLock } from './fast-scan'
+import { withFastScanReadLock } from './scan-state'
 import { uiDiagnostic, uiFor } from './interface-language'
 
 type Surface = 'settings' | 'preview'

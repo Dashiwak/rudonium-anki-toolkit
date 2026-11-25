@@ -97,7 +97,7 @@ export function inspectMigrationFile(path: string, text: string, context: Migrat
                 'This file also contains a local review schedule. Check it before conversion.',
                 'В файле также есть локальное расписание повторений. Проверьте его перед переносом.') }
         }
-        if ((claimedIds ?? foreignMigrationIds(text)).some(id => id !== found!.id)) {
+        if ((claimedIds ?? foreignMigrationIds(text)).some(id => id !== found.id)) {
             return { ...found, status: 'review', reason: context.t(
                 'Another source ID is present in the same file. Verify which Anki note owns it.',
                 'В этом же файле указан другой ID. Проверьте, с какой записью Anki он связан.') }

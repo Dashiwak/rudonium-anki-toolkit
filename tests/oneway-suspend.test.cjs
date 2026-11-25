@@ -84,7 +84,7 @@ async function fixture(allowDelete = false, schema = ['Front', 'Back']) {
         parseExistingNoteSnapshot: row => row, parseExplicitLinkedField: noop, localizeExportError: x => x,
         auditRead: invoke, auditDeckForFile: noop, singleAuditDeck: noop, uiDiagnostic: (_text, message) => message,
     }
-    const names = ['delimited-rule', 'bidirectional-sync', 'bidirectional-state', 'bidirectional-fields', 'anki-study-state', 'suspend-merge', 'deletion-policy', 'export-batch', 'archived-card', 'fast-scan', 'suspend-anki', 'anki-profile', 'anki-transport', 'anki', 'suspend-marker', 'suspend-label', 'anki-id-marker',
+    const names = ['delimited-rule', 'bidirectional-sync', 'bidirectional-state', 'bidirectional-fields', 'anki-study-state', 'suspend-merge', 'deletion-policy', 'export-batch', 'archived-card', 'scan-state', 'fast-scan', 'suspend-anki', 'anki-profile', 'anki-transport', 'anki', 'suspend-marker', 'suspend-label', 'anki-id-marker',
         'id-marker-literals', 'duplicate-markers', 'oneway-suspend', 'export-plan', 'linked-bullets', 'cursor-card', 'image-field-links', 'vault-id-index', 'deletion-source', 'card-export-diagnostics', 'markdown-pipeline', 'bidirectional-blocks',
         'bidirectional-markdown', 'page-card', 'card-format-presets', 'export-recovery']
     const modules = await load(names, api, { anki: "import { transport } from './mock-transport'; export const invoke = transport" })
@@ -107,14 +107,14 @@ async function fixture(allowDelete = false, schema = ['Front', 'Back']) {
     return { register: modules['fast-scan'].registerFastScan, scan: modules['fast-scan'].scanVaultFast, preview: modules['fast-scan'].previewVaultExport,
         idle: modules['fast-scan'].waitForFastScanIdle, configuration: modules['cursor-card'].cursorConfiguration,
         delimitedRule: modules['delimited-rule'].delimitedRule, dialogs, plugin, calls, marked, plain, written, cards, reads, notices, regular,
-        journal, deleted, backups, State: modules['bidirectional-state'].BidirectionalState, archive: modules['archived-card'] }
+        journal, deleted, backups, MarkdownView: api.MarkdownView, State: modules['bidirectional-state'].BidirectionalState, archive: modules['archived-card'] }
 }
 
 test('ordinary export forces custom numbered/all markers again after restart, without exporting unchanged siblings or touching unmarked files', async () => {
     const h = await fixture(), plugin = h.plugin()
     assert.equal(await h.scan(plugin), 'completed', h.notices.join('\n'))
     assert.deepEqual(h.written, [[701, 801]])
-    assert.equal(h.notices.at(-1), 'Paused reviews for 2 notes.')
+    assert.equal(h.notices.at(-1), 'Paused reviews for 2 notes in Anki.')
     assert.equal(h.cards.get(702).suspended, true)
     assert.equal(h.cards.get(703).suspended, false)
     assert.equal(h.cards.get(901).suspended, false)
@@ -325,13 +325,44 @@ test('ordinary export detects an external space in the active saved file despite
     assert.equal(plugin.file_hashes[h.plain.path], hash(h.plain.text))
 })
 
-test('current-note scan reports an unmatched source by path', async () => {
+test('a plain active note is quiet in one-way scans and does not hide another file’s card', async () => {
     const h = await fixture(), plugin = h.plugin()
     plugin.app.workspace.getActiveFile = () => h.plain
-    h.plain.text = 'No recognized card in this file.'
-    h.plain.stat.size = Buffer.byteLength(h.plain.text)
+    const edit = (file, text) => {
+        file.text = text
+        file.stat.size = Buffer.byteLength(text)
+        file.stat.mtime++
+    }
+    edit(h.plain, 'Ordinary prose.')
+    edit(h.marked, h.marked.text.replace(/Pause(?:_3)?\n/g, ''))
+    assert.equal(await h.scan(plugin), 'completed', h.notices.join('\n'))
+
+    let buffer = 'Edited ordinary prose.'
+    const view = Object.assign(new h.MarkdownView(), {
+        file: h.plain, data: h.plain.text, getMode: () => 'source', getViewData: () => buffer,
+        async save() { edit(this.file, buffer); this.data = buffer },
+    })
+    plugin.app.workspace.getLeavesOfType = () => [{ view }]
+    plugin.app.workspace.getActiveViewOfType = () => view
+    assert.equal(await h.scan(plugin), 'completed', h.notices.join('\n'))
+    assert.equal(h.plain.text, buffer)
+    assert.equal(h.notices.at(-1), 'Checked 2 files.\nNo changes.')
+    assert.equal(plugin.file_hashes[h.plain.path], hash(h.plain.text))
+
+    edit(h.marked, h.marked.text.replace('<!--ID: 8', 'Pause\n<!--ID: 8'))
+    buffer = 'Another ordinary edit.'
     assert.equal(await h.scan(plugin, false, true), 'completed', h.notices.join('\n'))
-    assert.ok(h.notices.some(text => text.includes('plain.md') && text.includes('No cards matched')), h.notices.join('\n'))
+    assert.equal(h.notices.at(-1), 'Checked 1 file.\nNo changes.')
+    assert.deepEqual(h.written, [])
+    assert.equal(await h.scan(plugin), 'completed', h.notices.join('\n'))
+    assert.deepEqual(h.written, [[801]])
+    assert.equal(h.plain.text, 'Another ordinary edit.')
+    assert.equal(h.notices.at(-1), 'Paused reviews for 1 note in Anki.')
+
+    buffer += '\n<!--ID: 9 -->\n'
+    assert.equal(await h.scan(plugin, false, true), 'failed')
+    assert.match(h.notices.at(-1), /plain\.md: No card matched the Markdown near Anki ID 9/)
+    assert.deepEqual(h.written, [[801]])
 })
 
 test('current file command pins its Markdown file before waiting, including both cards and excluding the next tab', async () => {

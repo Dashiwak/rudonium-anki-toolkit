@@ -12,7 +12,7 @@ import { cardFieldHazards } from './anki-card-impact'
 import { parseExistingNoteSnapshot, snapshotFields } from './anki-delta'
 import type { ReviewedAnkiEvidence } from './anki-delta'
 import { hasPendingBidirectionalWrite, pendingBidirectionalWriteMessage } from './bidirectional-sync'
-import { withFastScanReadLock } from './fast-scan'
+import { withFastScanReadLock } from './scan-state'
 import { oneWayFieldDigest, oneWayTagKey } from './oneway-history'
 import type { OneWayReceipt } from './oneway-history'
 import { ankiStudyDeckKey, isProtectedAnkiTag } from './anki-study-state'
@@ -61,7 +61,7 @@ const maxUndoSize = 32_768
 const maxStoredUndoSize = 512_000
 
 function digest(value: string): string {
-    return Md5.hashStr(value) as string
+    return Md5.hashStr(value)
 }
 
 function id(value: unknown): value is number {

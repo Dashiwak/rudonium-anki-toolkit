@@ -353,7 +353,6 @@ export function auditPluginSync(
 ): Promise<SyncAuditResult> {
     return withFastScanReadLock(plugin, async (currentRevision, pathRevision, metadataRevision) => {
         checkAbort(signal)
-        const started = performance.now()
         const startedAt = new Date().toISOString()
         const { app } = plugin
         const { vault } = app
@@ -410,8 +409,7 @@ export function auditPluginSync(
         auditCaches.delete(plugin)
         const cache = new Map<string, CachedFile>()
         let weight = 0
-        const metrics = { filesRead: 0, readCacheHits: 0, filesParsed: 0, parseCacheHits: 0, linkedModelRequests: 0,
-            markdownMs: 0, modelMs: 0, parseMs: 0 }
+
         const sources: SyncAuditSource[] = []
         const attachmentSources: Array<{ path: string; aliases?: ReadonlyMap<string, string>; cards: NonNullable<FileAuditData['attachments']> }> = []
         const firstIdLocations = new Map<number, SyncAuditSource>()
@@ -478,7 +476,6 @@ export function auditPluginSync(
             const { mtime, ctime, size } = file.stat
             const stamp = [mtime, ctime, size, pathRevision(path)] as const
             try {
-                metrics.filesRead++
                 const content = await vault.read(file)
                 let snapshot: MarkdownSnapshot
                 if (cached?.content === content) snapshot = cached
@@ -505,7 +502,6 @@ export function auditPluginSync(
             files.every((file, index) => sameSnapshot(dependencies[index], file, pathRevision))
         for (let offset = 0; offset < openFiles.length; offset += filesPerRead) {
             checkAbort(signal)
-            const readStarted = performance.now()
             await Promise.all(openFiles.slice(offset, offset + filesPerRead).map(async file => {
                 const path = file.path
                 if (dirtyPaths.has(path)) fileErrors.push({ path, message: 'The editor has unsaved changes. Save the note and recheck.' })
@@ -514,13 +510,11 @@ export function auditPluginSync(
                 const previous = prior?.entries.get(path)
                 if (!entry || (prior && previous?.content !== entry.content)) reuseDependencies = false
             }))
-            metrics.markdownMs += performance.now() - readStarted
         }
 
         let offset = 0
         while (offset < files.length) {
             checkAbort(signal)
-            const readStarted = performance.now()
             const batch: Array<MarkdownSnapshot | undefined> = []
             let textSize = 0
             while (offset < files.length && batch.length < filesPerModelGroup && textSize < modelGroupTextLimit) {
@@ -535,7 +529,6 @@ export function auditPluginSync(
                     }
                     const cached = previousSnapshot(file)
                     if (cached) {
-                        metrics.readCacheHits++
                         batch.push(cached)
                         continue
                     }
@@ -552,9 +545,7 @@ export function auditPluginSync(
                     checkAbort(signal)
                 }
             }
-            metrics.markdownMs += performance.now() - readStarted
             checkAbort(signal)
-            const modelStarted = performance.now()
             const linkedIds: number[] = []
             for (const entry of batch) {
                 if (!entry?.linkedIds.length) continue
@@ -568,7 +559,6 @@ export function auditPluginSync(
                 checkAbort(signal)
                 const ids = new Set(linkedIds.slice(index, index + idsPerModelRequest))
                 const readModels = (requested: ReadonlySet<number>) => {
-                    metrics.linkedModelRequests++
                     return readLinkedBulletModels(requested, undefined, readModelNotes)
                 }
                 try {
@@ -596,9 +586,7 @@ export function auditPluginSync(
                     for (const id of ids) modelErrors.set(id, message)
                 }
             }
-            metrics.modelMs += performance.now() - modelStarted
             checkAbort(signal)
-            const parseStarted = performance.now()
             for (const entry of batch) {
                 if (!entry) continue
                 const { file, path, linkedIds } = entry
@@ -625,8 +613,6 @@ export function auditPluginSync(
                     }
                     const local = cached?.data ?? await collectFileAudit(manager, data, entry, markers, linkedModels,
                         usesCustomSyntax, retainedCandidates, settings.Syntax, signal)
-                    if (cached) metrics.parseCacheHits++
-                    else metrics.filesParsed++
 
                     const imageAliases = imageAliasesByPath.get(path)
                     for (const source of local.sources) {
@@ -671,11 +657,9 @@ export function auditPluginSync(
                     fileErrors.push({ path, message: `Could not parse Markdown: ${String(error)}` })
                 }
             }
-            metrics.parseMs += performance.now() - parseStarted
             onProgress?.({ phase: 'vault', completed: offset, total: files.length })
         }
 
-        const compareStarted = performance.now()
         checkConfiguration()
         const result = await runSyncAudit({
             vaultName,
@@ -740,11 +724,6 @@ export function auditPluginSync(
                 dependencyObservations: hasVaultDependencies && observations.length <= cacheFileLimit ? observations : undefined,
             })
         }
-        console.info('[Rudonium Anki Toolkit] Sync Audit', {
-            ...metrics, markdownMs: Math.round(metrics.markdownMs), modelMs: Math.round(metrics.modelMs),
-            parseMs: Math.round(metrics.parseMs), compareMs: Math.round(performance.now() - compareStarted),
-            totalMs: Math.round(performance.now() - started), cachedFiles: auditCaches.get(plugin)?.entries.size ?? 0,
-        })
         return result
     })
 }

@@ -1,5 +1,13 @@
-import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
+import * as nodeFiles from 'node:fs/promises'
+import * as nodePath from 'node:path'
+import type { DesktopFileOperations, DesktopPaths } from './src/desktop-io'
+
+type RunnerFiles = Pick<DesktopFileOperations, 'mkdtemp' | 'rename' | 'rm' | 'mkdir' | 'readdir' | 'stat' | 'copyFile'> & {
+    cp(source: string, destination: string, options: { recursive: boolean; preserveTimestamps: boolean; verbatimSymlinks: boolean }): Promise<void>
+}
+
+const fs: RunnerFiles = nodeFiles
+const path: Pick<DesktopPaths, 'join' | 'dirname' | 'basename' | 'resolve'> = nodePath
 
 function missing(error: unknown): boolean {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT'

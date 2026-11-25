@@ -171,8 +171,7 @@ export function renderFieldComparison(container: HTMLElement, expected: string, 
         const pane = pair.createDiv()
         pane.classList.add('rudonium-sync-difference-pane')
         pane.createEl('strong', { text: panes[index] })
-        const text = pane.createEl('div')
-        text.classList.add('rudonium-sync-difference-text')
+        const text = pane.createDiv({ cls: 'rudonium-sync-difference-text' })
         if (difference) {
             for (const chunk of difference) {
                 if ('shared' in chunk) {

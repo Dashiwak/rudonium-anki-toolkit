@@ -35,7 +35,7 @@ function escapeHtml(value: string): string {
 
 function parseStaticMarkup(owner: Document | undefined, html: string): HTMLTemplateElement | undefined {
     if (!owner) return undefined
-    const template = owner.createDocumentFragment().createEl('template')
+    const template = owner.adoptNode(createEl('template'))
     // Sanitize Anki HTML with the host API before applying the stricter offline preview allowlist.
     template.content.append(sanitizeHTMLToDom(html))
     for (const element of Array.from(template.content.querySelectorAll('*'))) {

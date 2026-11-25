@@ -112,7 +112,7 @@ export function auditRepairNoteSnapshot(value: unknown): AuditRepairNote | undef
     const { noteId: id, modelName, tags, cards } = note
     const fields = asRecord(note.fields)
     if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0 || typeof modelName !== 'string' || !modelName ||
-        !fields || !Array.isArray(tags) || !tags.every(tag => typeof tag === 'string') || !Array.isArray(cards) ||
+        !fields || !Array.isArray(tags) || !tags.every((tag): tag is string => typeof tag === 'string') || !Array.isArray(cards) ||
         !cards.every(card => typeof card === 'number' && Number.isSafeInteger(card) && card > 0) ||
         new Set(cards).size !== cards.length) return undefined
     const ordered: Array<{ name: string; order: number; value: string }> = []
@@ -124,7 +124,7 @@ export function auditRepairNoteSnapshot(value: unknown): AuditRepairNote | undef
     }
     ordered.sort((left, right) => left.order - right.order)
     if (!ordered.length || ordered.some(({ order }, index) => order !== index)) return undefined
-    const notesTags = Object.freeze([...new Set(tags as string[])].sort())
+    const notesTags = Object.freeze([...new Set(tags)].sort())
     const noteCards = Object.freeze((cards as number[]).slice().sort((left, right) => left - right))
     const entries = ordered.map(({ name, value }) => [name, value] as const)
     return Object.freeze({ id, modelName, fields: Object.freeze(Object.fromEntries(entries)), tags: notesTags, cards: noteCards,

@@ -99,7 +99,7 @@ export function rewriteSuspendMarkers(text: string, changes: ReadonlyMap<number,
     for (const [id, wanted] of changes) {
         const row = ids.get(id), previous = marked.get(id)
         const page = pageLink?.id === id
-        if (row === undefined || row < 0 || (page ? pageLink!.slot.command === 'delete' :
+        if (row === undefined || row < 0 || (page ? pageLink.slot.command === 'delete' :
             /^(?: {4}| {0,3}\t)/u.test(lines[row]) || parseAnkiIdMarker(lines[row])?.id !== id ||
             lines[row - 1]?.trim().toLowerCase() === deletion)) {
             throw new Error('No unique standalone ID for the suspension marker. / Для метки требуется отдельная уникальная строка ID: ' + id)

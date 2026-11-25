@@ -20,10 +20,21 @@ interface WorkerPort {
     stop(): void
 }
 
-interface WireMatch {
-    index: number
-    values: (string | undefined)[]
-    groups?: Record<string, string | undefined>
+type ThreadEvent = 'message' | 'messageerror' | 'error' | 'exit'
+interface Thread {
+    postMessage(value: unknown): void
+    on(name: ThreadEvent, listener: (value: unknown) => void): Thread
+    off(name: ThreadEvent, listener: (value: unknown) => void): Thread
+    unref(): void
+    terminate(): Promise<number>
+}
+
+function hasBuiltinLoader(value: unknown): value is { getBuiltinModule(name: string): unknown } {
+    return typeof value === 'object' && value !== null && 'getBuiltinModule' in value && typeof value.getBuiltinModule === 'function'
+}
+
+function hasThreadWorker(value: unknown): value is { Worker: new (source: string, options: { eval: true }) => Thread } {
+    return typeof value === 'object' && value !== null && 'Worker' in value && typeof value.Worker === 'function'
 }
 
 const defaultDeadlineMs = 1500
@@ -80,22 +91,24 @@ export function customRegexpKey({ source, flags }: CustomRegexpPattern): string 
 }
 
 function workerPort(): WorkerPort {
-    if (typeof require === 'function') {
+    const runtime: unknown = 'process' in globalThis ? globalThis.process : undefined
+    const threads: unknown = hasBuiltinLoader(runtime) ? runtime.getBuiltinModule('worker_threads') : undefined
+    if (hasThreadWorker(threads)) {
         try {
-            const threads = require('worker_threads') as typeof import('worker_threads')
             const worker = new threads.Worker(nodeWorkerProgram, { eval: true })
             worker.on('error', () => {})
             worker.unref()
             return {
                 send: value => worker.postMessage(value),
                 listen(message, error) {
-                    const exited = (code: number) => error(new Error(`Regular-expression worker exited with code ${code}.`))
+                    const exited = (code: unknown) => error(new Error(`Regular-expression worker exited with code ${String(code)}.`))
                     worker.on('message', message).on('messageerror', error).on('error', error).on('exit', exited)
                     return () => { worker.off('message', message).off('messageerror', error).off('error', error).off('exit', exited) }
                 },
                 stop: () => { void worker.terminate().catch(() => undefined) },
             }
         } catch {
+            // Electron may only allow browser workers in this window.
         }
     }
     if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL.createObjectURL !== 'function') {
@@ -154,13 +167,26 @@ function decodeGroups(text: string, patterns: readonly CustomRegexpPattern[], gr
     return new Map(patterns.map((pattern, index) => {
         const list: unknown = groups[index]
         if (!Array.isArray(list)) throw new Error('Invalid worker matches.')
-        const matches = list.map((result: WireMatch) => {
-            if (!result || !Number.isSafeInteger(result.index) || result.index < 0 || result.index > text.length ||
-                !Array.isArray(result.values) || typeof result.values[0] !== 'string') throw new Error('Invalid worker match range.')
+        const matches = list.map((result: unknown) => {
+            if (!result || typeof result !== 'object' || !('index' in result) || typeof result.index !== 'number' ||
+                !Number.isSafeInteger(result.index) || result.index < 0 || result.index > text.length ||
+                !('values' in result) || !Array.isArray(result.values) || typeof result.values[0] !== 'string' ||
+                !result.values.every((value: unknown) => typeof value === 'string' || value === undefined)) {
+                throw new Error('Invalid worker match range.')
+            }
             const match = result.values as RegExpMatchArray
             match.index = result.index
             match.input = text
-            if (result.groups) match.groups = Object.assign(Object.create(null), result.groups)
+            if ('groups' in result && result.groups !== undefined) {
+                if (!result.groups || typeof result.groups !== 'object' || Array.isArray(result.groups)) throw new Error('Invalid named captures.')
+                const named: Record<string, string> = {}
+                Object.setPrototypeOf(named, null)
+                for (const [name, value] of Object.entries(result.groups) as [string, unknown][]) {
+                    if (value !== undefined && typeof value !== 'string') throw new Error('Invalid named capture.')
+                    named[name] = typeof value === 'string' ? value : undefined
+                }
+                match.groups = named
+            }
             return match
         })
         return [customRegexpKey(pattern), matches] as const

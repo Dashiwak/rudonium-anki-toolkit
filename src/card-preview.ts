@@ -13,7 +13,6 @@ import { buildBasicCardVariants, readCardTemplateVariants } from './card-preview
 import type { CardPreviewField, CardPreviewVariant } from './card-preview-render'
 import { cursorConfiguration, staleCursorCard } from './cursor-card'
 import type { CursorCardTarget } from './cursor-card'
-import { previewVaultExport } from './fast-scan'
 import { openCardPreview } from './card-preview-ui'
 import { describeDeckRoute } from './deck-routes'
 import * as syntax from './constants'
@@ -66,8 +65,8 @@ export async function buildCardPreview(plugin: MyPlugin, file: TFile, text: stri
     }
     const source = file.path
     const configuration = cursorConfiguration(plugin)
-    const settings: MyPlugin['settings'] = JSON.parse(JSON.stringify(plugin.settings))
-    const fieldsDictionary: Record<string, string[]> = JSON.parse(JSON.stringify(plugin.fields_dict))
+    const settings: MyPlugin['settings'] = structuredClone(plugin.settings)
+    const fieldsDictionary: Record<string, string[]> = structuredClone(plugin.fields_dict)
     const { app } = plugin
     if (text.includes('RUDONIUM-ARCHIVE') && archivedCardRanges(text).some(r => r.start <= offset && offset < r.end)) {
         throw new Error(t('This card was deleted from Anki and is archived in Markdown.', 'Эта карточка удалена из Anki и хранится в архиве Markdown.'))
@@ -214,7 +213,7 @@ export async function previewCurrentCard(plugin: MyPlugin, editor: Editor, file:
         openCardPreview(plugin.app, result, t, target ? async () => {
             if (file.path !== source || editor.getValue() !== text || plugin.app.vault.getAbstractFileByPath(source) !== file ||
                 cursorConfiguration(plugin) !== target.configuration) throw staleCursorCard()
-            await previewVaultExport(plugin, undefined, new Set([source]), target)
+            await plugin.previewCursorExport(source, target)
         } : undefined)
     } catch (error) {
         if (latestPreview.get(plugin) === revision) {

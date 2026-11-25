@@ -213,7 +213,8 @@ export async function readCardTemplateVariants(modelName: string, fields: readon
             'Активный профиль Anki изменился. Показан упрощённый вид.')] }
     }
     if (!Array.isArray(response) || response.length !== 2) return { variants: [], cautions: [unavailable] }
-    const [templateReply, styleReply]: unknown[] = response
+    const templateReply: unknown = response[0]
+    const styleReply: unknown = response[1]
     if (!isRecord(templateReply) || templateReply.error !== null || !isRecord(templateReply.result)) {
         return { variants: [], cautions: [unavailable] }
     }

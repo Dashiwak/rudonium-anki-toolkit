@@ -4,7 +4,7 @@
  */
 import type MyPlugin from '../main'
 
-type LayoutSettings = Pick<MyPlugin, 'settings'> & Partial<Pick<MyPlugin, 'app'>>
+type LayoutSettings = Pick<MyPlugin, 'settings'> & { app?: LayoutStorage }
 export type LayoutStorage = MyPlugin['app'] & {
     loadLocalStorage?(key: string): unknown
     saveLocalStorage?(key: string, value: unknown): void
@@ -17,7 +17,7 @@ function remembered(plugin: LayoutSettings): Map<string, boolean> {
     if (state) return state
     state = new Map()
     try {
-        const stored = (plugin.app as LayoutStorage | undefined)?.loadLocalStorage?.(layoutKey)
+        const stored: unknown = plugin.app?.loadLocalStorage?.(layoutKey)
         if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
             for (const [key, open] of Object.entries(stored)) if (typeof open === 'boolean') state.set(key, open)
         }
@@ -27,7 +27,7 @@ function remembered(plugin: LayoutSettings): Map<string, boolean> {
 }
 
 function persist(plugin: LayoutSettings, groups: Map<string, boolean>): void {
-    try { (plugin.app as LayoutStorage | undefined)?.saveLocalStorage?.(layoutKey, Object.fromEntries(groups)) }
+    try { plugin.app?.saveLocalStorage?.(layoutKey, Object.fromEntries(groups)) }
     catch { /* The current session still retains these preferences. */ }
 }
 

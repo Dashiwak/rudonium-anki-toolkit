@@ -2,12 +2,10 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as fs from 'fs'
-import * as path from 'path'
+import { files as fs, paths as path, bytes as binary } from './desktop-io'
+import type { DesktopPaths, FileStat, FileHandle, Bytes } from './desktop-io'
 import * as stream from 'stream'
 import * as zlib from 'zlib'
-import type { Stats } from 'fs'
-import type { FileHandle } from 'fs/promises'
 
 export interface VaultZipResult {
     files: number
@@ -34,7 +32,7 @@ export interface VaultZipReadOptions {
     signal?: AbortSignal
 }
 
-type Candidate = { path: string; diskPath: string; stat: Stats; directory: boolean }
+type Candidate = { path: string; diskPath: string; stat: FileStat; directory: boolean }
 type ZipEntry = {
     name: string
     directory: boolean
@@ -75,19 +73,19 @@ function validNumber(value: number): number {
     return value
 }
 
-function u64(buffer: Buffer, offset: number): number {
+function u64(buffer: Bytes, offset: number): number {
     return validNumber(buffer.readUInt32LE(offset) + buffer.readUInt32LE(offset + 4) * 0x100000000)
 }
 
-function put64(buffer: Buffer, offset: number, value: number): void {
+function put64(buffer: Bytes, offset: number, value: number): void {
     validNumber(value)
     buffer.writeUInt32LE(value % 0x100000000, offset)
     buffer.writeUInt32LE(Math.floor(value / 0x100000000), offset + 4)
 }
 
-function extra64(values: number[]): Buffer {
-    if (!values.length) return Buffer.alloc(0)
-    const extra = Buffer.alloc(4 + values.length * 8)
+function extra64(values: number[]): Bytes {
+    if (!values.length) return binary.alloc(0)
+    const extra = binary.alloc(4 + values.length * 8)
     extra.writeUInt16LE(1, 0)
     extra.writeUInt16LE(values.length * 8, 2)
     values.forEach((value, index) => put64(extra, index * 8 + 4, value))
@@ -127,12 +125,12 @@ function comparePathKey(path: string): string {
     return path.normalize('NFC').toLowerCase()
 }
 
-function sameFile(left: Stats, right: Stats): boolean {
+function sameFile(left: FileStat, right: FileStat): boolean {
     return left.dev === right.dev && left.ino === right.ino && left.size === right.size &&
         left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs
 }
 
-function isInside(directory: string, target: string, path: typeof import('path')): boolean {
+function isInside(directory: string, target: string, path: DesktopPaths): boolean {
     const relative = path.relative(directory, target)
     return !relative || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
 }
@@ -173,7 +171,7 @@ async function enumerate(root: string, onProgress?: VaultZipProgressCallback,
     return { candidates, total }
 }
 
-async function writeAt(file: FileHandle, buffer: Buffer, position: number): Promise<void> {
+async function writeAt(file: FileHandle, buffer: Bytes, position: number): Promise<void> {
     for (let at = 0; at < buffer.length;) {
         const { bytesWritten } = await file.write(buffer, at, buffer.length - at, position + at)
         if (!bytesWritten) throw error('The ZIP output stopped accepting bytes.')
@@ -181,8 +179,8 @@ async function writeAt(file: FileHandle, buffer: Buffer, position: number): Prom
     }
 }
 
-async function readAt(file: FileHandle, size: number, position: number): Promise<Buffer> {
-    const buffer = Buffer.alloc(size)
+async function readAt(file: FileHandle, size: number, position: number): Promise<Bytes> {
+    const buffer = binary.alloc(size)
     for (let at = 0; at < size;) {
         const { bytesRead } = await file.read(buffer, at, size - at, position + at)
         if (!bytesRead) throw error('The ZIP archive ended unexpectedly.')
@@ -191,7 +189,7 @@ async function readAt(file: FileHandle, size: number, position: number): Promise
     return buffer
 }
 
-function zipDate(stat: Stats): { time: number; date: number } {
+function zipDate(stat: FileStat): { time: number; date: number } {
     const mtime = stat.mtime
     const year = Math.min(2107, Math.max(1980, mtime.getFullYear()))
     return {
@@ -200,9 +198,9 @@ function zipDate(stat: Stats): { time: number; date: number } {
     }
 }
 
-function localHeader(entry: ZipEntry, large: boolean, name: Buffer): Buffer {
+function localHeader(entry: ZipEntry, large: boolean, name: Bytes): Bytes {
     const extra = extra64(large ? [entry.size, entry.compressed] : [])
-    const header = Buffer.alloc(30 + name.length + extra.length)
+    const header = binary.alloc(30 + name.length + extra.length)
     header.writeUInt32LE(signatures.local, 0)
     header.writeUInt16LE(large ? versions.large : versions.standard, 4)
     header.writeUInt16LE(entry.flags, 6)
@@ -219,12 +217,12 @@ function localHeader(entry: ZipEntry, large: boolean, name: Buffer): Buffer {
     return header
 }
 
-function centralHeader(entry: ZipEntry): Buffer {
-    const name = Buffer.from(entry.name, 'utf8')
+function centralHeader(entry: ZipEntry): Bytes {
+    const name = binary.from(entry.name, 'utf8')
     const largeSize = entry.size >= max32 || entry.compressed >= max32
     const largeOffset = entry.offset >= max32
     const extra = extra64([...(largeSize ? [entry.size, entry.compressed] : []), ...(largeOffset ? [entry.offset] : [])])
-    const header = Buffer.alloc(46 + name.length + extra.length)
+    const header = binary.alloc(46 + name.length + extra.length)
     const version = extra.length ? versions.large : versions.standard
     header.writeUInt32LE(signatures.central, 0)
     header.writeUInt16LE((3 << 8) | version, 4)
@@ -245,8 +243,8 @@ function centralHeader(entry: ZipEntry): Buffer {
     return header
 }
 
-function endRecords(entries: number, start: number, size: number): Buffer {
-    const end = Buffer.alloc(22)
+function endRecords(entries: number, start: number, size: number): Bytes {
+    const end = binary.alloc(22)
     end.writeUInt32LE(signatures.end, 0)
     const large = entries >= max16 || start >= max32 || size >= max32
     end.writeUInt16LE(Math.min(entries, max16), 8)
@@ -254,7 +252,7 @@ function endRecords(entries: number, start: number, size: number): Buffer {
     end.writeUInt32LE(Math.min(size, max32), 12)
     end.writeUInt32LE(Math.min(start, max32), 16)
     if (!large) return end
-    const zip64 = Buffer.alloc(56)
+    const zip64 = binary.alloc(56)
     zip64.writeUInt32LE(signatures.end64, 0)
     put64(zip64, 4, 44)
     zip64.writeUInt16LE(versions.large, 12)
@@ -263,11 +261,11 @@ function endRecords(entries: number, start: number, size: number): Buffer {
     put64(zip64, 32, entries)
     put64(zip64, 40, size)
     put64(zip64, 48, start)
-    const locator = Buffer.alloc(20)
+    const locator = binary.alloc(20)
     locator.writeUInt32LE(signatures.locator, 0)
     put64(locator, 8, start + size)
     locator.writeUInt32LE(1, 16)
-    return Buffer.concat([zip64, locator, end])
+    return binary.concat([zip64, locator, end])
 }
 
 export async function writeVaultZip(source: string, archive: string, onProgress?: VaultZipProgressCallback,
@@ -290,7 +288,7 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
         for (const candidate of candidates) {
             const { diskPath, stat, directory } = candidate
             const name = directory ? candidate.path + '/' : candidate.path
-            const nameBytes = Buffer.from(name, 'utf8')
+            const nameBytes = binary.from(name, 'utf8')
             if (nameBytes.length > max16) throw error(`The vault path is too long for ZIP: ${candidate.path}`)
             const method = !directory && stat.size > 128 && stat.size < max32 - 16 * 1024 * 1024 &&
                 textExtension.test(name) ? deflated : stored
@@ -312,7 +310,7 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
                             fd: input.fd, autoClose: false, start: 0, end: stat.size - 1,
                         })
                         const checksum = new stream.Transform({
-                            transform(chunk: Buffer, _encoding, callback) {
+                            transform(chunk: Bytes, _encoding, callback) {
                                 try {
                                     crc = updateCrc(crc, chunk)
                                     length += chunk.length
@@ -325,7 +323,7 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
                             },
                         })
                         const sink = new stream.Writable({
-                            write(chunk: Buffer, _encoding, callback) {
+                            write(chunk: Bytes, _encoding, callback) {
                                 void writeAt(output, chunk, position).then(() => {
                                     position += chunk.length
                                     callback()
@@ -360,11 +358,11 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
             return !initial || initial.directory !== candidate.directory || !sameFile(initial.stat, candidate.stat)
         })) throw error('The vault changed during backup. Retry before importing.')
         const centralStart = position
-        let headers: Buffer[] = []
+        let headers: Bytes[] = []
         let headerBytes = 0
         const flush = async () => {
             if (!headers.length) return
-            await writeAt(output, Buffer.concat(headers, headerBytes), position)
+            await writeAt(output, binary.concat(headers, headerBytes), position)
             position += headerBytes
             headers = []
             headerBytes = 0
@@ -423,7 +421,7 @@ async function directoryPosition(file: FileHandle, length: number) {
     throw error('The ZIP directory is missing or incomplete.')
 }
 
-function readZip64Extra(extra: Buffer): Buffer {
+function readZip64Extra(extra: Bytes): Bytes {
     for (let offset = 0; offset + 4 <= extra.length;) {
         const length = extra.readUInt16LE(offset + 2)
         if (offset + 4 + length > extra.length) break
@@ -433,7 +431,7 @@ function readZip64Extra(extra: Buffer): Buffer {
     throw error('A large ZIP entry has no ZIP64 sizes.')
 }
 
-function readSizes(extra: Buffer, size: number, compressed: number, offset: number) {
+function readSizes(extra: Bytes, size: number, compressed: number, offset: number) {
     if (size !== max32 && compressed !== max32 && offset !== max32) return { size, compressed, offset }
     const values = readZip64Extra(extra)
     let index = 0
@@ -556,7 +554,7 @@ async function readArchive(archive: string, destination: string | undefined,
     const realArchive = await fs.promises.realpath(archive)
     const file = await fs.promises.open(realArchive, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0))
     let target: string | undefined
-    let targetStat: Stats | undefined
+    let targetStat: FileStat | undefined
     let successful = false
     try {
         const stat = await file.stat()
@@ -591,7 +589,7 @@ async function readArchive(archive: string, destination: string | undefined,
                         fd: file.fd, autoClose: false, start: entry.dataStart, end: entry.dataStart + entry.compressed - 1,
                     })
                     const sink = new stream.Writable({
-                        write(chunk: Buffer, _encoding, callback) {
+                        write(chunk: Bytes, _encoding, callback) {
                             try {
                                 checkZipCancellation(options.signal)
                                 const position = expanded

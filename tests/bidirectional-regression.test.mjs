@@ -24,7 +24,7 @@ for (const layout of ['split', 'dense', 'remnote']) {
     })
 }
 
-test('the preview closes once after a completed apply; partial writes and failures retain the report', async () => {
+async function previewHarness() {
     const { load } = await import('./benchmark/migration-modules.cjs').then(module => module.default)
     const notices = [], dialogs = []
     class Element {
@@ -37,6 +37,7 @@ test('the preview closes once after a completed apply; partial writes and failur
             this.children.push(child)
             return child
         }
+        setAttribute(name, value) { this[name] = value }
         createDiv() { return this.createEl('div') }
         empty() { this.children = [] }
         find(text) { return (text instanceof RegExp ? text.test(this.text ?? '') : this.text === text) ? this : this.children.map(child => child.find(text)).find(Boolean) }
@@ -49,10 +50,15 @@ test('the preview closes once after a completed apply; partial writes and failur
         open() { dialogs.push(this); this.onOpen() }
         close() { this.closes = (this.closes ?? 0) + 1; this.onClose() }
     }
-    const api = { Modal, Notice: class { constructor(message) { notices.push(message) } }, installModalLayout() {} }
+    const api = { Modal, Notice: class { constructor(message) { notices.push(message) } }, installModalLayout() {}, renderFieldComparison() {} }
     const { 'bidirectional-ui': ui } = await load(['bidirectional-ui', 'interface-language'], api)
     const app = {}
     const preview = {scopeLabel:'Vault',profile:'Default',scanned:1,rows:[],canApply:true}
+    return { ui, app, preview, notices, dialogs }
+}
+
+test('the preview closes once after a completed apply; partial writes and failures retain the report', async () => {
+    const { ui, app, preview, notices, dialogs } = await previewHarness()
     for (const result of ['success','partial','throw','closed-during-apply']) {
         let finish, count=0
         const callback = (_choices, onPartial) => new Promise((resolve, reject) => {
@@ -79,6 +85,55 @@ test('the preview closes once after a completed apply; partial writes and failur
             assert.deepEqual(notices.slice(prior),['Summary'])
         }
     }
+})
+
+test('manual preview keeps explicit Skip distinct from an unresolved conflict and restores direction on reopening', async () => {
+    const { ui, app, preview, dialogs } = await previewHarness()
+    const key = '17:front'
+    const accepted = []
+    const open = (decision, recommendedSide, allowedSide) => {
+        const change = { key, field: 'Front', obsidian: 'local', anki: 'remote', decision,
+            canChooseDirection: !allowedSide, canSkip: true, recommendedSide, allowedSide }
+        ui.openBidirectionalPreview(app, { ...preview, canApply: decision !== 'conflict',
+            rows: [{ id: 17, path: 'History.md', changes: [change] }] }, async choices => {
+            accepted.push(choices.get(key))
+            return 'Done'
+        })
+        const modal = dialogs.at(-1)
+        return text => modal.contentEl.find(text)
+    }
+    for (const [decision, recommended] of [['conflict', 'anki'], ['obsidian'], ['anki'], ['conflict']]) {
+        const find = open(decision, recommended)
+        assert.equal(find('Skip')['aria-pressed'], 'false')
+        assert.equal(find('Apply Sync').disabled, decision === 'conflict' && !recommended)
+        find('Obsidian → Anki').onclick()
+        find('Obsidian ← Anki').onclick()
+        find('Skip').onclick()
+        assert.equal(find('Skip')['aria-pressed'], 'true')
+        assert.ok(find(/To Anki: 0 · To Obsidian: 0.*Unresolved conflicts: 0 · Skipped: 1/))
+        assert.equal(find('Apply Sync').disabled, false)
+        find('Apply Sync').onclick()
+        await new Promise(resolve => setImmediate(resolve))
+        assert.equal(accepted.at(-1), 'skip')
+        assert.equal(dialogs.at(-1).closes, 1)
+    }
+    for (const [decision, allowed, forbidden] of [['anki', 'Obsidian ← Anki', 'Obsidian → Anki'], ['obsidian', 'Obsidian → Anki', 'Obsidian ← Anki']]) {
+        const find = open(decision, undefined, decision)
+        assert.equal(find(forbidden), undefined)
+        assert.equal(find(allowed)['aria-pressed'], 'true')
+        find('Skip').onclick()
+        find('Apply Sync').onclick()
+        await new Promise(resolve => setImmediate(resolve))
+        assert.equal(accepted.at(-1), 'skip')
+    }
+    const find = open('conflict', undefined, 'anki')
+    assert.equal(find('Obsidian → Anki'), undefined)
+    find('Skip').onclick()
+    find('Obsidian ← Anki').onclick()
+    assert.equal(find('Skip')['aria-pressed'], 'false')
+    find('Apply Sync').onclick()
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(accepted.at(-1), 'anki')
 })
 
 test('two-way settings place the mode first inside the collapsed group in both languages and roll back a failed toggle', async () => {

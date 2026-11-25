@@ -342,6 +342,7 @@ test('bidirectional current-file command keeps the initial file across a tab swi
     h.plugin.settings.BIDIRECTIONAL_PREVIEW = true
     const commands = new Map()
     h.plugin.addCommand = cmd => commands.set(cmd.id, cmd)
+    runtime.registerFastScan(h.plugin)
     await h.apply()
     h.editFile(h.file, initial.replace('Answer', 'Changed').replace('Still here', 'Changed too'))
     const otherId = sibling + 1
@@ -407,7 +408,7 @@ test('pure inbound checks the live file, values and profile on both sides of its
             assert.equal(h.host.calls.slice(lastAnkiRead).filter(c=>c.action==='notesInfo').length,1)
             assert.ok(h.host.calls.slice(lastAnkiRead).some(c=>c.action==='getActiveProfile'))
         }
-        if (fault !== 'profile-after') assert.match(result,fault==='none'? /Updated 1 note\./ : /Could not confirm changes to 1 note\./)
+        if (fault !== 'profile-after') assert.match(result,fault==='none'? /Updated 1 note in (?:Anki|Obsidian)\./ : /Could not confirm changes to 1 note\./)
         assert.equal(h.host.calls.some(c=>c.action==='updateNoteFields'),false)
     }
 })

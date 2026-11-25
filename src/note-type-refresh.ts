@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { checkedCount } from './sync-outcome'
 import { Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { russianUi, uiDiagnostic, uiFor } from './interface-language'
@@ -228,7 +229,7 @@ export function installNoteTypeRefresh(container: HTMLElement, fallback: HTMLEle
                 const count = `${result.noteTypeCount} ${result.noteTypeCount === 1 ? 'note type' : 'note types'}`
                 const base = result.changed
                     ? [`Updated ${count}.`, `Обновлено типов записей: ${result.noteTypeCount}.`] as const
-                    : [`Checked ${count}. No changes.`, `Проверено типов записей: ${result.noteTypeCount}. Изменений нет.`] as const
+                    : [`Checked ${count}. No changes.`, checkedCount(result.noteTypeCount, 'note type', russianUi) + ' Изменений нет.'] as const
                 const message = result.disabled.length ? [
                     base[0] + ' Missing fields were disabled. Choose replacements in the note type settings. ' +
                         result.disabled.map(({ model, use, field }) => `${model} · ${use === 'file' ? 'file link' : 'context'} · ${field}`).join(', '),

@@ -4,7 +4,7 @@ This is an independently maintained, modified derivative of **Obsidian_to_Anki /
 
 - Upstream repository: https://github.com/ObsidianToAnki/Obsidian_to_Anki
 - Build base: release 3.6.0; expected commit `2dd39fefd26f3141a4e02105b1172a5a3eb2611f`.
-- The fork builds on the earlier v16–v17 modifications to Export to Anki. The project adopted the Rudonium Anki Toolkit name in version 1.6.0. Version **0.11.3** was prepared on **2026-11-23**.
+- The fork builds on the earlier v16–v17 modifications to Export to Anki. The project adopted the Rudonium Anki Toolkit name in version 1.6.0. Version **0.12.4** was prepared on **2026-11-25**.
 - Rudonium additions copyright © 2026 **dashiwak**. [Project support](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
 ## License chosen for this distribution
@@ -16,6 +16,8 @@ The upstream currently presents conflicting indicators: a GPLv3 `LICENSE` and an
 The build records the exact upstream legal files, metadata, and source hashes before modifying its temporary copy. These records are stored in `UPSTREAM-SNAPSHOT`; `PROVENANCE.json` identifies the expected source, observed metadata, and modifications. A supplied Git checkout lets the builder export the tracked files from that commit and record the Git-object verification. For a plain source directory it records the acquisition and hashes without authenticating the revision. Identifying the Git commit establishes neither authorship nor licensing authority.
 
 Match the version in `PROVENANCE.json` under `release.version` to the version in `manifest.json` when inspecting a distribution. A source checkout can still carry the previous release’s evidence until a new build has recorded the candidate’s source and artifact hashes. The verified installation ZIP contains the new record in the plugin directory.
+
+The source update for 0.12.4 retains dependency notices from the previous build. Its runtime dependency inventory is regenerated during the locked build.
 
 ## Changes and acknowledgements
 

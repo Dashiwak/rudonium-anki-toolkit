@@ -5,23 +5,12 @@
 import * as Obsidian from 'obsidian'
 import { Prec, StateEffect, type EditorState, type StateEffectType } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view'
+import { syntaxTree, syntaxTreeAvailable, type EditorSyntaxNode } from '@codemirror/language'
 import type MyPlugin from '../main'
 import { collectIdMarkerSpans } from './id-marker-format'
 import type { IdMarkerSpan } from './id-marker-format'
 import { parseAnkiIdMarker } from './anki-id-marker'
 import { uiFor } from './interface-language'
-
-interface SyntaxNode {
-    name: string
-    from: number
-    to: number
-    parent: SyntaxNode | null
-}
-
-interface MarkdownLanguage {
-    syntaxTree(state: EditorState): { resolveInner(position: number, side?: number): SyntaxNode }
-    syntaxTreeAvailable(state: EditorState, until?: number): boolean
-}
 
 const badgeClass = 'rudonium-anki-id-badge'
 const maximumLines = 300
@@ -49,9 +38,8 @@ function selectedLine(state: EditorState, from: number, to: number): boolean {
 export function registerEditorIdFolding(plugin: MyPlugin): void {
     if (registered.has(plugin) || typeof plugin.registerEditorExtension !== 'function') return
     try {
-        const language: MarkdownLanguage = require('@codemirror/language')
         const livePreview = Obsidian.editorLivePreviewField
-        if (!livePreview || typeof language.syntaxTree !== 'function' || typeof language.syntaxTreeAvailable !== 'function') return
+        if (!livePreview) return
         const refresh = StateEffect.define<void>()
         const editors = new Set<EditorView>()
 
@@ -64,7 +52,7 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
             }
 
             toDOM(editor: EditorView): HTMLElement {
-                const button = editor.dom.ownerDocument.createDocumentFragment().createEl('button')
+                const button = editor.dom.ownerDocument.adoptNode(createEl('button'))
                 button.type = 'button'
                 button.className = badgeClass + (this.warning ? ` ${badgeClass}-warning` : '')
                 button.textContent = this.warning ? 'Anki ⚠' : 'Anki'
@@ -102,7 +90,7 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
             update(update: ViewUpdate): void {
                 if (update.docChanged || update.viewportChanged || update.selectionSet ||
                     update.transactions.some(transaction => transaction.effects.some(effect => effect.is(refresh))) ||
-                    language.syntaxTree(update.startState) !== language.syntaxTree(update.state)) this.rebuild(update.view)
+                    syntaxTree(update.startState) !== syntaxTree(update.state)) this.rebuild(update.view)
             }
 
             refreshSoon(editor: EditorView): void {
@@ -129,20 +117,20 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
 
             private draw(editor: EditorView): void {
                 if (plugin.settings.COLLAPSE_ANKI_IDS !== true || editor.composing ||
-                    editor.state.field(livePreview!, false) !== true) return
+                    editor.state.field(livePreview, false) !== true) return
                 const info = editor.state.field(Obsidian.editorInfoField, false)
                 if (!info?.file) return
                 const syntax = plugin.settings.Syntax
                 const signature = JSON.stringify(syntax)
                 if (signature !== this.syntaxKey) { this.cache.clear(); this.syntaxKey = signature }
-                const tree = language.syntaxTree(editor.state)
+                const tree = syntaxTree(editor.state)
                 const ranges: Array<ReturnType<ReturnType<typeof Decoration.replace>['range']>> = []
                 const visited = new Set<number>()
                 let characters = 0
                 let contextCharacters = 0
                 const t = uiFor(plugin.settings)
                 for (const visible of editor.visibleRanges) {
-                    if (!language.syntaxTreeAvailable(editor.state, visible.to)) continue
+                    if (!syntaxTreeAvailable(editor.state, visible.to)) continue
                     const first = editor.state.doc.lineAt(visible.from).number
                     const last = editor.state.doc.lineAt(visible.to).number
                     for (let number = first; number <= last; number++) {
@@ -165,7 +153,7 @@ export function registerEditorIdFolding(plugin: MyPlugin): void {
                             const from = line.from + marker.from
                             const to = line.from + marker.to
                             if (to > line.to || from < line.from) continue
-                            let node: SyntaxNode | null = tree.resolveInner(from, 1)
+                            let node: EditorSyntaxNode | null = tree.resolveInner(from, 1)
                             let literal = false
                             while (node) {
                                 if (literalNode.test(node.name) || htmlAttributeNode.test(node.name)) { literal = true; break }

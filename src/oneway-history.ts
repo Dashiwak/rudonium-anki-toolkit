@@ -57,7 +57,7 @@ function rememberValidation(storage: HistoryStorage, path: string, disk: DiskSna
 }
 
 function digest(value: string): string {
-    return Md5.hashStr(value) as string
+    return Md5.hashStr(value)
 }
 
 export function oneWayFieldDigest(value: string): string {
@@ -171,7 +171,7 @@ export class OneWayHistory {
                 }
                 const hash = oneWayFieldDigest(value)
                 if (previous?.fields[name] === hash) continue
-                const fields = updatedFields ??= Object.assign(Object.create(null), previous?.fields)
+                const fields = updatedFields ??= Object.assign(Object.create(null) as Record<string, string>, previous?.fields)
                 fields[name] = hash
             }
             for (const tag of [...(receipt.matchedTags ?? []), ...(receipt.addedTags ?? [])]) {

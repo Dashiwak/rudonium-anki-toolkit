@@ -273,7 +273,7 @@ export class MarkdownFieldBoundaryError extends Error {}
 export function planExplicitBlockPatches(content: string, block: BidirectionalBlock,
     fields: Readonly<Record<string, string>>, tags?: EditableTags): MarkdownPatch[] {
     const patches: MarkdownPatch[] = []
-    const additions: Record<string, string> = Object.create(null)
+    const additions = Object.create(null) as Record<string, string>
     for (const [field, value] of Object.entries(fields)) {
         const span = block.explicitFields.get(field)
         const canInsert = !span && (block.format === 'page' ? block.pageOptionalFieldNames?.includes(field) :
@@ -392,7 +392,7 @@ export function planLinkedBulletPatches(
         const remaining = new Set(Object.keys(extra))
         for (let index = 1; index < separators.length && remaining.size; index++) {
             const separator = separators[index]
-            const start = bullet.start + separator.index! + separator[0].length
+            const start = bullet.start + separator.index + separator[0].length
             const next = separators[index + 1]?.index
             const span = trimmedSpan(content, start, next === undefined ? end : bullet.start + next)
             const field = parseExplicitLinkedField(content.slice(span.start, span.end))

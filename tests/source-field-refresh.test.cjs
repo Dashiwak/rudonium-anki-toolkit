@@ -24,8 +24,8 @@ test('refresh disables only lost named fields and shows the type, field, and how
         note_types: ['Basic','Other'], fields_dict: { Basic:['Renamed file','Source'], Other:['Renamed context','Back'] } }
     const writes = []
     plugin.saveData = async data => { writes.push(JSON.parse(JSON.stringify(data))) }
-    const { 'note-type-refresh': refresh } = await load(['note-type-refresh','card-format-presets'], {
-        Setting, uiFor: () => en => en, withFastScanReadLock: (_plugin, fn) => fn(),
+    const { 'note-type-refresh': refresh } = await load(['note-type-refresh','card-format-presets','interface-language'], {
+        Setting, withFastScanReadLock: (_plugin, fn) => fn(),
         savePluginDataInOrder: (_plugin, fn) => fn(), readActiveAnkiProfile: () => 'Profile',
         checkPinnedAnkiProfile: () => 'Profile', expectedAnkiProfile: () => 'Profile',
         auditRead: (action, params) => {

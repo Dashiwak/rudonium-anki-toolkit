@@ -18,21 +18,21 @@ export function registerSupportCommand(plugin: MyPlugin): void {
     })
 }
 
-export function installSettingsHelp(container: HTMLElement, plugin: MyPlugin): void {
+export function installSettingsHelp(container: HTMLElement, plugin: MyPlugin, pane = container): void {
     const t = uiFor(plugin.settings)
     const header = container.createDiv({ cls: 'rudonium-settings-header' })
-    header.createEl('a', { text: t('Rudonium help on GitFlic', 'Помощь по Rudonium на GitFlic'),
-        attr: { href: supportUrl } })
     const controls = header.createDiv({ cls: 'rudonium-section-controls', attr: {
         role: 'group', 'aria-label': t('Settings sections', 'Разделы настроек') } })
     const addButton = (label: string, icon: string, open: boolean) => {
         const button = controls.createEl('button', { cls: 'clickable-icon',
             attr: { type: 'button', title: label, 'aria-label': label } })
         setIcon(button, icon)
-        button.onclick = () => setAllSettingsGroupsOpen(container, plugin, open)
+        button.onclick = () => setAllSettingsGroupsOpen(pane, plugin, open)
     }
     addButton(t('Expand all sections', 'Развернуть все разделы'), 'chevrons-up-down', true)
     addButton(t('Collapse all sections', 'Свернуть все разделы'), 'chevrons-down-up', false)
+    header.createEl('a', { cls: 'rudonium-settings-help', text: t('Rudonium help on GitFlic', 'Помощь по Rudonium на GitFlic'),
+        attr: { href: supportUrl } })
 }
 
 export function installInterfaceLanguage(container: HTMLElement, plugin: MyPlugin, redraw: () => void, pane = container): void {

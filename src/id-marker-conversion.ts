@@ -2,10 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as path from 'path'
-import * as os from 'os'
-import * as crypto from 'crypto'
-import { constants, promises as fs } from 'fs'
+import { paths as path, temporaryDirectory, hashes as crypto, fileOperations as fs, fileFlags as constants, bytes as binary, fileErrorCode } from './desktop-io'
 import { MarkdownView, TFile } from 'obsidian'
 import type MyPlugin from '../main'
 import { withFastScanReadLock } from './fast-scan'
@@ -41,7 +38,7 @@ function desktop(plugin: MyPlugin) {
     const adapter = plugin.app.vault.adapter as typeof plugin.app.vault.adapter & { getBasePath?(): string }
     if (typeof adapter.getBasePath !== 'function') throw new Error(uiFor(plugin.settings)(
         'ID conversion requires a local desktop vault.', 'Для преобразования ID нужно локальное настольное хранилище.'))
-    return { fs, constants, path, os, crypto, base: adapter.getBasePath() }
+    return { fs, constants, path, crypto, base: adapter.getBasePath() }
 }
 
 function digest(text: string): string { return crypto.createHash('sha256').update(text).digest('hex') }
@@ -57,7 +54,7 @@ async function checkedPath(root: string, relative: string, create = false): Prom
     const parts = relative.split('/')
     for (let index = 0; index < parts.length; index++) {
         absolute = path.join(absolute, parts[index])
-        let info = await fs.lstat(absolute).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error })
+        let info = await fs.lstat(absolute).catch((error: unknown) => { if (fileErrorCode(error) === 'ENOENT') return undefined; throw error })
         if (!info && create) { await fs.mkdir(absolute); info = await fs.lstat(absolute) }
         if (!info || info.isSymbolicLink() || index < parts.length - 1 && !info.isDirectory()) {
             throw new Error('A linked or missing conversion path was found. / Обнаружен отсутствующий путь или символическая ссылка.')
@@ -83,7 +80,7 @@ async function readSource(plugin: MyPlugin, root: string, relative: string, maxi
             'The note exceeds the supported 32 MiB conversion size.', 'Заметка превышает поддерживаемый размер преобразования 32 МиБ.'))
         const bytes = await handle.readFile(), after = await handle.stat(), text = bytes.toString('utf8')
         if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs ||
-            before.ctimeMs !== after.ctimeMs || !Buffer.from(text, 'utf8').equals(bytes)) throw new Error(uiFor(plugin.settings)(
+            before.ctimeMs !== after.ctimeMs || !binary.from(text, 'utf8').equals(bytes)) throw new Error(uiFor(plugin.settings)(
                 'The note changed while reading or is not valid UTF-8.', 'Заметка изменилась при чтении или сохранена не в UTF-8.'))
         return text
     } finally { await handle.close() }
@@ -112,7 +109,7 @@ export function previewIdMarkerConversion(plugin: MyPlugin, direction: IdMarkerD
         for (const file of files) {
             if (unsaved(plugin, file.path)) throw new Error(uiFor(plugin.settings)(`Save the open edits before converting ${file.path}.`, `Сохраните открытые правки перед преобразованием ${file.path}.`))
             const before = await readSource(plugin, root, file.path)
-            bytes += Buffer.byteLength(before)
+            bytes += binary.byteLength(before)
             if (bytes > maximumBytes) throw new Error(uiFor(plugin.settings)(
                 'The conversion preview exceeds 256 MiB. Select a smaller sync profile.', 'Предпросмотр преобразования превышает 256 МиБ. Выберите меньший профиль папок.'))
             const changed = convertIdMarkerText(before, direction, syntax)
@@ -146,7 +143,7 @@ export function applyIdMarkerConversion(plugin: MyPlugin, plan: IdMarkerConversi
             'The conversion preview is stale. Preview again.', 'Предпросмотр преобразования устарел. Выполните его заново.'))
         const sources = stored.sources.filter(source => selectedPaths.has(source.path))
         if (!sources.length || sources.length !== selectedPaths.size) throw new Error(t('Select files from this preview.', 'Выберите файлы из этого предпросмотра.'))
-        const { fs, path, os, base, crypto } = desktop(plugin)
+        const { fs, path, base, crypto } = desktop(plugin)
         if (await fs.realpath(base) !== stored.root) throw new Error('The vault location changed. / Путь хранилища изменился.')
         const check = async (source: Source) => {
             if (unsaved(plugin, source.path) || await readSource(plugin, stored.root, source.path) !== source.before) throw new Error(t(
@@ -158,7 +155,7 @@ export function applyIdMarkerConversion(plugin: MyPlugin, plan: IdMarkerConversi
         const transaction = path.join(parent, id)
         await fs.mkdir(transaction, { mode: 0o700 })
         const backupPath = path.join(transaction, 'Obsidian.zip'), manifestPath = path.join(transaction, 'conversion.json')
-        const staging = await fs.mkdtemp(path.join(os.tmpdir(), 'rudonium-id-conversion-'))
+        const staging = await fs.mkdtemp(path.join(temporaryDirectory(), 'rudonium-id-conversion-'))
         const manifest = { version: 1, kind: 'id-marker-conversion-backup', createdAt: Date.now(), root: stored.root,
             direction: plan.direction, state: 'prepared', files: sources.map(source => ({ path: source.path, beforeHash: source.beforeHash, afterHash: source.afterHash })),
             unresolved: [] as string[] }

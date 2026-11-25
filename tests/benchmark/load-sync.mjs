@@ -37,7 +37,7 @@ export async function loadSync(directory, pageParser) {
             (source, kind, bindings, specifier) => {
                 const child = specifier.replace(/^\.\//, '')
                 if (specifier === 'obsidian' || specifier === 'ts-md5' || replaced.has(child) ||
-                    (name === 'fast-scan' && fastUnused.has(child))) {
+                    ((name === 'fast-scan' || name === 'scan-state') && fastUnused.has(child))) {
                     const alias = 'adapter-' + child
                     const exports = adapters.get(alias) ?? new Set()
                     adapters.set(alias, exports)
@@ -74,7 +74,7 @@ export async function loadSync(directory, pageParser) {
             })
             writeFileSync(join(output, alias + '.mjs'), source.join('\n'))
         }
-        const { scanVaultFast, registerFastScan, openOneWayHistory } = await import(pathToFileURL(join(output, 'fast-scan.mjs')))
+        const { scanVaultFast, registerFastScan, openOneWayHistory, previewVaultExport } = await import(pathToFileURL(join(output, 'fast-scan.mjs')))
         const portableParser = await import(pathToFileURL(join(output, 'portable-parser.mjs')))
         const { parsePortableMarkdown } = portableParser
         const delta = await import(pathToFileURL(join(output, 'anki-delta.mjs')))
@@ -88,7 +88,7 @@ export async function loadSync(directory, pageParser) {
         const { previewCurrentCard } = await import(pathToFileURL(join(output, 'card-preview.mjs')))
         const archive = await import(pathToFileURL(join(output, 'archived-card.mjs')))
         const history = existsSync(join(output, 'sync-change-history.mjs')) ? await import(pathToFileURL(join(output, 'sync-change-history.mjs'))) : {}
-        return { ...archive, ...history, openOneWayHistory, portableParser, delta, cardRegexpWithSuffix, forgetConfirmedAnkiDeletions, registerFastScan, scanVaultFast, previewBidirectionalSync, previewCurrentCard, cursorConfiguration, parsePortableMarkdown, linkedBulletSourceFields, BidirectionalState, customRegexpKey, matchCustomRegexps, ankiIdRegexpSource,
+        return { ...archive, ...history, previewVaultExport, openOneWayHistory, portableParser, delta, cardRegexpWithSuffix, forgetConfirmedAnkiDeletions, registerFastScan, scanVaultFast, previewBidirectionalSync, previewCurrentCard, cursorConfiguration, parsePortableMarkdown, linkedBulletSourceFields, BidirectionalState, customRegexpKey, matchCustomRegexps, ankiIdRegexpSource,
             dispose: () => rmSync(output, { recursive: true, force: true }) }
     } catch (error) {
         rmSync(output, { recursive: true, force: true })

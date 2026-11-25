@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as fs from 'fs'
-import * as nodePath from 'path'
+import { checkedCount } from './sync-outcome'
+import { files as fs, paths as nodePath } from './desktop-io'
 import { Modal, Notice, TFile, TFolder } from 'obsidian'
 import type { App, FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
@@ -357,7 +357,7 @@ class LocalImageModal extends Modal {
         this.footer().createEl('button', { text: t('Cancel', 'Отмена') }).onclick = () => this.close()
         try {
             const result = await scanImages(this.plugin, scope, this.abort.signal,
-                (done, total) => status.setText(t(`Checked ${done} of ${total} images`, `Проверено изображений: ${done} из ${total}`)), t)
+                (done, total) => status.setText(t(`Checking images · ${done} / ${total}`, `Проверка изображений · ${done} / ${total}`)), t)
             if (!this.abort.signal.aborted) this.showPreview(result)
         } catch (error) {
             if (!this.abort.signal.aborted) this.showError(error)
@@ -368,7 +368,7 @@ class LocalImageModal extends Modal {
         const { t } = this
         this.contentEl.empty()
         this.contentEl.createEl('p', { text: preview.label })
-        this.contentEl.createEl('p', { text: t(`${preview.rows.length} smaller images found · ${preview.total} checked`, `Можно уменьшить: ${preview.rows.length} · Проверено: ${preview.total}`) })
+        this.contentEl.createEl('p', { text: checkedCount(preview.total, 'image', t) + ' ' + t(`${preview.rows.length} can be optimized.`, `Можно уменьшить: ${preview.rows.length}.`) })
         this.showIssues(preview.issues)
         const controls = this.contentEl.createDiv()
         const selectAll = controls.createEl('button', { text: t('Select All', 'Выбрать все') })

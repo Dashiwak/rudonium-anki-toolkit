@@ -44,11 +44,31 @@ function readingSpans(text: string): ReadingSpan[] {
     })
 }
 
+function strikeReadingText(element: HTMLElement, status?: HTMLElement): void {
+    const owner = element.ownerDocument
+    const walker = owner.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+    const textNodes: Node[] = []
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.nodeValue?.trim() && !status?.contains(node) &&
+            !node.parentElement?.closest('s, del, svg, math, script, style, textarea')) textNodes.push(node)
+    }
+    for (const node of textNodes) {
+        const parent = node.parentElement
+        if (!parent) continue
+        const strike = parent.createEl('s', { cls: bodyClass })
+        parent.insertBefore(strike, node)
+        strike.appendChild(node)
+    }
+}
+
 function registerReadingView(plugin: MyPlugin): void {
     if (typeof plugin.registerMarkdownPostProcessor !== 'function') return
     const cache = new Map<string, { text: string; spans: ReadingSpan[] }>()
     plugin.registerMarkdownPostProcessor((element: HTMLElement, context: MarkdownPostProcessorContext) => {
         if (element.classList.contains(bodyClass)) {
+            for (const strike of Array.from(element.querySelectorAll('s.' + bodyClass))) {
+                strike.replaceWith(...Array.from(strike.childNodes))
+            }
             element.classList.remove(bodyClass)
             element.querySelector('.' + statusClass)?.classList.remove(statusClass)
         }
@@ -66,12 +86,14 @@ function registerReadingView(plugin: MyPlugin): void {
         if (!r || !Number.isInteger(first) || !Number.isInteger(last) || first > last ||
             first < r.first || last > r.last || first > r.bodyLast || last < r.bodyFirst ||
             element.closest('.callout, .internal-embed') || element.querySelector('.internal-embed')) return
+        let status: HTMLElement | undefined
         if (r.label && first <= r.status && last >= r.status) {
             const bold = Array.from(element.querySelectorAll('strong'))
-            const status = bold[bold.length - 1]
+            status = bold[bold.length - 1]
             if (!status || status.textContent?.trim() !== r.label) return
             status.classList.add(statusClass)
         }
+        strikeReadingText(element, status)
         element.classList.add(bodyClass)
     })
     plugin.register(() => {
@@ -104,7 +126,7 @@ export function registerArchivedCardDisplay(plugin: MyPlugin): void {
     try {
         if (!editorLivePreviewField) return
         const refresh = StateEffect.define<void>()
-        const mark = Decoration.mark({ class: bodyClass })
+        const mark = Decoration.mark({ tagName: 's', class: bodyClass })
         class ArchiveView {
             decorations: DecorationSet = Decoration.none
             private spans: Span[] = []

@@ -11,7 +11,7 @@ const url = code => 'data:text/javascript;base64,' + Buffer.from(code).toString(
 const modules = {}
 const source = name => stripTypeScriptTypes(readFileSync(overlay.file(name + '.ts'), 'utf8'), { mode: 'transform' })
 function register(name, code) {
-    modules[name] = url(code.replace(/from '(?:\.\/)?([^']+)'/g, (match, dep) => {
+    modules[name] = url(code.replace(/from '(?:\.\/)?([\w/-]+)'/g, (match, dep) => {
         assert.ok(modules[dep], 'Missing dependency ' + dep)
         return 'from ' + JSON.stringify(modules[dep])
     }))
@@ -19,6 +19,7 @@ function register(name, code) {
 register('obsidian', `
 const createClassList = ${createClassList}
 export const modals = []
+export function setIcon(element, icon) { element.icon = icon }
 export class Element {
     constructor(tag = 'div', options = {}) { this.tag = tag; this.text = options.text; this.attr = options.attr || {}; this.children = []; this.classList = createClassList(); this.options = []; this.isConnected = true; this.value = options.value || '' }
     empty() { this.children = [] }
@@ -29,7 +30,8 @@ export class Element {
         if (selector === 'details[data-rudonium-settings-group]') return this.all().filter(el => el.tag === 'details' && el.attr['data-rudonium-settings-group'])
         throw new Error('Unexpected selector: ' + selector)
     }
-    focus() {}
+    focus() { this.focused = true }
+    scrollIntoView() { this.scrolled = true }
     createEl(tag, options) { const child = new Element(tag, options); child.parent = this; this.children.push(child); return child }
     createSpan(options) { return this.createEl('span', options) }
     createDiv(options) { return this.createEl('div', options) }
@@ -59,7 +61,7 @@ export class Setting {
 `)
 register('first-run-formats', `export const acknowledgeFormatSetup = app => {app.firstRunShown = true}
 export async function needsFormatSetup(app, settings, stopped) {return !stopped() && !app.firstRunShown && !Object.values(settings.CUSTOM_REGEXPS || {}).some(Boolean)}`)
-register('anki-profile', "export class AnkiProfileError extends Error {}; export const profileProblemText = err => err.message; export const checkPinnedAnkiProfile = async () => {}; export const readActiveAnkiProfile = async () => 'Default profile'")
+register('anki-profile', "export class AnkiProfileError extends Error { constructor(reason) { super(reason); this.reason=reason } }; export const profileProblemText = err => err.message; export const checkPinnedAnkiProfile = async () => {}; export const profile = { read: async () => 'Default profile' }; export const readActiveAnkiProfile = () => profile.read()")
 register('anki-study-state', "export const readAnkiDeckKind = async () => 'ordinary'")
 register('card-preview-render', 'export const readCardTemplateVariants = () => {}; export const buildBasicCardVariants = () => []')
 register('card-preview-ui', 'export const openCardPreview = () => {}; export const previewFieldText = (_document, html) => html')
@@ -82,7 +84,7 @@ export const previewPageMigration = async (plugin, options, signal, progress) =>
 export const migrationBackupDirectory = async () => '/backups/test vault'
 export const applyPageMigration = async (plugin, ...args) => plugin.apply(...args)
 `)
-for (const name of ['interface-language', 'page-id-location', 'plugin-identity', 'card-format-presets', 'note-type-rules', 'delimited-rule', 'regexp-wizard', 'note-type-rule-ui', 'page-migration-ui', 'first-connection']) register(name, source(name))
+for (const name of ['interface-language', 'sync-outcome', 'page-id-location', 'plugin-identity', 'card-format-presets', 'note-type-rules', 'delimited-rule', 'regexp-wizard', 'note-type-rule-ui', 'page-migration-ui', 'first-connection']) register(name, source(name))
 
 const { modals, Element } = await import(modules.obsidian)
 const { cardFormatPresets } = await import(modules['card-format-presets'])
@@ -131,20 +133,105 @@ test('Quick Start opens after layout on a fresh vault without connecting, and on
     ready(); await settle()
     assert.equal(modals.length,before)
 })
-test('Quick Start gives local AnkiConnect setup before the first request in both languages', () => {
-    for (const [lang, title, check] of [['en', 'Set up AnkiConnect', 'Check Connection'],
-        ['ru', 'Как настроить AnkiConnect', 'Проверить соединение']]) {
+test('Quick Start offers a complete local AnkiConnect example and copies only the selected value', async t => {
+    let reject = false
+    const copied = []
+    const clipboard = { async writeText(text) {
+        if (reject) throw new Error('permission denied')
+        copied.push(text)
+    } }
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: clipboard })
+    t.after(() => original ? Object.defineProperty(navigator, 'clipboard', original) : delete navigator.clipboard)
+    for (const [lang, title, check, copy, manual] of [
+        ['en', 'Set up AnkiConnect', 'Check Connection', 'Copied.', 'Select the text above and copy it manually.'],
+        ['ru', 'Как настроить AnkiConnect', 'Проверить соединение', 'Скопировано.', 'Выделите текст выше и скопируйте его вручную.'],
+    ]) {
         freshSetup({ INTERFACE_LANGUAGE: lang, Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: {} },
             () => assert.fail('Reading setup instructions must not change settings'))
         const modal = modals.at(-1)
         const guide = row(modal.contentEl, title).parent
-        const text = guide.all().map(el => el.text).join(' ')
-        assert.match(text, /2055492159/)
-        assert.match(text, /webCorsOriginList/)
-        assert.match(text, /127\.0\.0\.1:8765/)
-        assert.deepEqual(JSON.parse(guide.all().find(el => el.tag === 'pre').text), ['http://localhost', 'app://obsidian.md'])
-        assert.equal(guide.all().find(el => el.tag === 'a').attr.href, 'https://ankiweb.net/shared/info/2055492159')
+        const elements = guide.all()
+        const [addon, origin, json] = elements.filter(el => el.tag === 'code').map(el => el.text)
+        const readme = readFileSync(new URL('../' + (lang === 'en' ? 'README.md' : 'README.ru.md'), import.meta.url), 'utf8')
+        const jsonBlock = readme.match(/```json\s*([\s\S]*?)```/)
+        assert.ok(jsonBlock, lang + ' README must include an AnkiConnect configuration example')
+        const example = JSON.parse(jsonBlock[1])
+        assert.equal(addon, '2055492159')
+        assert.equal(origin, '"app://obsidian.md"')
+        assert.deepEqual(JSON.parse(json), example)
+        assert.deepEqual(elements.filter(el => el.tag === 'a').map(el => el.attr.href), [
+            'https://apps.ankiweb.net/', 'https://ankiweb.net/shared/info/2055492159'])
+        const buttons = elements.filter(el => el.tag === 'button')
+        const labels = lang === 'en'
+            ? ['Copy add-on code', 'Copy Obsidian address', 'Copy example JSON']
+            : ['Скопировать код дополнения', 'Скопировать адрес Obsidian', 'Скопировать пример JSON']
+        assert.deepEqual(buttons.map(button => button.attr['aria-label']), labels)
+        const statuses = elements.filter(el => el.attr.role === 'status')
+        assert.equal(copied.length, 0)
+        for (const [index, button] of buttons.entries()) {
+            assert.equal(button.text, undefined)
+            assert.equal(button.icon, 'copy')
+            assert.equal(button.attr.type, 'button')
+            assert.equal(button.attr.title, labels[index])
+            assert.equal(button.parent.children[0].children[0].text, [addon, origin, json][index])
+            button.onclick()
+            await settle()
+            assert.equal(statuses[index].text, copy)
+        }
+        assert.deepEqual(copied.splice(0), [addon, origin, json])
+        reject = true
+        buttons[2].onclick()
+        await settle()
+        assert.equal(statuses[2].text, manual)
+        assert.equal(copied.length, 0)
         assert.equal(row(modal.contentEl, check).disabled, false)
+        reject = false
+        modal.close()
+    }
+})
+test('the connection status remains visible above expanded help during a failed check and retry', async t => {
+    const { profile, AnkiProfileError } = await import(modules['anki-profile'])
+    const original = profile.read
+    t.after(() => { profile.read = original })
+    for (const [lang, check, help, checking, offline, connected, problem] of [
+        ['en', 'Check Connection', 'Set up AnkiConnect', 'Checking Anki connection…', 'No connection to Anki', 'Connected to Anki', 'Could not complete the connection check'],
+        ['ru', 'Проверить соединение', 'Как настроить AnkiConnect', 'Проверяем соединение с Anki…', 'Нет соединения с Anki', 'Соединение с Anki установлено', 'Не удалось завершить проверку соединения'],
+    ]) {
+        freshSetup({INTERFACE_LANGUAGE:lang, Defaults:{Deck:'Default'}, CUSTOM_REGEXPS:{}}, () => assert.fail())
+        const modal = modals.at(-1), el = modal.contentEl
+        row(el,help).parent.open = true
+        el.scrollTop = 800
+        let rejectCheck
+        profile.read = () => new Promise((_resolve, reject) => { rejectCheck = reject })
+        click(el,check)
+        const assertStatus = title => {
+            const banner = row(el,title).parent.parent
+            assert.equal(el.children[0],banner)
+            assert.equal(banner.focused,true)
+            assert.equal(banner.scrolled,true)
+            assert.equal(el.scrollTop,0)
+            assert.equal(banner.attr.role,'status')
+        }
+        assertStatus(checking)
+        assert.equal(row(el,check).disabled,true)
+        rejectCheck(new AnkiProfileError('unreachable'))
+        await settle()
+        assertStatus(offline)
+        assert.equal(row(el,help).parent.open,true)
+        assert.equal(row(el,check).disabled,false)
+        assert.ok(row(el,offline).parent.children[1].text.includes('AnkiConnect'))
+        profile.read = async () => { throw new AnkiProfileError('unavailable') }
+        click(el,check); await settle()
+        assertStatus(problem)
+        profile.read = original
+        click(el,check); await settle()
+        assertStatus(connected)
+        assert.ok(el.all().some(item => item.text?.includes('Default profile')))
+        assert.ok(!el.all().some(item => item.text === offline))
+        const label = lang === 'en' ? 'RemNote regular expression' : 'Регулярное выражение RemNote'
+        const expression = row(el,label).parent.all().find(item => item.tag === 'code')
+        assert.equal(expression.text,cardFormatPresets.find(item => item.id === 'remnote').expression)
         modal.close()
     }
 })
@@ -191,9 +278,9 @@ test('first setup saves the first verified schema', async () => {
         click(modal.contentEl, 'Check Connection'); await settle()
         select(modal.contentEl, 'Deck', 'Cities')
         assert.equal(row(modal.contentEl, 'Card format').children[0].value, 'remnote')
-        assert.ok(row(modal.contentEl, 'Capital of Austria? :: Vienna'))
+        assert.ok(row(modal.contentEl, '- Which lake in Siberia is the deepest on Earth? :: Lake Baikal'))
         assert.ok(row(modal.contentEl, 'Front'))
-        assert.ok(row(modal.contentEl, 'Vienna'))
+        assert.ok(row(modal.contentEl, 'Lake Baikal'))
         assert.ok(!modal.contentEl.all().some(el => el.text === 'File link field'))
         click(modal.contentEl, 'Save Setup'); await settle()
         assert.deepEqual(plugin.note_types, schema.names)
@@ -308,7 +395,7 @@ test('migration settings and palette reach one bilingual wizard with scoped prev
     assert.equal(command.name, 'Перенести карточки из файлов')
     const group = new Element()
     installPageMigrationSetting(group, plugin)
-    click(group, 'Открыть мастер'); const modal = modals.at(-1)
+    click(group, 'Настроить перенос'); const modal = modals.at(-1)
     command.callback(); assert.equal(modals.filter(item => item === modal).length, 1)
     await settle()
     const sourcePicker = row(modal.contentEl, 'Yanki').parent

@@ -301,7 +301,7 @@ export function duplicateFirstFieldSlots(response: unknown, expectedLength: numb
 }
 
 export function exportCardSourceDigest(text: string): string {
-    return Md5.hashStr(text.replace(/\r\n?/g, '\n')) as string
+    return Md5.hashStr(text.replace(/\r\n?/g, '\n'))
 }
 
 function rowAt(rows: readonly SourceLine[], offset: number): SourceLine {

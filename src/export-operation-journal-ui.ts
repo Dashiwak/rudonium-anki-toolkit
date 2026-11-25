@@ -154,9 +154,9 @@ class ExportOperationJournalModal extends Modal {
         for (const { name, current, previous } of plan.changes) {
             const row = panel.createEl('section')
             row.createEl('strong', { text: name })
-            row.createEl('div', { text: t('Current in Anki', 'Сейчас в Anki') })
+            row.createDiv({ text: t('Current in Anki', 'Сейчас в Anki') })
             row.createEl('pre', { text: current || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
-            row.createEl('div', { text: t('Restore in Anki', 'Восстановить в Anki') })
+            row.createDiv({ text: t('Restore in Anki', 'Восстановить в Anki') })
             row.createEl('pre', { text: previous || t('(Empty)', '(Пусто)') }).classList.add('rudonium-pre-wrap')
         }
         const actions = panel.createDiv({ cls: 'modal-button-container' })

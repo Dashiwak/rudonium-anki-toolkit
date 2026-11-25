@@ -1,6 +1,8 @@
 name: Build review candidate
 on:
   workflow_dispatch:
+  release:
+    types: [published]
   push:
     branches: ['work/**', 'fix/**', 'main', 'master']
     tags: ['[0-9]+.[0-9]+.[0-9]+']
@@ -11,10 +13,10 @@ jobs:
   verify:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.18.0'
           cache: npm
@@ -38,7 +40,7 @@ jobs:
         shell: pwsh
         run: node Build/prepare-gitflic.cjs - "$env:RUNNER_TEMP/review-candidate"
       - name: Retain verified candidate for review
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rudonium-candidate-${{ github.sha }}
           path: |
@@ -49,15 +51,15 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.18.0'
           cache: npm
       - name: Install plugin dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install the official lint preset separately from the runtime lockfile
         run: |
           mkdir -p "$RUNNER_TEMP/review-tools"
@@ -65,14 +67,14 @@ jobs:
           cp eslint.config.mjs "$RUNNER_TEMP/review-tools/"
       - name: Lint plugin sources, manifest and license
         run: |
-          node "$RUNNER_TEMP/review-tools/node_modules/eslint/bin/eslint.js" --config "$RUNNER_TEMP/review-tools/eslint.config.mjs" main.ts 'src/**/*.ts' wdio.conf.ts manifest.json LICENSE --format json --output-file "$RUNNER_TEMP/obsidian-eslint.json"
+          node "$RUNNER_TEMP/review-tools/node_modules/eslint/bin/eslint.js" --config "$RUNNER_TEMP/review-tools/eslint.config.mjs" main.ts 'src/**/*.ts' wdio.conf.ts manifest.json LICENSE --max-warnings 0 --format json --output-file "$RUNNER_TEMP/obsidian-eslint.json"
       - name: Retain diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: obsidian-eslint-${{ github.sha }}
           path: ${{ runner.temp }}/obsidian-eslint.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
 
   attest:
@@ -85,10 +87,17 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: rudonium-candidate-${{ github.sha }}
           path: candidate
+      - name: Download the published assets for comparison
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir published \
+            --pattern main.js --pattern manifest.json --pattern styles.css
       - name: Compare downloaded assets with the verified build
         working-directory: candidate
         run: |
@@ -103,6 +112,10 @@ jobs:
           for (const file of files) {
             const digest = createHash('sha256').update(readFileSync('install/' + file)).digest('hex');
             assert.equal(digest, artifacts.find(item => item.path === file).sha256);
+            if (process.env.GITHUB_EVENT_NAME === 'release') {
+              assert.deepEqual(readFileSync('../published/' + file), readFileSync('install/' + file),
+                'Published release asset differs from the verified build: ' + file);
+            }
             console.log(digest + '  ' + file);
           }
           JS
@@ -114,3 +127,10 @@ jobs:
             candidate/install/main.js
             candidate/install/manifest.json
             candidate/install/styles.css
+      - name: Verify the attestations for each release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for asset in main.js manifest.json styles.css; do
+            gh attestation verify "candidate/install/$asset" --repo "$GITHUB_REPOSITORY"
+          done

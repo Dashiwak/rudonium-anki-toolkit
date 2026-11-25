@@ -6,7 +6,7 @@ import { Modal, Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { AnkiProfileError, expectedAnkiProfile, isAnkiProfileLockEnabled, profileProblemText, readActiveAnkiProfile,
     requireExpectedAnkiProfile, savedAnkiProfile } from './anki-profile'
-import { savePluginDataInOrder, withFastScanReadLock } from './fast-scan'
+import { savePluginDataInOrder, withFastScanReadLock } from './scan-state'
 import { uiDiagnostic, uiFor } from './interface-language'
 import type { UiText } from './interface-language'
 import { installModalLayout } from './modal-layout'

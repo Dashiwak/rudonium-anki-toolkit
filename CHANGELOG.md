@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.12.4 · README
+
+- Updated the English and Russian README feature lists and replaced the first RemNote card and its illustrations with an example about Yuri Gagarin.
+- Обновлены списки возможностей в английском и русском README. Первая карточка RemNote и обе иллюстрации теперь посвящены полёту Юрия Гагарина.
+
+[Release notes / Примечания к выпуску](docs/releases/0.12.4.md)
+
+## 0.12.3 · Connection status and preview choices / Состояние подключения и выбор в предпросмотре
+
+- Quick Start shows the Anki connection status and a copyable RemNote rule. The sync preview supports explicit skips alongside direction choices.
+- В «Быстром старте» видны состояние подключения к Anki и правило RemNote для копирования. В предпросмотре синхронизации можно выбрать направление переноса или пропустить поле.
+
+[Release notes / Примечания к выпуску](docs/releases/0.12.3.md)
+
+## 0.12.2 · First card and sync conflicts / Первая карточка и конфликты синхронизации
+
+- Added an illustrated RemNote tutorial and compact copy buttons in Quick Start. Vault scans quietly skip files without cards. Fixed cases where a later field edit was held for review.
+- Добавлены иллюстрированный пример карточки RemNote и компактные кнопки копирования в «Быстром старте». Проверка хранилища пропускает файлы без карточек. Исправлены случаи, когда синхронизация откладывала более позднюю правку поля.
+
+[Release notes / Примечания к выпуску](docs/releases/0.12.2.md)
+
+## 0.12.1 · Settings layout / Оформление настроек
+
+- Settings groups use a consistent width. Section controls appear on the left, and the help link on the right. Removed horizontal separators between settings.
+- Разделы настроек выровнены по ширине. Кнопки управления разделами расположены слева, ссылка на помощь — справа. Убраны горизонтальные разделительные линии.
+- Both READMEs introduce the plugin and its upstream source, followed by the existing benchmark in the second paragraph.
+- В обеих версиях README обновлено описание плагина. Сведения об исходном проекте и результаты измерений объединены во втором абзаце.
+
+[Release notes / Примечания к выпуску](docs/releases/0.12.1.md)
+
+## 0.12.0 · Sync results and AnkiConnect setup / Результаты синхронизации и настройка AnkiConnect
+
+- Removed circular imports from the scanner. Release checks now fail on ESLint or Rollup warnings.
+- Sync messages identify the destination of each change. Quick Start includes a copyable AnkiConnect configuration.
+- Устранены циклические импорты сканера. Предупреждения ESLint или Rollup останавливают проверку релиза.
+- Уведомления сообщают, где изменились записи. В «Быстром старте» можно скопировать конфигурацию AnkiConnect.
+
+[Release notes / Примечания к выпуску](docs/releases/0.12.0.md)
+
 ## 0.11.3 · Sync history / Журнал синхронизации
 
 - Added optional field-level sync history, clearer operation summaries, settings group controls and spacing recovery for supported card separators.

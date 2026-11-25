@@ -48,7 +48,10 @@ async function hasYankiManifest(plugin: MyPlugin): Promise<boolean> {
     const path = vault.configDir + '/plugins/yanki/manifest.json'
     if (!await vault.adapter.exists(path)) return false
     const manifest = await vault.adapter.read(path)
-    try { return JSON.parse(manifest)?.id === 'yanki' }
+    try {
+        const pluginManifest: unknown = JSON.parse(manifest)
+        return !!pluginManifest && typeof pluginManifest === 'object' && 'id' in pluginManifest && pluginManifest.id === 'yanki'
+    }
     catch (error) { if (error instanceof SyntaxError) return false; throw error }
 }
 
@@ -69,8 +72,8 @@ export async function detectMigrationFolders(plugin: MyPlugin): Promise<string[]
     if (!await hasYankiManifest(plugin)) return []
     const folders = new Set<string>()
     for (const file of plugin.app.vault.getMarkdownFiles()) {
-        const id = plugin.app.metadataCache.getFileCache(file)?.frontmatter?.noteId
-        if (!/^[1-9]\d*$/u.test(String(id)) || !Number.isSafeInteger(Number(id))) continue
+        const id: unknown = plugin.app.metadataCache.getFileCache(file)?.frontmatter?.noteId
+        if ((typeof id !== 'string' && typeof id !== 'number') || !/^[1-9]\d*$/u.test(String(id)) || !Number.isSafeInteger(Number(id))) continue
         const end = file.path.lastIndexOf('/')
         if (end > 0) folders.add(file.path.slice(0, end))
     }

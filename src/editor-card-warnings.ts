@@ -3,24 +3,15 @@
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { editorInfoField, parseLinktext } from 'obsidian'
-import { StateEffect, type EditorState } from '@codemirror/state'
+import { StateEffect } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
+import { syntaxTree, syntaxTreeAvailable, type EditorSyntaxNode } from '@codemirror/language'
 import type MyPlugin from '../main'
 import { previewCurrentCard } from './card-preview'
 import { inspectEditorCardLines } from './editor-warning-rules'
 import type { EditorCardWarning, EditorWarningLine } from './editor-warning-rules'
 import { uiFor } from './interface-language'
 import type { UiText } from './interface-language'
-
-interface SyntaxNode {
-    name: string
-    parent: SyntaxNode | null
-}
-
-interface MarkdownLanguage {
-    syntaxTree: (state: EditorState) => { resolveInner(position: number, side?: number): SyntaxNode }
-    syntaxTreeAvailable: (state: EditorState, until?: number) => boolean
-}
 
 const warningClass = 'rupos-anki-card-warning'
 const delay = 160
@@ -37,14 +28,14 @@ function warningText(warning: EditorCardWarning, t: UiText): string {
     }
 }
 
-function visibleLines(view: EditorView, language: MarkdownLanguage): EditorWarningLine[] {
+function visibleLines(view: EditorView): EditorWarningLine[] {
     const { state, visibleRanges } = view
     const document = state.doc
-    const tree = language.syntaxTree(state)
+    const tree = syntaxTree(state)
     const lines: EditorWarningLine[] = []
     let last = 0
     for (const range of visibleRanges) {
-        if (!language.syntaxTreeAvailable(state, range.to)) continue
+        if (!syntaxTreeAvailable(state, range.to)) continue
         const first = Math.max(last + 1, document.lineAt(range.from).number - 1)
         const end = Math.min(document.lines, document.lineAt(range.to).number + 1)
         for (let number = first; number <= end && lines.length < visibleLineLimit; number++) {
@@ -52,7 +43,7 @@ function visibleLines(view: EditorView, language: MarkdownLanguage): EditorWarni
             const column = line.text.search(/\S/u)
             let literal = column < 0 || /^ {0,3}(?:`{3,}|~{3,})/.test(line.text) || /^\s*\$\$/.test(line.text)
             if (!literal) {
-                let node: SyntaxNode | null = tree.resolveInner(line.from + column, 1)
+                let node: EditorSyntaxNode | null = tree.resolveInner(line.from + column, 1)
                 while (node && !(literal = literalNode.test(node.name))) node = node.parent
             }
             lines.push({ number, from: line.from, text: line.text, literal })
@@ -66,8 +57,6 @@ function visibleLines(view: EditorView, language: MarkdownLanguage): EditorWarni
 export function registerEditorCardWarnings(plugin: MyPlugin): void {
     if (typeof plugin.registerEditorExtension !== 'function') return
     try {
-        const language: MarkdownLanguage = require('@codemirror/language')
-        if (typeof language.syntaxTree !== 'function' || typeof language.syntaxTreeAvailable !== 'function') return
         const refresh = StateEffect.define<void>()
         const extension = ViewPlugin.fromClass(class {
             decorations: DecorationSet = Decoration.none
@@ -83,7 +72,7 @@ export function registerEditorCardWarnings(plugin: MyPlugin): void {
                     if (!file) return
                     const syntax = plugin.settings.Syntax
                     const t = uiFor(plugin.settings)
-                    const warnings = inspectEditorCardLines(visibleLines(update.view, language), {
+                    const warnings = inspectEditorCardLines(visibleLines(update.view), {
                         begin: syntax?.['Begin Note'] ?? 'START', end: syntax?.['End Note'] ?? 'END',
                         inlineBegin: syntax?.['Begin Inline Note'] ?? 'STARTI', inlineEnd: syntax?.['End Inline Note'] ?? 'ENDI',
                         models: new Set(Object.keys(plugin.fields_dict ?? {})),
@@ -98,7 +87,7 @@ export function registerEditorCardWarnings(plugin: MyPlugin): void {
                         class: warningClass,
                         attributes: { title: warningText(warning, t), 'data-rupos-anki-warning': 'true' },
                     }).range(warning.from, warning.to)), true)
-                } else if (update.docChanged || update.viewportChanged || language.syntaxTree(update.startState) !== language.syntaxTree(update.state)) {
+                } else if (update.docChanged || update.viewportChanged || syntaxTree(update.startState) !== syntaxTree(update.state)) {
                     if (update.docChanged) this.decorations = Decoration.none
                     this.schedule(update.view)
                 }

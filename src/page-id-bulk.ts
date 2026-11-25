@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-import { createHash } from 'crypto'
+import { hashes as crypto } from './desktop-io'
 import { mayHavePageTag, hasPageYamlIdText } from './page-frontmatter'
 import { MarkdownView } from 'obsidian'
 import type { TFile } from 'obsidian'
@@ -35,7 +35,7 @@ interface Stored { plugin: MyPlugin; signature: string; target: PageIdPlace; row
 const plans = new WeakMap<PageIdBulkPlan, Stored>()
 const pageRules = { Rudonium: '@page' }
 const places = ['heading', 'yaml', 'after-answer']
-const hash = (text: string) => createHash('sha256').update(text).digest('hex')
+const hash = (text: string) => crypto.createHash('sha256').update(text).digest('hex')
 const signature = (p: MyPlugin) => JSON.stringify([p.settings.Syntax, p.settings.Defaults?.['ID Comments'], p.settings.VAULT_BACKUP, p.settings.PAGE_ID_LOCATION])
 const stale = (p: MyPlugin) => new Error(uiFor(p.settings)('The vault or settings changed. Preview the move again.', 'Хранилище или настройки изменились. Повторите предпросмотр переноса.'))
 function checkIdle(p: MyPlugin): void {

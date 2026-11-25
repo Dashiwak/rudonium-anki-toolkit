@@ -8,7 +8,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 const { pathToFileURL } = require("node:url");
 const { bundleNotice, configureRollup } = require("../Build/release-rollup.cjs");
-const { verifyRuntimeManifest } = require("../Build/build-main.cjs");
+const { copyMaintainedInputs, verifyRuntimeManifest } = require("../Build/build-main.cjs");
 const release = require("../manifest.json");
 const license = require("../package.json").license;
 const notice = bundleNotice(release, license);
@@ -54,7 +54,7 @@ test("ES-модуль сохраняет исходный banner и правил
     verifyNotice(config.output.banner, "/*! upstream license */");
     assert.equal(config.output.sourcemap, true);
     assert.equal(config.output.file, "main.js");
-    for (const id of ["obsidian", "another/submodule", "@codemirror/view"]) {
+    for (const id of ["obsidian", "another/submodule", "@codemirror/view", "fs", "crypto", "stream", "buffer", "worker_threads", "node:sqlite"]) {
         assert.equal(config.external(id), true);
     }
     assert.equal(config.external("ordinary-module"), false);
@@ -124,4 +124,30 @@ test("A new manifest drives the bundle and footer on a rebuild and mixed runtime
     const old = Buffer.from(JSON.stringify({ ...release, version: "1.6.6" }));
     assert.throws(() => verifyRuntimeManifest(script, old, packaged), /different manifest/);
     assert.throws(() => verifyRuntimeManifest(script, old, old), /does not match/);
+});
+
+test("Rollup propagates every warning and preserves the upstream diagnostics handler", t => {
+    const warning = { code: "UNRESOLVED_IMPORT", message: "Missing module" };
+    for (const inherited of [false, true]) {
+        const handler = inherited ? 'onwarn(warning, show) { show(warning.code); },' : '';
+        const { file } = fixture(t, 'module.exports = { ' + handler + ' output: {} };');
+        const config = require(file);
+        const observed = [];
+        assert.throws(() => config.onwarn(warning, value => observed.push(value)), /Rollup UNRESOLVED_IMPORT: Missing module/);
+        assert.deepEqual(observed, [inherited ? warning.code : warning]);
+    }
+});
+
+test("rebuilding from upstream uses the maintained dependency lock, compiler configuration and source tree", t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "maintained-rudonium-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const checkout = path.join(root, "checkout"), source = path.join(root, "staging");
+    fs.mkdirSync(path.join(checkout, "src"), { recursive: true });
+    fs.mkdirSync(path.join(source, "src"), { recursive: true });
+    const files = ["package.json", "package-lock.json", "tsconfig.json", "wdio.conf.ts", "rollup.config.js", "styles.css", "main.ts", "src/sync.ts"];
+    for (const file of files) fs.writeFileSync(path.join(checkout, file), file + " maintained");
+    fs.writeFileSync(path.join(source, "src/obsolete.ts"), "upstream");
+    copyMaintainedInputs(checkout, source);
+    for (const file of files) assert.deepEqual(fs.readFileSync(path.join(source, file)), fs.readFileSync(path.join(checkout, file)));
+    assert.equal(fs.existsSync(path.join(source, "src/obsolete.ts")), false);
 });

@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import { createHash } from 'crypto'
+import { hashes as crypto } from './desktop-io'
 import { Modal, Notice, Setting, TFile } from 'obsidian'
 import type MyPlugin from '../main'
 import { previewVaultExport } from './fast-scan'
@@ -203,7 +203,7 @@ class ZipComparisonModal extends Modal {
             pane.createEl('h3', { text: title })
             pane.createEl('p', { text: size === undefined ? t('No current file', 'Файл отсутствует') : bytes(size) })
             if (data) {
-                const digest = createHash('sha256').update(data).digest('hex')
+                const digest = crypto.createHash('sha256').update(data).digest('hex')
                 pane.createEl('p', { text: `SHA-256 · ${digest}` }).classList.add('rudonium-wrap-anywhere')
                 if (type) {
                     const url = URL.createObjectURL(new Blob([data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer], { type }))

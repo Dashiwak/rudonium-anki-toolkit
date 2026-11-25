@@ -6,7 +6,7 @@ const vm = require("node:vm");
 const { stripTypeScriptTypes } = require("node:module");
 const { test } = require("node:test");
 
-async function loadPlugin() {
+async function loadPlugin(host = {}) {
     const notices = [], errors = [];
     const context = vm.createContext({ console: { log() {}, error(...args) { errors.push(args); } } });
     const source = stripTypeScriptTypes(fs.readFileSync(path.join(__dirname, "../main.ts"), "utf8"), { mode: "transform" });
@@ -14,6 +14,7 @@ async function loadPlugin() {
     const {load} = require("./benchmark/migration-modules.cjs");
     const { "sync-profiles": profiles } = await load(["sync-profiles"], {});
     const supplied = {
+        ...host,
         importLegacyScanScope: profiles.importLegacyScanScope,
         Plugin: class {},
         Notice: class { constructor(message) { notices.push(message); } },
@@ -32,6 +33,40 @@ async function loadPlugin() {
     const plugin = new entry.namespace.default();
     return { plugin, errors, notices };
 }
+
+test("startup waits for migration and a disabled plugin cannot register late commands", async () => {
+    let finishMigration;
+    const pending = new Promise(resolve => { finishMigration = resolve; });
+    const { plugin, notices, errors } = await loadPlugin({ pauseForMigration: () => pending });
+    let initialized = 0;
+    plugin.initializeRudonium = async () => { initialized++; };
+    assert.equal(plugin.onload(), undefined);
+    assert.equal(initialized, 0);
+    plugin.onunload();
+    finishMigration(false);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(initialized, 0);
+    assert.deepEqual(notices, []);
+    assert.deepEqual(errors, []);
+});
+
+test("startup displays a migration error once and supports migration-free initialization", async () => {
+    const error = new Error("settings could not be migrated");
+    const failed = await loadPlugin({ pauseForMigration: async () => { throw error; } });
+    failed.plugin.onload();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(failed.errors.length, 1);
+    assert.equal(failed.errors[0][1], error);
+    assert.deepEqual(failed.notices, ["Не удалось запустить Rudonium. Подробности в консоли."]);
+
+    const ready = await loadPlugin({ pauseForMigration: async () => false });
+    let initialized = 0;
+    ready.plugin.initializeRudonium = async () => { initialized++; };
+    ready.plugin.onload();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(initialized, 1);
+    assert.deepEqual(ready.errors, []);
+});
 
 test("default settings wait for storage, and shutdown reports a failed queued write", async () => {
     const { plugin, errors, notices } = await loadPlugin();
@@ -154,4 +189,17 @@ test("imported upstream export scope applies to vault sync and individual paths"
     assert.equal(scope.describeSyncPath(plugin, "Cards/P.excalidraw.md").included, true);
     plugin.app.vault.getAbstractFileByPath = () => null;
     assert.throws(() => scope.resolveSyncScope(plugin), /missing folders/);
+});
+
+test("the preview action limits export to the selected file and cursor target", async () => {
+    const calls = [];
+    const { plugin } = await loadPlugin({ previewVaultExport: async (...args) => { calls.push(args); } });
+    const target = { id: 19, configuration: "selected card" };
+    await plugin.previewCursorExport("Cards/Selected.md", target);
+    assert.equal(calls.length, 1);
+    const [owner, auditScope, paths, card] = calls[0];
+    assert.equal(owner, plugin);
+    assert.equal(auditScope, undefined);
+    assert.deepEqual([...paths], ["Cards/Selected.md"]);
+    assert.equal(card, target);
 });

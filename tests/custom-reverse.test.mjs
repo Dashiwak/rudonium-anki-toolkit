@@ -535,7 +535,7 @@ test('an interrupted 0.9.7 annex write releases only the absent field and resume
     }}]])
     const before = h.file.text
     const dialog = await h.preview()
-    assert.match(await dialog.apply(new Map()), /Updated 1 note\./)
+    assert.match(await dialog.apply(new Map()), /Updated 1 note in (?:Anki|Obsidian)\./)
     assert.equal(h.file.text, before.replace(':: Old',':: New'))
     assert.deepEqual(h.host.writes,[])
     assert.equal((await h.preview()).preview.canApply,false)
@@ -660,7 +660,7 @@ test('a Knowledge rule assigned to another model keeps the existing linked dicti
     assert.deepEqual(h.host.writes, [])
 })
 
-test('linked separator spacing is proposed, applied with inbound/outbound changes, and never rewrites a stale source', async t => {
+test('linked separator spacing is silent, follows inbound/outbound field changes, and never rewrites a stale source', async t => {
     const runtime = await loadSync(overlay.directory)
     t.after(runtime.dispose)
     const { knowledgeBulletExpression, remNoteExpression } = await module('card-format-presets')
@@ -674,18 +674,18 @@ test('linked separator spacing is proposed, applied with inbound/outbound change
         const preview = await h.preview()
         assert.equal(h.file.text, original)
         assert.ok(preview.preview.canApply, JSON.stringify(preview.preview))
-        assert.ok(preview.preview.rows.flatMap(row => row.changes).some(change => change.merged === expected))
-        await preview.apply(new Map())
+        assert.deepEqual(preview.preview.rows, [])
+        assert.equal(await preview.apply(new Map()), 'No changes.')
         assert.equal(h.file.text, original.replace(before, expected))
         assert.deepEqual(h.host.writes, [])
         assert.equal((await h.preview()).preview.canApply, false)
         h.edit(h.file.text.replace(expected, '- Каземат:: Новый ответ ::R'))
-        await (await h.preview()).apply(new Map())
+        assert.equal(await (await h.preview()).apply(new Map()), 'Updated 1 note in Anki.')
         assert.ok(h.file.text.includes('- Каземат :: Новый ответ :: R'))
         assert.equal(h.notes.fields.Back.value, 'Новый ответ')
         h.edit(h.file.text.replace(' :: Новый ответ', ' ::Новый ответ'))
         h.notes.fields.Back.value = 'Изменено в Anki'
-        await (await h.preview()).apply(new Map())
+        assert.equal(await (await h.preview()).apply(new Map()), 'Updated 1 note in Obsidian.')
         assert.ok(h.file.text.includes('- Каземат :: Изменено в Anki :: R'), h.file.text)
         const normalization = (await runtime.readSyncChanges(h.plugin)).find(row => row.action === 'normalize')
         assert.equal(normalization.direction, 'local')
@@ -698,6 +698,73 @@ test('linked separator spacing is proposed, applied with inbound/outbound change
         await assert.rejects(stale.apply(new Map()))
         assert.equal(h.file.text, latest)
     }
+})
+
+test('one-way export synchronizes the repaired note to Anki and leaves an unchanged sibling and unrelated fields alone', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression: rule, separatorRepair } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse']
+    const before = '- Казематы:: Ответ ::R'
+    const h = fixture(runtime, { rule, names, body: before, values: ['Казематы', 'Правка в Anki', 'R'] })
+    const sibling = id + 1
+    const siblingData = structuredClone(h.notes)
+    siblingData.noteId = sibling
+    siblingData.fields.Front.value = 'Сосед'
+    const target = { modelName: 'Basic', deckName: 'Knowledge', fields: { Front: 'Казематы', Back: 'Ответ', 'Add Reverse': 'R' }, tags: [] }
+    const other = { ...target, fields: { ...target.fields, Front: 'Сосед' } }
+    const parsed = { file: h.file.text, original_file: h.file.text, global_tags: '', path: h.file.path,
+        separatorRepairs: new Map([[target, separatorRepair(before, true)]]),
+        notes_to_edit: [{ identifier: id, note: target }, { identifier: sibling, note: other }] }
+    const Manager = patched.managerType({ ...runtime.portableParser, ...runtime.delta })
+    const manager = Object.assign(new Manager(), { data: { fields_dict: { Basic: names } }, ownFiles: [parsed],
+        linkedSnapshots: new Map([[id, h.notes], [sibling, siblingData]]) })
+    manager.deckRouteFor = () => undefined
+    useHost(h.host)
+    manager.oneWayHistory = await runtime.openOneWayHistory(h.plugin, 'QA')
+    manager.oneWayHistory.apply([id, sibling].map((key, i) => ({ id: key, modelName: 'Basic', fields: i ? other.fields : target.fields })))
+    await manager.prepareExistingUpdates()
+    const requests = manager.existingChanges.get(h.file.path)
+    assert.equal(requests.length, 1)
+    assert.deepEqual(requests[0].params.note, { id, fields: { Back: 'Ответ' } })
+    await h.host.request(requests[0].action, requests[0].params)
+    assert.equal(h.notes.fields.Back.value, 'Ответ')
+    assert.equal(siblingData.fields.Back.value, 'Правка в Anki')
+    await manager.prepareExistingUpdates()
+    assert.equal(manager.existingChanges.size, 0)
+})
+
+test('automatic two-way sync silently repairs spacing, merges distinct fields at their destinations, and defers an ambiguous first sync', async t => {
+    const runtime = await loadSync(overlay.directory)
+    t.after(runtime.dispose)
+    const { knowledgeBulletExpression: rule } = await module('card-format-presets')
+    const names = ['Front', 'Back', 'Add Reverse', 'FrontLang', 'BackLang']
+    const h = fixture(runtime, { rule, names, body: '- Казематы :: Ответ :: R', values: ['Казематы', 'Ответ', 'R', '', ''] })
+    useHost(h.host)
+    h.plugin.settings.INTERFACE_LANGUAGE = 'ru'
+    const run = async () => {
+        assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'completed')
+        return h.host.notices.at(-1)
+    }
+    await run()
+    h.edit(h.file.text.replace(' :: Ответ', ':: Ответ'))
+    assert.equal(await run(), 'Проверена 1 запись.\nИзменений нет.')
+    assert.match(h.file.text, /Казематы :: Ответ/u)
+    assert.deepEqual(h.host.writes, [])
+    h.edit(h.file.text.replace('Казематы :: Ответ', 'Бастионы:: Ответ'))
+    h.notes.fields.Back.value = 'Правка ответа в Anki'
+    assert.equal(await run(), 'Проверена 1 запись.\nИзменена 1 запись в Anki.\nИзменена 1 запись в Obsidian.')
+    assert.match(h.file.text, /Бастионы :: Правка ответа в Anki/u)
+    assert.deepEqual(h.host.writes.at(-1), { id, fields: { Front: 'Бастионы' } })
+
+    const fresh = fixture(runtime, { rule, names, body: '- Казематы:: Ответ :: R', values: ['Чужая правка', 'Ответ', 'R', '', ''] })
+    fresh.file.stat.mtime = Date.now()
+    fresh.notes.mod = Math.floor(fresh.file.stat.mtime / 1000) - 20
+    useHost(fresh.host)
+    assert.equal(await runtime.scanVaultFast(fresh.plugin, false, true), 'completed')
+    assert.deepEqual(fresh.host.writes, [])
+    assert.match(fresh.host.notices.at(-1), /Deferred 1 note for review/u)
+    assert.match(fresh.file.text, /Казематы:: Ответ/u)
 })
 
 test('only unambiguous Knowledge card separators receive spacing repairs', async () => {
@@ -766,4 +833,33 @@ test('a failed first two-way sync records the schema error once; preview and dis
     h.plugin.settings.SYNC_CHANGE_HISTORY = false
     assert.equal(await runtime.scanVaultFast(h.plugin, false, true), 'failed')
     assert.equal((await runtime.readSyncChanges(h.plugin)).length, 1)
+})
+
+test('Apply keeps skipped text on both sides and applies the other field of the same note in either direction', async t => {
+    const runtime = await loadSync(overlay.directory); t.after(runtime.dispose)
+    const { remNoteExpression: rule } = await module('card-format-presets')
+    for (const direction of ['obsidian', 'anki']) {
+        const h = fixture(runtime, { rule, body: 'Question :: Answer', names: ['Front', 'Back'], values: ['Question', 'Answer'] })
+        await (await h.preview()).apply(new Map())
+        h.edit(h.file.text.replace('Question :: Answer', 'Local Q :: Local A'))
+        h.notes.fields.Front.value = 'Remote Q'
+        h.notes.fields.Back.value = 'Remote A'
+        const before = h.file.text
+        const front = id + ':front', back = id + ':back'
+        let dialog = await h.preview()
+        assert.equal(dialog.preview.rows[0].changes.filter(change => change.decision === 'conflict').length, 2)
+        await dialog.apply(new Map([[front, 'skip'], [back, 'skip']]))
+        assert.equal(h.file.text, before)
+        assert.deepEqual(h.host.writes, [])
+        dialog = await h.preview()
+        await dialog.apply(new Map([[front, 'skip'], [back, direction]]))
+        assert.equal(h.notes.fields.Front.value, 'Remote Q')
+        assert.equal(h.notes.fields.Back.value, direction === 'anki' ? 'Remote A' : 'Local A')
+        assert.equal(h.file.text, direction === 'anki' ? before.replace('Local A', 'Remote A') : before)
+        const next = await h.preview()
+        assert.deepEqual(next.preview.rows.flatMap(row => row.changes).map(change => [change.key, change.decision]), [[front, 'conflict']])
+        await next.apply(new Map([[front, 'anki']]))
+        assert.ok(h.file.text.includes('Remote Q :: '))
+        assert.equal((await h.preview()).preview.rows.flatMap(row => row.changes).length, 0)
+    }
 })

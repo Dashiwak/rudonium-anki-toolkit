@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { checkedCount } from './sync-outcome'
 import { Modal, Notice } from 'obsidian'
 import type { App, TFile } from 'obsidian'
 import type MyPlugin from '../main'
@@ -211,7 +212,7 @@ function summaryLines(result: SyncAuditResult, t: UiText): string[] {
     const { counts, ankiInventoryComplete, vaultInventoryComplete } = result
     const incomplete = vaultInventoryComplete ? '' : t(' · check incomplete', ' · проверка неполная')
     const lines = [
-        t(`Obsidian files checked — ${counts.filesScanned}`, `Проверено файлов Obsidian — ${counts.filesScanned}`),
+        checkedCount(counts.filesScanned, 'file', t),
         t(`Duplicate Anki IDs across the vault — ${counts.duplicateIds}`, `Повторяющихся ID Anki в хранилище — ${counts.duplicateIds}`) + incomplete,
     ]
     if (result.ankiDeckKind === 'filtered') {
@@ -1006,8 +1007,7 @@ class SyncAuditModal extends ReviewModal {
                 const report = await auditAttachmentPresence(this.app, result, this.abort.signal)
                 if (!active()) return
                 const count = report.issues.length
-                feedback.setText(t(`Attachment findings: ${count}. Anki names checked: ${report.namesChecked}.`,
-                    `Замечаний по вложениям: ${count}. Имён проверено в Anki: ${report.namesChecked}.`))
+                feedback.setText(t(`Attachment findings: ${count}. Anki · `, `Замечаний по вложениям: ${count}. Anki · `) + checkedCount(report.namesChecked, 'name', t))
                 if (report.remoteProblem) {
                     rows.createEl('p', { text: t('Anki attachment names could not be verified. Check the profile and AnkiConnect, then try again.',
                         'Не удалось проверить имена вложений в Anki. Проверьте профиль и AnkiConnect, затем повторите.') })
@@ -1182,7 +1182,7 @@ class SyncAuditModal extends ReviewModal {
                 try {
                     const count = await withFastScanReadLock(this.plugin, () => checkAuditNewCards(candidates, notes =>
                         auditRead('canAddNotesWithErrorDetail', { notes }, this.abort.signal, 12_000), verify))
-                    if (active()) feedback.setText(count ? t(`Checked ${count} cards without writing.`, `Карточек проверено без записи — ${count}.`)
+                    if (active()) feedback.setText(count ? checkedCount(count, 'card', t) + ' ' + t('No writes.', 'Данные сохранены без изменений.')
                         : t('Could not confirm readiness. Recheck the current deck and files.', 'Не удалось подтвердить готовность. Перепроверьте колоду и файлы.'))
                 } catch (error) {
                     if (active()) {

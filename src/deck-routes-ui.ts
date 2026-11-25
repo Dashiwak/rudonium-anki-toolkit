@@ -38,8 +38,8 @@ function readRule(path: string, rules: Rules): Rule {
 }
 
 function changeRule(rules: Rules, from: string | undefined, path: string, rule: Rule): Rules {
-    const decks: Rules['decks'] = Object.assign(Object.create(null), rules.decks)
-    const defaults: Rules['defaults'] = Object.assign(Object.create(null), rules.defaults)
+    const decks = Object.assign(Object.create(null) as Rules['decks'], rules.decks)
+    const defaults = Object.assign(Object.create(null) as Rules['defaults'], rules.defaults)
     if (from !== undefined && from !== path) {
         delete decks[from]
         delete defaults[from]

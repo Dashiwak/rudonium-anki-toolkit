@@ -2,17 +2,13 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { files as fs, paths as path, fileErrorCode } from './desktop-io'
+import type { DesktopFiles as NodeFiles, DesktopPaths as NodePath, FileStat } from './desktop-io'
 import * as AnkiConnect from './anki'
-import * as fs from 'fs'
-import * as path from 'path'
 import { withAnkiDeadline } from './anki-transport'
 import { checkPinnedAnkiProfile, readActiveAnkiProfile } from './anki-profile'
 import { verifyVaultZip, writeVaultZip } from './vault-backup-zip'
 import type { VaultZipProgressCallback } from './vault-backup-zip'
-import type { Stats } from 'fs'
-
-type NodeFiles = typeof import('fs')
-type NodePath = typeof import('path')
 
 interface BackupDatabase {
     close(): void
@@ -29,22 +25,24 @@ interface OnlineSqlite {
 
 interface MediaFile {
     relative: string
-    stat: Stats
+    stat: FileStat
 }
 
 const mediaDirectory = 'collection.media'
 const collectionFilename = 'collection.anki2'
 const connectorTimeoutMs = 15_000
 
+function hasBuiltinLoader(value: unknown): value is { getBuiltinModule(name: string): unknown } {
+    return typeof value === 'object' && value !== null && 'getBuiltinModule' in value &&
+        typeof value.getBuiltinModule === 'function'
+}
+
 function sqliteBackupApi(): OnlineSqlite {
-    let module: Partial<OnlineSqlite>
-    try { module = require('node:sqlite') as Partial<OnlineSqlite> } catch {
-        throw new Error('Anki backup requires desktop Obsidian with the Node SQLite online backup API.')
-    }
-    if (typeof module.DatabaseSync !== 'function' || typeof module.backup !== 'function') {
-        throw new Error('Anki backup requires desktop Obsidian with the Node SQLite online backup API (Node 22.16 or later).')
-    }
-    return module as OnlineSqlite
+    const runtime: unknown = 'process' in globalThis ? globalThis.process : undefined
+    const module = hasBuiltinLoader(runtime) ? runtime.getBuiltinModule('node:sqlite') : undefined
+    if (module && typeof module === 'object' && 'DatabaseSync' in module && typeof module.DatabaseSync === 'function' &&
+        'backup' in module && typeof module.backup === 'function') return module as OnlineSqlite
+    throw new Error('Anki backup requires desktop Obsidian with the Node SQLite online backup API (Node 22.16 or later).')
 }
 
 async function readConnector(action: 'getMediaDirPath'): Promise<unknown> {
@@ -89,7 +87,7 @@ async function mediaFiles(fs: NodeFiles, path: NodePath, root: string): Promise<
     return files
 }
 
-function sameFile(before: Stats, after: Stats): boolean {
+function sameFile(before: FileStat, after: FileStat): boolean {
     return after.isFile() && !after.isSymbolicLink() &&
         before.size === after.size && before.mtimeMs === after.mtimeMs &&
         before.ctimeMs === after.ctimeMs && before.ino === after.ino && before.dev === after.dev
@@ -181,8 +179,8 @@ export async function backupAnkiCollection(outputArchive: string, onProgress?: V
             onProgress?.({ phase: 'verify', files, totalFiles, bytes, totalBytes, path: collectionFilename })
             verification = verifyCollection(sqlite, stagedDb)
             for (const ending of ['-wal', '-shm', '-journal']) {
-                const sidecar = await fs.promises.stat(stagedDb + ending).catch((error: NodeJS.ErrnoException) => {
-                    if (error.code !== 'ENOENT') throw error
+                const sidecar = await fs.promises.stat(stagedDb + ending).catch((error: unknown) => {
+                    if (fileErrorCode(error) !== 'ENOENT') throw error
                     return undefined
                 })
                 if (sidecar?.size && ending !== '-shm') {

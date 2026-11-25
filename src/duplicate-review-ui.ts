@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { checkedCount } from './sync-outcome'
 import { Modal } from 'obsidian'
 import type { App, Editor } from 'obsidian'
 import { openObsidianFile } from './obsidian-navigation'
@@ -154,7 +155,7 @@ class DuplicateReviewModal extends Modal {
         const t = this.t
         const { conflicts, errors, checkedFiles } = result
         const count = conflicts.length
-        const files = t(`${checkedFiles} Markdown ${checkedFiles === 1 ? 'file' : 'files'} checked.`, `Проверено файлов Markdown — ${checkedFiles}.`)
+        const files = checkedCount(checkedFiles, 'file', t)
         const duplicates = t(`${count} duplicate ${count === 1 ? 'ID' : 'IDs'} found.`, `Найдено повторяющихся ID — ${count}.`)
         statusLine(this.contentEl, `${errors.length ? t('Check incomplete. ', 'Проверка завершилась с ошибками. ') : ''}${files} ${duplicates}`)
 
@@ -228,7 +229,7 @@ class DuplicateReviewModal extends Modal {
             card.classList.add('rudonium-duplicate-review-card')
             const heading = card.createEl('h3', { text: occurrence.path })
             heading.classList.add('rudonium-duplicate-review-heading')
-            card.createEl('div', { text: t(`Line ${occurrence.line}`, `Строка ${occurrence.line}`), cls: 'setting-item-description' })
+            card.createDiv({ text: t(`Line ${occurrence.line}`, `Строка ${occurrence.line}`), cls: 'setting-item-description' })
 
             if (occurrence.front === undefined || occurrence.back === undefined) {
                 this.renderPreview(card, occurrence.preview)

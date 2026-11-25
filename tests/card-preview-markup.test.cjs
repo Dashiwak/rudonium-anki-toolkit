@@ -35,16 +35,7 @@ test("card field preview sanitizes host HTML before filtering offline content, w
         },
         get textContent() { return "Bahnhof" + changedText.join(""); },
     };
-    const api = await load(["card-preview-ui"], {
-        Modal: class {},
-        sanitizeHTMLToDom(html) {
-            assert.equal(html, original);
-            sanitized++;
-            return fragment;
-        },
-    });
-    const owner = {
-        createDocumentFragment() { return this; },
+    const previewWindow = {
         createEl(tag) {
             assert.equal(tag, "template");
             let appended;
@@ -55,8 +46,19 @@ test("card field preview sanitizes host HTML before filtering offline content, w
             } };
         },
     };
+    const api = await load(["card-preview-ui"], {
+        Modal: class {},
+        sanitizeHTMLToDom(html) {
+            assert.equal(html, original);
+            sanitized++;
+            return fragment;
+        },
+    }, {}, previewWindow);
+    let adopted = false;
+    const owner = { adoptNode(template) { adopted = true; return template; } };
     const { previewFieldText } = api["card-preview-ui"];
     assert.equal(previewFieldText(owner, original, "[Image]"), "Bahnhof\nStation[Image]");
+    assert.equal(adopted, true);
     assert.equal(sanitized, 1);
     assert.deepEqual(removed, ["input"]);
     assert.deepEqual(bold.attributes, [{ name: "class", value: "emphasis" }]);
@@ -64,5 +66,6 @@ test("card field preview sanitizes host HTML before filtering offline content, w
     assert.equal(dataImage.attributes[0].value, "data:image/png;base64,iVBORw==");
     assert.deepEqual(link.attributes, [{ name: "title", value: "City" }]);
     assert.equal(previewFieldText(undefined, original, "[Image]"), original);
+    assert.equal(adopted, true);
     assert.equal(sanitized, 1);
 });

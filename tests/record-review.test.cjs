@@ -74,7 +74,7 @@ class Notice {
 }
 
 async function loadModules(search) {
-    const names = ["obsidian-navigation", "export-review-ui", "sync-difference-ui", "audit-repair-ui", "bidirectional-ui"];
+    const names = ["sync-outcome", "obsidian-navigation", "export-review-ui", "sync-difference-ui", "audit-repair-ui", "bidirectional-ui"];
     const modules = new Map();
     const sourceTexts = new Map();
     for (const name of names) {
@@ -246,7 +246,7 @@ test("repair review docks with live state, keeps page content, and closes with i
     assert.equal(content.children.length, 0);
 });
 
-test("bidirectional preview arrows keep a note atomic, highlight separate edits and pass the chosen sources", async () => {
+test("bidirectional preview requires a decision for each conflict, highlights edits and allows explicit skips", async () => {
     const { "./bidirectional-ui": ui } = await loadModules();
     const app = {};
     const front = { key: "42:front", field: "Front", decision: "conflict", recommendedSide: "anki",
@@ -265,7 +265,9 @@ test("bidirectional preview arrows keep a note atomic, highlight separate edits 
     button("Back", fromAnki).onclick();
     assert.equal(submit.disabled, false);
     button("Front", "Skip").onclick();
-    assert.ok(submit.disabled);
+    assert.equal(button("Front", "Skip").attributes["aria-pressed"], "true");
+    assert.equal(submit.disabled, false);
+    assert.match(tree.textContent, /Unresolved conflicts: 0 · Skipped: 1/);
     button("Front", fromObsidian).onclick();
     assert.equal(button("Front", fromObsidian).attributes["aria-pressed"], "true");
     assert.equal(button("Front", fromAnki).attributes["aria-pressed"], "false");
@@ -301,4 +303,27 @@ test("bidirectional preview can reverse a verified field, explain blocked rows a
     reverse.onclick();
     tree.button("Apply Sync").onclick();
     assert.deepEqual(choices, {"21:front":"anki"});
+});
+
+test("one-way preview applies quiet separator repairs with selected notes and does not touch deselected siblings", async () => {
+    const { "./export-review-ui": ui } = await loadModules();
+    const app = {};
+    const repair = id => ({ kind: "spacing", key: "spacing:" + id, id, values: [{ name: "Markdown", before: "A:: B", after: "A :: B" }] });
+    const field = id => ({ kind: "field", key: "field:" + id, id, values: [{ name: "Back", before: "A", after: "B" }] });
+    const row = operations => ({ path: "Cards.md", operations, added: 0, updated: 0, moved: 0, deleted: 0 });
+    let submitted;
+    const show = operations => {
+        ui.openExportPreview(app, [row(operations)], value => { submitted = value; }, "", english);
+        const tree = app.modal.contentEl;
+        assert.doesNotMatch(tree.textContent, /spacing|A:: B/i);
+        return tree;
+    };
+    show([repair(1)]).button("Sync").onclick();
+    assert.deepEqual([...submitted.paths.get("Cards.md")], ["spacing:1"]);
+    const tree = show([field(1), repair(1), field(2), repair(2), repair(3)]);
+    const input = tree.match(el => el.tag === "input" && el.attributes["aria-label"]?.includes("Anki ID 2"));
+    input.checked = false;
+    input.onchange();
+    tree.button("Export Changes").onclick();
+    assert.deepEqual([...submitted.paths.get("Cards.md")], ["field:1", "spacing:1"]);
 });

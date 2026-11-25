@@ -146,7 +146,7 @@ function taggedSides(rows: string[]): Sides | undefined {
 function readFlashcard(path: string, rows: string[], props: Record<string, unknown>, allowInline: boolean): Sides | undefined {
     if (!rows.length) return
     if (own(props, 'test')) {
-        const cue = Array.isArray(props.test) && props.test.length === 1 ? props.test[0] : props.test
+        const cue: unknown = Array.isArray(props.test) && props.test.length === 1 ? props.test[0] : props.test
         const title = path.split('/').pop()?.replace(/\.md$/iu, '') ?? ''
         if (typeof cue !== 'string' || !cue.trim() || ['reversed', 'cloze'].includes(cue) ||
             (cue !== 'title' && cue.toLowerCase() === title.toLowerCase())) return

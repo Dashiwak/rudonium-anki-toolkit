@@ -25,6 +25,7 @@ export type SyncChoices = Partial<Record<SyncChangeField, 'obsidian' | 'anki'>>
 export type SyncBacklinks = readonly [front: string | null, back: string | null]
 
 export interface PendingSync {
+    skipped?: SyncChangeField[]
     targetSourceSuffixes?: Record<string, string>
     obsidian: SyncValue
     anki: SyncValue
@@ -35,6 +36,7 @@ export interface PendingSync {
 }
 
 export interface SyncRecord {
+    unbasedFields?: SyncChangeField[]
     /** Whole-file and unmanaged note contents last confirmed together. */
     clockContext?: { file: string; other: string; mtime: number; mod?: number }
     /** The verified HTML hashes written to one-way history with this two-way checkpoint. */
@@ -55,7 +57,7 @@ interface SyncStorage {
 }
 
 interface SyncSnapshot {
-    version: 1 | 2 | 3 | 4
+    version: 1 | 2 | 3 | 4 | 5
     checksum?: string
     profile: string
     revision: number
@@ -125,7 +127,7 @@ export function sameSyncExtras(left?: Readonly<Record<string, string>>, right?: 
 
 export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue, anki: SyncValue,
     choices: SyncChoices = {}, extraDirections?: ReadonlyMap<string, BidirectionalFieldDirection>,
-    fieldBases?: ReadonlyMap<string, string | null>, pairBases?: PairBases, initialTagBase?: readonly string[]):
+    fieldBases?: ReadonlyMap<string, string | null>, pairBases?: PairBases, initialTagBase?: readonly string[], unbased?: readonly SyncChangeField[]):
     { value: SyncValue; conflicts: SyncChangeField[] } {
     const conflicts: SyncChangeField[] = []
     const resolveText = (field: SyncChangeField, localValue: string, remoteValue: string,
@@ -141,19 +143,19 @@ export function mergeSyncValues(base: SyncValue | undefined, obsidian: SyncValue
         conflicts.push(field)
         return localValue
     }
-    const front = resolveText('front', obsidian.front, anki.front, pairBases?.front === null ? undefined : pairBases?.front ?? base?.front)
-    const back = resolveText('back', obsidian.back, anki.back, pairBases?.back === null ? undefined : pairBases?.back ?? base?.back)
+    const front = resolveText('front', obsidian.front, anki.front, pairBases?.front === null ? undefined : pairBases?.front ?? (unbased?.includes('front') ? undefined : base?.front))
+    const back = resolveText('back', obsidian.back, anki.back, pairBases?.back === null ? undefined : pairBases?.back ?? (unbased?.includes('back') ? undefined : base?.back))
     const common: Pick<SyncValue, 'front' | 'back' | 'extra'> = { front, back }
     if (extraDirections?.size) {
         common.extra = Object.fromEntries(Array.from(extraDirections, ([name, direction]) => [
             name, resolveText(`extra:${name}`, obsidian.extra![name], anki.extra![name],
-                fieldBases?.has(name) ? fieldBases.get(name) ?? undefined : base?.extra?.[name], direction),
+                fieldBases?.has(name) ? fieldBases.get(name) ?? undefined : unbased?.includes(`extra:${name}`) ? undefined : base?.extra?.[name], direction),
         ]))
     }
     const localTags = indexTags(obsidian.tags)
     const remoteTags = indexTags(anki.tags)
     if (sameTags(localTags, remoteTags)) return { value: { ...common, tags: normalizeSyncTags(obsidian.tags) }, conflicts }
-    const tagBase = base?.tags ?? initialTagBase
+    const tagBase = unbased?.includes('tags') ? initialTagBase : base?.tags ?? initialTagBase
     if (!tagBase) {
         if (!choices.tags) conflicts.push('tags')
         return { value: { ...common, tags: normalizeSyncTags(choices.tags === 'anki' ? anki.tags : obsidian.tags) }, conflicts }
@@ -205,6 +207,11 @@ function isValue(value: unknown): value is SyncValue {
             isBidirectionalFieldName(name) && typeof field === 'string'))
 }
 
+function validFieldList(value: unknown): boolean {
+    return value === undefined || Array.isArray(value) && value.every(key => key === 'front' || key === 'back' ||
+        key === 'tags' || typeof key === 'string' && key.startsWith('extra:') && isBidirectionalFieldName(key.slice(6)))
+}
+
 function validSourceSuffixes(value: unknown): boolean {
     return value === undefined || isObject(value) && Object.entries(value).every(([name, text]) => name.length > 0 && typeof text === 'string')
 }
@@ -222,10 +229,10 @@ function isRecord(value: unknown): value is SyncRecord {
         !/^[0-9a-f]{32}$/u.test(clock.file) || !/^[0-9a-f]{32}$/u.test(clock.other) ||
         typeof clock.mtime !== 'number' || !Number.isFinite(clock.mtime) || clock.mtime <= 0 ||
         clock.mod !== undefined && !isId(clock.mod))) return false
-    return validPairReceipt(value.pairReceipt) && (value.namedFieldModel === undefined || typeof value.namedFieldModel === 'string' && !!value.namedFieldModel) && validSourceSuffixes(value.sourceSuffixes) && (value.deletionSource === undefined || typeof value.deletionSource === 'string' && /^[0-9a-f]{32}$/u.test(value.deletionSource)) &&
+    return validFieldList(value.unbasedFields) && validPairReceipt(value.pairReceipt) && (value.namedFieldModel === undefined || typeof value.namedFieldModel === 'string' && !!value.namedFieldModel) && validSourceSuffixes(value.sourceSuffixes) && (value.deletionSource === undefined || typeof value.deletionSource === 'string' && /^[0-9a-f]{32}$/u.test(value.deletionSource)) &&
         (value.suspension === undefined || validSuspendBase(value.suspension)) &&
         (value.base === undefined || isValue(value.base)) &&
-        (value.pending === undefined || (isObject(value.pending) && validSourceSuffixes(value.pending.sourceSuffixes) &&
+        (value.pending === undefined || (isObject(value.pending) && validSourceSuffixes(value.pending.sourceSuffixes) && validFieldList(value.pending.skipped) &&
             validSourceSuffixes(value.pending.targetSourceSuffixes) && isValue(value.pending.obsidian) &&
             isValue(value.pending.anki) && isValue(value.pending.target) &&
             (value.pending.extraDirections === undefined || isObject(value.pending.extraDirections) &&
@@ -237,6 +244,10 @@ function isRecord(value: unknown): value is SyncRecord {
         (value.base !== undefined || value.pending !== undefined || value.suspension !== undefined)
 }
 
+function usesPartialFields(record: SyncRecord): boolean {
+    return !!record.pending?.skipped?.length || !!record.unbasedFields?.length
+}
+
 function hasExtraFields(record: SyncRecord): boolean {
     return record.base?.extra !== undefined || record.pending?.obsidian.extra !== undefined ||
         record.pending?.anki.extra !== undefined || record.pending?.target.extra !== undefined ||
@@ -244,7 +255,7 @@ function hasExtraFields(record: SyncRecord): boolean {
 }
 
 function digest(text: string): string {
-    return Md5.hashStr(text) as string
+    return Md5.hashStr(text)
 }
 
 function isSnapshotRow(row: unknown): row is [number, SyncRecord] {
@@ -253,11 +264,12 @@ function isSnapshotRow(row: unknown): row is [number, SyncRecord] {
 
 function parseSnapshot(text: string, profile: string, slot?: number): SyncSnapshot {
     const value: unknown = JSON.parse(text)
-    if (!isObject(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4) || value.profile !== profile ||
+    if (!isObject(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4 && value.version !== 5) || value.profile !== profile ||
         !isId(value.revision) || (slot !== undefined && value.revision % 2 !== slot) || !Array.isArray(value.records) ||
         !value.records.every((row: unknown): row is [number, SyncRecord] => isSnapshotRow(row) &&
             (value.version !== 1 || !hasExtraFields(row[1])) &&
-            (value.version === 4 || value.version === 3 || row[1].suspension === undefined && row[1].deletionSource === undefined)) ||
+            (value.version === 5 || !usesPartialFields(row[1])) &&
+            (value.version === 5 || value.version === 4 || value.version === 3 || row[1].suspension === undefined && row[1].deletionSource === undefined)) ||
         new Set(value.records.map(row => row[0])).size !== value.records.length) {
         throw new Error('Invalid bidirectional sync checkpoint.')
     }
@@ -423,7 +435,7 @@ export class BidirectionalState {
             if (!saved && (await Promise.all(['0', '1', 'staged'].map(suffix => storage.exists(basePath + '.journal.' + suffix)))).some(Boolean))
                 throw new Error('Cannot verify the bidirectional sync journal without its matching full checkpoint.')
             const state = new BidirectionalState(storage, basePath, profile, disk, saved, seal)
-            if (saved?.version === 4) {
+            if (saved && saved.version >= 4) {
                 state.journal = await readJournal(storage, basePath, saved)
                 applyRows(state.records, state.journal.head.rows)
             }
@@ -468,6 +480,7 @@ export class BidirectionalState {
 
     private async saveDelta(changes: Map<number, SyncRecord | null>): Promise<boolean> {
         const old = this.journal?.head
+        if (this.format < 5 && Array.from(changes.values()).some(record => record && usesPartialFields(record))) return false
         if (!old || old.seq >= journalMaxUpdates || changes.size > journalMinRecords) return false
         const rows = new Map(old.rows)
         for (const [id, record] of changes) rows.set(id, record)
@@ -484,10 +497,11 @@ export class BidirectionalState {
         const records = new Map(this.records)
         applyRows(records, changes)
         const rows = Array.from(records)
-        const version = this.format === 4 || rows.length >= journalMinRecords || rows.some(([, r]) => r.sourceSuffixes || r.pending?.sourceSuffixes) ? 4 :
+        const version = this.format === 5 || rows.some(([, record]) => usesPartialFields(record)) ? 5 :
+            this.format === 4 || rows.length >= journalMinRecords || rows.some(([, r]) => r.sourceSuffixes || r.pending?.sourceSuffixes) ? 4 :
             this.format === 3 || rows.some(([, r]) => r.suspension || r.deletionSource) ? 3 :
             this.format === 2 || rows.some(([, r]) => hasExtraFields(r)) ? 2 : 1
-        if (version === 4 && this.revision === 0) await this.saveSnapshot(new Map())
+        if (version >= 4 && this.revision === 0) await this.saveSnapshot(new Map())
         const revision = this.revision + 1
         if (!isId(revision)) throw new Error('Invalid bidirectional sync checkpoint revision.')
         const snapshot: SyncSnapshot = { version, profile: this.profile, revision, records: rows }
@@ -495,7 +509,7 @@ export class BidirectionalState {
         const text = JSON.stringify({ ...snapshot, checksum })
         const slot = revision % 2
         let journal: Journal | undefined
-        if (version === 4) {
+        if (version >= 4) {
             const head = makeDelta(checksum, 0, '', [])
             const primary = JSON.stringify(head)
             const staged = this.journal ? this.journal.staged : await readOptional(this.storage, this.basePath + '.journal.staged')

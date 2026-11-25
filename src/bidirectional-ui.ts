@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { checkedCount } from './sync-outcome'
 import { Modal, Notice } from 'obsidian'
 import type { App } from 'obsidian'
 import { openAuditAnkiNote, openAuditSource, renderFieldComparison } from './sync-difference-ui'
@@ -11,6 +12,7 @@ import type { UiText } from './interface-language'
 import { installModalLayout } from './modal-layout'
 
 export type BidirectionalSide = 'obsidian' | 'anki'
+export type BidirectionalChoice = BidirectionalSide | 'skip'
 
 export interface BidirectionalPreviewChange {
     key: string
@@ -19,8 +21,10 @@ export interface BidirectionalPreviewChange {
     anki: string
     decision: BidirectionalSide | 'merge' | 'conflict'
     merged?: string
+    reviewReason?: string
     recommendedSide?: BidirectionalSide
     canChooseDirection?: boolean
+    canSkip?: boolean
     allowedSide?: BidirectionalSide
     markdown?: () => { before: string; after: string }
 }
@@ -49,7 +53,7 @@ export interface BidirectionalPreview {
     canApply: boolean
 }
 
-type ApplyPreview = (choices: ReadonlyMap<string, BidirectionalSide>, onPartial?: () => void) => Promise<string | void>
+type ApplyPreview = (choices: ReadonlyMap<string, BidirectionalChoice>, onPartial?: () => void) => Promise<string | void>
 const previews = new WeakMap<App, BidirectionalPreviewModal>()
 const pageSize = 24
 
@@ -65,7 +69,7 @@ function showIssues(parent: HTMLElement, issues: readonly string[], t: UiText): 
 class BidirectionalPreviewModal extends Modal {
     private readonly preview: BidirectionalPreview
     private readonly apply?: ApplyPreview
-    private readonly choices = new Map<string, BidirectionalSide>()
+    private readonly choices = new Map<string, BidirectionalChoice>()
     private readonly controls: HTMLButtonElement[] = []
     private readonly directionButtons = new Set<HTMLButtonElement>()
     private removePreference?: () => void
@@ -96,7 +100,7 @@ class BidirectionalPreviewModal extends Modal {
             const fieldConflicts: string[] = []
             for (const change of row.changes) {
                 counts[change.decision]++
-                if (change.decision === 'conflict' || change.canChooseDirection) editable.set(change.key, change)
+                if (change.decision === 'conflict' || change.canChooseDirection || change.canSkip) editable.set(change.key, change)
                 if (change.decision !== 'conflict') continue
                 if (change.recommendedSide && (!change.allowedSide || change.allowedSide === change.recommendedSide)) {
                     this.choices.set(change.key, change.recommendedSide)
@@ -108,7 +112,7 @@ class BidirectionalPreviewModal extends Modal {
             if (fieldConflicts.length) conflictGroups.push(fieldConflicts)
         }
         this.contentEl.createEl('p', { text: t(`Sync profile: ${preview.scopeLabel}`, `Профиль синхронизации: ${preview.scopeLabel}`) })
-        this.contentEl.createEl('p', { text: t(`Anki profile: ${preview.profile} · ${preview.scanned} linked notes checked`, `Профиль Anki: ${preview.profile} · Связанных записей проверено: ${preview.scanned}`) })
+        this.contentEl.createEl('p', { text: t('Anki profile: ', 'Профиль Anki: ') + preview.profile + ' · ' + checkedCount(preview.scanned, 'note', t) })
         const merged = counts.merge ? t(` · To merge: ${counts.merge}`, ` · Объединение: ${counts.merge}`) : ''
         const summary = this.contentEl.createEl('p')
         if (blocked) {
@@ -122,15 +126,16 @@ class BidirectionalPreviewModal extends Modal {
         const status = this.contentEl.createEl('p', { attr: { role: 'status', 'aria-live': 'polite' } })
         let submit: HTMLButtonElement | undefined
         const update = () => {
-            const totals = { ...counts }
+            const totals = { ...counts, skip: 0 }
             for (const [key, side] of this.choices) {
                 const change = editable.get(key)
                 if (!change) continue
                 totals[change.decision]--
                 totals[side]++
             }
+            const skippedLabel = totals.skip ? t(` · Skipped: ${totals.skip}`, ` · Пропущено: ${totals.skip}`) : ''
             summary.setText(t(`To Anki: ${totals.obsidian} · To Obsidian: ${totals.anki}${merged} · Unresolved conflicts: ${totals.conflict}`,
-                `В Anki: ${totals.obsidian} · В Obsidian: ${totals.anki}${merged} · Нерешённых конфликтов: ${totals.conflict}`))
+                `В Anki: ${totals.obsidian} · В Obsidian: ${totals.anki}${merged} · Нерешённых конфликтов: ${totals.conflict}`) + skippedLabel)
             const ready = preview.canApply || conflictGroups.some(group => group.every(key => this.choices.has(key)))
             if (submit) submit.disabled = this.applied || this.busy || !ready
             if (!apply) {
@@ -138,14 +143,14 @@ class BidirectionalPreviewModal extends Modal {
                     'Предпросмотр в режиме чтения. Устраните указанную причину и откройте предпросмотр снова.'))
             } else if (counts.conflict) {
                 const selected = counts.conflict - totals.conflict
-                status.setText(t(`Selected conflicts: ${selected} of ${counts.conflict}.`, `Выбрано конфликтов: ${selected} из ${counts.conflict}.`) + (ready ? '' : t(
-                    ' Choose a direction for each conflicting field in at least one note to enable Apply Sync.',
-                    ' Чтобы применить изменения, укажите направление для каждого конфликтующего поля хотя бы одной записи.')))
+                status.setText(t(`Reviewed conflicts: ${selected} of ${counts.conflict}.`, `Рассмотрено конфликтов: ${selected} из ${counts.conflict}.`) + (ready ? '' : t(
+                    ' Choose a direction or Skip for each conflicting field in at least one note to enable Apply Sync.',
+                    ' Чтобы применить изменения, выберите направление или «Пропустить» для каждого конфликтующего поля хотя бы одной записи.')))
             } else if (!ready) {
                 status.setText(blocked || preview.issues?.length ? t('No safe changes to apply. Resolve the reported issue and open the preview again.',
                     'Нет изменений, которые можно перенести. Устраните указанную причину и откройте предпросмотр снова.') :
                     t('No changes to apply.', 'Нет изменений для переноса.'))
-            }
+            } else status.setText('')
         }
         const skipped = preview.foldRecoverable ? preview.rows.filter(row => row.recoverable) : []
         this.showRows(this.contentEl, skipped.length ? preview.rows.filter(row => !row.recoverable) : preview.rows, update)
@@ -262,8 +267,9 @@ class BidirectionalPreviewModal extends Modal {
         if (change.decision === 'merge' && change.merged !== undefined) {
             section.createEl('p', { text: t(`Merged result — ${change.merged || 'Empty field'}`, `Результат объединения — ${change.merged || 'Пустое поле'}`) }).classList.add('rudonium-wrap-anywhere')
         }
-        if (!this.apply || (change.decision !== 'conflict' && !change.canChooseDirection)) return
+        if (!this.apply || (change.decision !== 'conflict' && !change.canChooseDirection && !change.canSkip)) return
 
+        if (change.reviewReason) section.createEl('p', { text: change.reviewReason })
         const recommended = change.recommendedSide
         if (recommended) {
             section.createEl('p', { text: t(`Later edit: ${recommended === 'anki' ? 'Anki' : 'Obsidian'}.`,
@@ -273,25 +279,25 @@ class BidirectionalPreviewModal extends Modal {
             role: 'group', 'aria-label': t(`Sync direction for ${change.field}`, `Направление синхронизации поля «${change.field}»`),
         } })
         const defaultSide = change.decision === 'obsidian' || change.decision === 'anki' ? change.decision : undefined
-        const buttons = new Map<BidirectionalSide | 'skip', HTMLButtonElement>()
+        const buttons = new Map<BidirectionalChoice, HTMLButtonElement>()
         const refresh = () => {
-            const selected = this.choices.get(change.key) ?? defaultSide ?? 'skip'
+            const selected = this.choices.get(change.key) ?? defaultSide
             for (const [side, button] of buttons) {
                 button.setAttribute('aria-pressed', String(selected === side))
             }
-            heading.setText(`${change.field} · ${selected === 'skip' ? decisions.conflict : decisions[selected]}`)
+            heading.setText(`${change.field} · ${selected === 'skip' ? t('Skipped this time', 'Пропущено в этот раз') : decisions[selected ?? 'conflict']}`)
         }
-        const add = (side: BidirectionalSide | 'skip', label: string) => {
+        const add = (side: BidirectionalChoice, label: string) => {
             const action = side === 'obsidian' ? t('Use the Obsidian value in Anki', 'Перенести значение из Obsidian в Anki') :
-                side === 'anki' ? t('Use the Anki value in Obsidian', 'Перенести значение из Anki в Obsidian') : label
-            const button = group.createEl('button', { text: label, title: action, attr: { type: 'button', 'aria-label': `${change.field} · ${action}` } })
+                side === 'anki' ? t('Use the Anki value in Obsidian', 'Перенести значение из Anki в Obsidian') : t('Keep both values for this sync', 'Оставить оба значения при этой синхронизации')
+            const button = group.createEl('button', { text: label, title: action, attr: { type: 'button', 'aria-label': `${change.field} · ${side === 'skip' ? label : action}` } })
             buttons.set(side, button)
             this.directionButtons.add(button)
             this.controls.push(button)
             button.disabled = this.applied || this.busy
             button.onclick = () => {
                 if (this.applied || this.busy) return
-                if (side === 'skip' || side === defaultSide) this.choices.delete(change.key)
+                if (side === defaultSide) this.choices.delete(change.key)
                 else this.choices.set(change.key, side)
                 refresh()
                 update()
@@ -299,7 +305,7 @@ class BidirectionalPreviewModal extends Modal {
         }
         if (change.allowedSide !== 'anki') add('obsidian', 'Obsidian → Anki')
         if (change.allowedSide !== 'obsidian') add('anki', 'Obsidian ← Anki')
-        if (change.decision === 'conflict') add('skip', t('Skip', 'Пропустить'))
+        add('skip', t('Skip', 'Пропустить'))
         refresh()
     }
 

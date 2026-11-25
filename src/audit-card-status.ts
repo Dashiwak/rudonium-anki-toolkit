@@ -216,7 +216,7 @@ function readCheck(value: unknown): { canAdd: boolean; error?: string | null } |
     const row = value as Record<string, unknown>
     if (typeof row.canAdd !== 'boolean' || row.error != null && typeof row.error !== 'string') return undefined
     if (row.canAdd && row.error) return undefined
-    return { canAdd: row.canAdd, error: row.error as string | null | undefined }
+    return { canAdd: row.canAdd, error: typeof row.error === 'string' ? row.error : null }
 }
 
 export async function checkAuditNewCards(rows: readonly AuditCardRow[], read: (notes: readonly unknown[]) => Promise<unknown>,

@@ -24,7 +24,7 @@ export function installFolderTagSettings(container: HTMLElement, plugin: MyPlugi
     const mount = () => {
         if (mounted || !details.open) return
         mounted = true
-        const storage = plugin.app as LayoutStorage
+        const storage: LayoutStorage = plugin.app
         let view = views.get(plugin)
         if (!view) {
             let branches: unknown

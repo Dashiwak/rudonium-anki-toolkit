@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import { checkedCount } from './sync-outcome'
 import { Modal, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { createFolderTree, vaultFolderEntries } from './folder-tree'
@@ -296,7 +297,7 @@ class PageMigrationWizard extends Modal {
         const labels: Record<Filter, string> = { all: t('All results', 'Все результаты'), ready: t('Ready', 'Готово к переносу'),
             link: t('Exact Anki match', 'Точное совпадение в Anki'), review: t('Needs review', 'Проверить вручную'),
             already: t('Already supported', 'Уже поддерживается'), unchecked: t('Not checked', 'Ожидает проверки') }
-        body.createEl('p', { text: t(`Checked ${plan.scanned} files · ${plan.model}`, `Проверено файлов: ${plan.scanned} · ${plan.model}`) +
+        body.createEl('p', { text: checkedCount(plan.scanned, 'file', t) + ' ' + plan.model +
             (plan.profile ? ' · ' + plan.profile : '') })
         for (const warning of plan.warnings) body.createEl('p', { text: warning })
         if (unchecked) {
@@ -509,7 +510,7 @@ export function installPageMigrationSetting(container: HTMLElement, plugin: MyPl
     new Setting(container).setName(t('Card file migration', 'Перенос карточек из файлов'))
         .setDesc(t('Convert files from another flashcard plugin to page cards and keep a ZIP of the original vault.',
             'Преобразуйте файлы другого плагина в карточки-страницы и сохраните исходное хранилище в ZIP.'))
-        .addButton(control => control.setButtonText(t('Open wizard', 'Открыть мастер')).onClick(() => openPageMigration(plugin)))
+        .addButton(control => control.setButtonText(t('Set up migration', 'Настроить перенос')).onClick(() => openPageMigration(plugin)))
 }
 
 export function registerPageMigrationCommand(plugin: MyPlugin): void {

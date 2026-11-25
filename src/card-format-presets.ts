@@ -60,12 +60,12 @@ export interface SeparatorRepair {
 
 export function separatorRepair(line: string, linked: boolean): SeparatorRepair | undefined {
     if (!line.startsWith('- ') || !line.includes('::') || line.length > 16384 ||
-        /:::|[\x60<>\[\]{}$]|%%|:\/\/|\\(?!_)|\r|\n/u.test(line)) return
+        /:::|[\x60<>[\]{}$]|%%|:\/\/|\\(?!_)|\r|\n/u.test(line)) return
     const offsets: number[] = []
     let joins = 0
     for (const match of line.matchAll(/::/gu)) {
         if (++joins > 4) return
-        const at = match.index!
+        const at = match.index
         const left = line[at - 1], right = line[at + 2]
         if (!left || !right) return
         const addLeft = !/[ \t]/u.test(left), addRight = !/[ \t]/u.test(right)

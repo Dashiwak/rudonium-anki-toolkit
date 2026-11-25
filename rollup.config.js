@@ -13,12 +13,13 @@ const rudoniumUpstreamConfig = {
   external: ["obsidian", "path"]
 };
 
+import { builtinModules as rudoniumBuiltins } from "module";
 import { readFileSync as rudoniumReadFile } from "fs";
 const rudoniumManifest = JSON.parse(rudoniumReadFile(new URL("./manifest.json", import.meta.url), "utf8"));
 function bundleNotice(release, license) {
     return [
         "/*!",
-        " * " + release.name + " " + release.version + " — modified 2026-11-23.",
+        " * " + release.name + " " + release.version + " — modified 2026-11-24.",
         " * SPDX-License-Identifier: " + license,
         " * Rudonium additions: Copyright (C) 2026 dashiwak. GNU GPLv3. Original component permissions and notices are retained.",
         " * Derived from Obsidian_to_Anki 3.6.0 by Pseudonium and contributors.",
@@ -28,8 +29,8 @@ function bundleNotice(release, license) {
         " */",
     ].join("\n");
 }
-function rudoniumRollupConfig(config, notice, version) {
-    if (Array.isArray(config)) return config.map(entry => rudoniumRollupConfig(entry, notice, version));
+function rudoniumRollupConfig(config, notice, version, builtins) {
+    if (Array.isArray(config)) return config.map(entry => rudoniumRollupConfig(entry, notice, version, builtins));
 
     function withReleaseNotice(output) {
         const prepend = (value, prefix) => {
@@ -46,13 +47,18 @@ function rudoniumRollupConfig(config, notice, version) {
     const rules = Array.isArray(inherited) ? inherited : inherited ? [inherited] : [];
     return {
         ...config,
+        onwarn(warning, show) {
+            if (config.onwarn) config.onwarn.call(this, warning, show);
+            else show(warning);
+            throw new Error("Rollup " + (warning.code || "warning") + ": " + warning.message);
+        },
         output: Array.isArray(config.output) ? config.output.map(withReleaseNotice) : withReleaseNotice(config.output),
         external(id, ...args) {
-            if (id.startsWith("@codemirror/")) return true;
+            if (builtins.has(id) || id.startsWith("node:") || id.startsWith("@codemirror/")) return true;
             if (typeof inherited === "function") return inherited.call(this, id, ...args);
             return rules.some(rule => typeof rule === "string" ? rule === id : rule.test(id));
         },
     };
 }
 
-export default rudoniumRollupConfig(rudoniumUpstreamConfig, bundleNotice(rudoniumManifest, "GPL-3.0-only"), rudoniumManifest.version);
+export default rudoniumRollupConfig(rudoniumUpstreamConfig, bundleNotice(rudoniumManifest, "GPL-3.0-only"), rudoniumManifest.version, new Set(rudoniumBuiltins));

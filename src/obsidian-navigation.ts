@@ -159,7 +159,7 @@ async function showReviewAlongside(app: App, origin: NavigationOrigin | undefine
     if (review) review.moveTo(view)
     else if (origin) { origin.modal.shouldRestoreSelection = false; origin.modal.close() }
     if (settings) view.offerSettings(settings)
-    await workspace.revealLeaf(view.leaf)
+    await Promise.resolve(workspace.revealLeaf(view.leaf))
 }
 
 /** Consecutive clicks share one editor tab and cannot create competing review panes. */
@@ -190,8 +190,10 @@ async function navigateToFile(app: App, path: string, origin?: NavigationOrigin,
     await (leaf as WorkspaceLeaf & { loadIfDeferred?: () => Promise<void> }).loadIfDeferred?.()
     if (select && leaf.view instanceof MarkdownView) {
         const state = leaf.getViewState()
-        if (leaf.view.getMode() !== 'source' || state.state?.source !== true) {
-            await leaf.setViewState({ ...state, active: false, state: { ...state.state, ...source } })
+        const saved: unknown = state.state
+        const properties = typeof saved === 'object' && saved !== null && !Array.isArray(saved) ? saved : {}
+        if (leaf.view.getMode() !== 'source' || !('source' in properties) || properties.source !== true) {
+            await leaf.setViewState({ ...state, active: false, state: { ...properties, ...source } })
         }
     }
     const view = leaf.view
@@ -210,7 +212,7 @@ async function navigateToFile(app: App, path: string, origin?: NavigationOrigin,
             console.warn('[Export to Anki] Could not close Obsidian settings', error)
         }
     }
-    await workspace.revealLeaf?.(leaf)
+    await Promise.resolve(workspace.revealLeaf?.(leaf))
     view.containerEl?.ownerDocument.defaultView?.focus()
     workspace.setActiveLeaf?.(leaf, { focus: true })
     if (select) view.editor.focus()

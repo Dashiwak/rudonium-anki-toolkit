@@ -54,7 +54,7 @@ try {
     fs.mkdirSync(wrong);
     const disposable = path.join(base, "release-kit");
     fs.cpSync(path.join(kit, "Build"), path.join(disposable, "Build"), {
-        recursive: true, filter: name => !path.basename(name).startsWith(".build-"),
+        recursive: true, filter: name => path.basename(name) !== "overlay-files.json" && !path.basename(name).startsWith(".build-"),
     });
     for (const file of ["manifest.json", "package.json", "versions.json", "LICENSE"]) fs.copyFileSync(path.join(kit, file), path.join(disposable, file));
     const builder = path.join(disposable, "Build/build-main.cjs");

@@ -2,10 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as crypto from 'crypto'
-import * as os from 'os'
-import * as path from 'path'
-import { constants, promises as fs } from 'fs'
+import { hashes as crypto, temporaryDirectory, paths as path, fileOperations as fs, fileFlags as constants, bytes as binary, fileErrorCode } from './desktop-io'
+import type { DesktopPaths, Bytes } from './desktop-io'
 import { MarkdownView, TFile } from 'obsidian'
 import type { FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
@@ -82,10 +80,10 @@ function desktop(plugin: MyPlugin) {
         throw new Error(t('ZIP transfer requires desktop Obsidian and a local vault.',
             'Для переноса ZIP нужен настольный Obsidian с локальным хранилищем.'))
     }
-    return { fs, path, crypto, os, base: adapter.getBasePath(), t }
+    return { fs, path, crypto, base: adapter.getBasePath(), t }
 }
 
-function inside(path: typeof import('path'), root: string, target: string): boolean {
+function inside(path: DesktopPaths, root: string, target: string): boolean {
     const relative = path.relative(root, target)
     return !relative || !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`)
 }
@@ -96,7 +94,7 @@ function dirty(plugin: MyPlugin, paths: ReadonlySet<string>): boolean {
         view.getMode() === 'source' && !sameEditorText(view.getViewData(), view.data))
 }
 
-function pluginStorage(plugin: MyPlugin, root: string, path: typeof import('path')): string {
+function pluginStorage(plugin: MyPlugin, root: string, path: DesktopPaths): string {
     const configured = plugin.manifest.dir ?? `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`
     if (path.isAbsolute(configured) || configured.split('/').some(part => !part || part === '.' || part === '..' || part.includes('\\'))) {
         throw new Error(uiFor(plugin.settings)('The plugin storage path is invalid.', 'Путь хранения данных плагина некорректен.'))
@@ -112,8 +110,8 @@ async function checkedPath(root: string, target: string, createFolders = false):
     const parts = path.relative(root, target).split(path.sep).filter(Boolean)
     for (let index = 0; index < parts.length; index++) {
         cursor = path.join(cursor, parts[index])
-        const stat = await fs.lstat(cursor).catch((error: NodeJS.ErrnoException) => {
-            if (error.code !== 'ENOENT') throw error
+        const stat = await fs.lstat(cursor).catch((error: unknown) => {
+            if (fileErrorCode(error) !== 'ENOENT') throw error
             return undefined
         })
         if (!stat) {
@@ -128,7 +126,7 @@ async function checkedPath(root: string, target: string, createFolders = false):
 export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOptions,
     onProgress?: (progress: TransferPackageProgress) => void, signal?: AbortSignal): Promise<TransferPackageResult> {
     return withFastScanReadLock(plugin, async () => {
-        const { fs, path, crypto, os, base, t } = desktop(plugin)
+        const { fs, path, crypto, base, t } = desktop(plugin)
         const limits = options.mobileCompatible ? mobileZipLimits : { ...zipImportLimits, totalBytes: zipImportLimits.archiveBytes }
         const folder = safeRelative(options.folder, t)
         const savedScope = readArchiveSettings(options.useSavedScope ?
@@ -168,8 +166,8 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
         const indexPath = path.join(storage, `archive-${scopeHash}.json`)
         let previous: ArchiveChangeIndex | undefined
         if (changedOnly) {
-            const indexStat = await fs.lstat(indexPath).catch((error: NodeJS.ErrnoException) => {
-                if (error.code !== 'ENOENT') throw error
+            const indexStat = await fs.lstat(indexPath).catch((error: unknown) => {
+                if (fileErrorCode(error) !== 'ENOENT') throw error
                 return undefined
             })
             if (indexStat) {
@@ -188,7 +186,7 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
         }
         const previousHashes = new Map(previous?.files.map(file => [file.path, file.hash]) ?? [])
         const id = crypto.randomBytes(16).toString('hex')
-        const stage = await fs.mkdtemp(path.join(os.tmpdir(), 'rupos-phone-'))
+        const stage = await fs.mkdtemp(path.join(temporaryDirectory(), 'rupos-phone-'))
         const baseline: StoredBaseline = { kind: 'rupos-transfer-baseline', version: 1, id, folder,
             vaultRoot: root, createdAt: Date.now(), files: [] }
         let copiedBytes = 0
@@ -200,7 +198,7 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
             abort(signal)
             onProgress?.({ phase, files: count, totalFiles: files.length, bytes: copiedBytes, totalBytes, path: entry })
         }
-        const readSource = async (file: TFile): Promise<Buffer> => {
+        const readSource = async (file: TFile): Promise<Bytes> => {
             const source = path.join(root, ...file.path.split('/'))
             await checkedPath(root, source)
             const handle = await fs.open(source, constants.O_RDONLY |
@@ -272,7 +270,7 @@ export function preparePhonePackage(plugin: MyPlugin, options: TransferPackageOp
             await checkedPath(root, storage, true)
             baselinePath = path.join(storage, `${id}.json`)
             const text = JSON.stringify(baseline)
-            if (Buffer.byteLength(text) > maxBaselineBytes) throw new Error(t('The source folder index is too large.',
+            if (binary.byteLength(text) > maxBaselineBytes) throw new Error(t('The source folder index is too large.',
                 'Индекс исходной папки превышает поддерживаемый размер.'))
             await fs.writeFile(baselinePath, text, { flag: 'wx', mode: 0o600 })
             abort(signal)

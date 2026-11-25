@@ -144,7 +144,7 @@ function buildCheckout(checkout, repository, manifest) {
                 !/^Release-\d+\.\d+\.\d+$/.test(relative) && !/^Build\/\.build-/.test(relative);
         } });
         checkSourceTree(scratch);
-        npm(["ci", "--no-audit", "--no-fund"], scratch);
+        npm(["ci", "--ignore-scripts", "--no-audit", "--no-fund"], scratch);
         npm(["exec", "--offline", "--", "tsc", "--noEmit"], scratch, true);
         npm(["run", "build"], scratch, true);
         runNode("--check", [path.join(scratch, "main.js")]);

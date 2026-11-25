@@ -18,7 +18,8 @@ import { importLegacyScanScope } from './src/sync-profiles'
 import { pauseForMigration } from './src/plugin-migration'
 import { refreshNoteTypes } from './src/note-type-refresh'
 import { registerSetupCommand } from './src/first-connection'
-import { openDuplicateIdReview, registerFastScan, savePluginDataInOrder, scanVaultFast, withFastScanReadLock } from './src/fast-scan'
+import type { CursorCardTarget } from './src/cursor-card'
+import { openDuplicateIdReview, previewVaultExport, registerFastScan, savePluginDataInOrder, scanVaultFast, withFastScanReadLock } from './src/fast-scan'
 import { registerCardSourceLinks } from './src/card-source-links'
 import { Notice, Plugin, addIcon } from 'obsidian'
 import * as AnkiConnect from './src/anki'
@@ -246,11 +247,24 @@ export default class RudoniumAnkiPlugin extends Plugin {
 
 
 
+    previewCursorExport(source: string, target: CursorCardTarget): Promise<void> {
+        return previewVaultExport(this, undefined, new Set([source]), target)
+    }
+
 	async scanVault(origin?: 'scheduled') {
         await scanVaultFast(this, origin)
     }
 
-	async onload() {
+	onload(): void {
+        void this.loadRudonium().catch((error: unknown) => {
+            if (this.rudoniumStopped) return
+            console.error('[Rudonium] Could not start plugin', error)
+            new Notice(uiFor(this.settings)('Could not start Rudonium. See the console for details.',
+                'Не удалось запустить Rudonium. Подробности в консоли.'))
+        })
+    }
+
+    private async loadRudonium(): Promise<void> {
         if (await pauseForMigration(this, () => this.startRudonium())) return
         await this.startRudonium()
     }

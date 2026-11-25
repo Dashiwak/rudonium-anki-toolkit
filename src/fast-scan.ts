@@ -8,7 +8,7 @@ import { generatedRuleGuard } from './delimited-rule'
 import { afterDeleteMode } from './deletion-policy'
 import { registerRecordReview } from './obsidian-navigation'
 import { sameEditorText } from './markdown-pipeline'
-import { MarkdownView, Notice, TFolder } from 'obsidian'
+import { MarkdownView, Notice } from 'obsidian'
 import type { TFile } from 'obsidian'
 import { Md5 } from 'ts-md5'
 import type MyPlugin from '../main'
@@ -29,10 +29,10 @@ import { openExportPreview, openExportProgress, openExportRunReport, openExportR
 import type { ExportRepairTarget, ExportPreviewRow, ExportProgress, ExportRunReport, ExportRecoveryRow } from './export-review-ui'
 import { fieldReviewIssue, isExportCardIssue, localizeExportError } from './card-export-diagnostics'
 import type { ExportCardIssue } from './card-export-diagnostics'
+import { isRecord } from './anki-delta'
 import type { ExportDeckMove } from './anki-delta'
 import { checkCloudFolder, openCloudFolderCheck } from './cloud-folder-check'
-import { activeMediaProfile, changedMediaNotes, hasMediaAlias, imageAliases, isOptimizedImageCopyPath, loadMediaIndex, reconcileMediaNotes } from './media-sync'
-import type { MediaIndex } from './media-sync'
+import { activeMediaProfile, changedMediaNotes, hasMediaAlias, imageAliases, loadMediaIndex, reconcileMediaNotes } from './media-sync'
 import { readImageOptimization } from './image-optimizer'
 import { createFullMigrationBackup, ensureScheduledBackup, readBackupSettings } from './vault-backup'
 import type { BackupCheck } from './vault-backup'
@@ -52,7 +52,7 @@ import { DuplicatePreflight } from './duplicate-preflight'
 import type { ExportPreviewSelection } from './export-plan'
 import { sendExportBatches } from './export-batch'
 import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from './anki-transport'
-import { OneWayHistory } from './oneway-history'
+import type { OneWayHistory } from './oneway-history'
 import { ExportOperationJournal, operationJournalPath } from './export-operation-journal'
 import { checkedCount, skippedFiles, SyncOutcome } from './sync-outcome'
 import { showExportOperationJournal } from './export-operation-journal-ui'
@@ -61,12 +61,39 @@ import { forgetConfirmedAnkiDeletions, hasPendingBidirectionalWrite, pendingBidi
 import { isSyncAuditReportPath, resolveSyncScope, scanProfileFreeSettings, syncScopeSignature } from './sync-profiles'
 import { indexVaultIds } from './vault-id-index'
 
+import { ensureScanState, indexPath, markModified, openOneWayHistory, prepareInitialSchema, previousPluginMessage,
+    sameStat, saveOpenEdits, settingsWithoutAuditMode, states, waitForFastScanIdle, withFastScanReadLock } from './scan-state'
+import type { Entry, IdEntry, ScanState } from './scan-state'
+export { openOneWayHistory, prepareInitialSchema, saveBidirectionalEditors, savePluginDataInOrder, settingsWithoutAuditMode,
+    waitForFastScanIdle, withFastScanReadLock } from './scan-state'
 export { isSyncAuditReportPath } from './sync-profiles'
 
-type Entry = [mtime: number, ctime: number, size: number, hash: string | null, hasSuspension?: true]
-type IdEntry = [mtime: number, ctime: number, size: number, ids: number[]]
-
 const staleRoutingMessage = 'The deck assignments or sync profile changed during export. Run the export again.'
+
+function isList(value: unknown): value is unknown[] {
+    return Array.isArray(value)
+}
+
+function isStringList(value: unknown): value is string[] {
+    return isList(value) && value.every(item => typeof item === 'string')
+}
+
+function isCount(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isExportReport(value: unknown): value is ExportRunReport {
+    return isRecord(value) && typeof value.scope === 'string' && typeof value.finishedAt === 'string' &&
+        typeof value.outcome === 'string' && ['completed', 'stopped', 'failed', 'blocked-profile'].includes(value.outcome) &&
+        [value.total, value.confirmed, value.pending].every(isCount) &&
+        [value.recoveredCreations, value.submittedRequests, value.answeredRequests].every(n => n === undefined || isCount(n)) &&
+        [value.ankiProfile, value.profileSignature].every(s => s === undefined || typeof s === 'string') &&
+        [value.cardImpact, value.messages, value.warnings].every(rows => rows === undefined || isStringList(rows)) &&
+        isList(value.files) && value.files.every(file => isRecord(file) && typeof file.path === 'string' &&
+            typeof file.retryable === 'boolean' && isStringList(file.errors) &&
+            (file.deck === undefined || typeof file.deck === 'string') &&
+            (file.cardIssues === undefined || isList(file.cardIssues) && file.cardIssues.every(isExportCardIssue)))
+}
 
 function routingSettingsKey(settings: MyPlugin['settings']): string {
     return JSON.stringify([settings.Defaults.Deck, settings.Syntax?.['Target Deck Line'],
@@ -80,127 +107,27 @@ interface Candidate {
     revision: number | undefined
 }
 
-export function openOneWayHistory(plugin: MyPlugin, profile: string): Promise<OneWayHistory> {
-    const index = indexPath(plugin)
-    return OneWayHistory.open(plugin.app.vault.adapter, `${index.slice(0, index.lastIndexOf('/') + 1)}one-way-history.json`, profile)
-}
-
-interface ScanState {
-    refreshInitialSchema?: () => Promise<unknown>
-    openAudit?: (deck?: string, repair?: ExportRepairTarget) => void
-    context: string | null
-    entries: Map<string, Entry>
-    idsByPath: Map<string, IdEntry>
-    idOwners: Map<number, Map<string, number>>
-    duplicateIds: Set<number>
-    mediaIndex: MediaIndex
-    mediaRevisions: Map<string, number>
-    recovery?: ExportRecovery
-    modified: Map<string, number>
-    pathRevisions: Map<string, number>
-    cacheEpoch: number
-    metadataRevision: number
-    cacheRevision: number
-    editorModified: Set<string>
-    revision: number
-    scopeRevision: number
-    lastScopePath?: string
-    loaded: boolean
-    running: Promise<void> | null
-    resetting: Promise<void> | null
-    saveData: boolean
-    saveIndex: boolean
-}
-
+const commandsRegistered = new WeakSet<MyPlugin>()
 const indexVersion = 13
 const idIndexVersion = 5
 const filesPerBatch = 512
 const idsPerQuery = 500
 const checkpointInterval = 8
 const sourceBufferBytes = 64 * 1024 * 1024
-const states = new WeakMap<MyPlugin, ScanState>()
-const dataWrites = new WeakMap<MyPlugin, Promise<void>>()
 const cachePreviews = new WeakMap<CacheOptimizationPlan, {
     plugin: MyPlugin; vaultRevision: number; cacheRevision: number; paths: readonly string[]; skipped: number;
 }>()
 
-export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW' | 'BIDIRECTIONAL_CONFLICT_POLICY' | 'SYNC_CHANGE_HISTORY'> {
-    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, BIDIRECTIONAL_CONFLICT_POLICY, SYNC_CHANGE_HISTORY, ...scanSettings } = settings
-    return scanSettings
-}
-
-export function savePluginDataInOrder(plugin: MyPlugin, save: () => Promise<void>): Promise<void> {
-    const previous = dataWrites.get(plugin)
-    const current = (previous?.catch(() => {}) ?? Promise.resolve()).then(save)
-    dataWrites.set(plugin, current)
-    return current.finally(() => {
-        if (dataWrites.get(plugin) === current) dataWrites.delete(plugin)
-    })
-}
-
 export function registerFastScan(plugin: MyPlugin, openAudit?: (deck?: string, repair?: ExportRepairTarget) => void,
     refreshInitialSchema?: () => Promise<unknown>): void {
-    const existing = states.get(plugin)
-    if (existing) {
-        if (openAudit) existing.openAudit = openAudit
-        if (refreshInitialSchema) existing.refreshInitialSchema = refreshInitialSchema
-        return
-    }
+    const state = ensureScanState(plugin)
+    if (openAudit) state.openAudit = openAudit
+    if (refreshInitialSchema) state.refreshInitialSchema = refreshInitialSchema
+    if (commandsRegistered.has(plugin)) return
+    commandsRegistered.add(plugin)
     registerRecordReview(plugin)
     plugin.register(() => dismissMissingCardReview(plugin.app))
     const t = uiFor(plugin.settings)
-
-    const state: ScanState = {
-        openAudit, refreshInitialSchema,
-        context: null,
-        entries: new Map(),
-        idsByPath: new Map(),
-        idOwners: new Map(),
-        duplicateIds: new Set(),
-        mediaIndex: new Map(),
-        mediaRevisions: new Map(),
-        modified: new Map(),
-        pathRevisions: new Map(),
-        cacheEpoch: 0,
-        metadataRevision: 0,
-        cacheRevision: 0,
-        editorModified: new Set(),
-        revision: 0,
-        scopeRevision: 0,
-        loaded: false,
-        running: null,
-        resetting: null,
-        saveData: false,
-        saveIndex: false,
-    }
-    states.set(plugin, state)
-
-    const vault = plugin.app.vault
-    const metadata = plugin.app.metadataCache
-    if (typeof metadata?.on === 'function') {
-        const changed = () => { state.metadataRevision++ }
-        plugin.registerEvent(metadata.on('changed', changed))
-        plugin.registerEvent(metadata.on('deleted', changed))
-        plugin.registerEvent(metadata.on('resolved', changed))
-    }
-    const mark = (path: string, folderTreeChanged = false) => {
-        if (!isOptimizedImageCopyPath(path)) markModified(state, path, folderTreeChanged)
-    }
-    plugin.registerEvent(vault.on('modify', file => { mark(file.path) }))
-    plugin.registerEvent(plugin.app.workspace.on('editor-change', (_editor, info) => {
-        if (info.file) {
-            state.editorModified.add(info.file.path)
-            mark(info.file.path)
-        }
-    }))
-    plugin.app.workspace.onLayoutReady(() => {
-        plugin.registerEvent(vault.on('create', file => { mark(file.path) }))
-    })
-    plugin.registerEvent(vault.on('delete', file => { mark(file.path, file instanceof TFolder) }))
-    plugin.registerEvent(vault.on('rename', (file, oldPath) => {
-        mark(oldPath, file instanceof TFolder)
-        mark(file.path, file instanceof TFolder)
-    }))
     plugin.addCommand({
         id: 'anki-scan-vault-full',
         name: t('Scan Vault (full)', 'Полностью перепроверить и экспортировать хранилище'),
@@ -272,141 +199,6 @@ export function openDuplicateIdReview(plugin: MyPlugin, initialId?: number): voi
     })
 }
 
-function markModified(state: ScanState, path: string, folderTreeChanged = false): void {
-    const revision = ++state.revision
-    state.modified.set(path, revision)
-    state.pathRevisions.set(path, revision)
-    if (folderTreeChanged || /\.md$/i.test(path)) {
-        state.scopeRevision++
-        state.lastScopePath = path
-    }
-}
-
-async function saveOpenEdits(plugin: MyPlugin, state: ScanState, inScope: (path: string) => boolean,
-    errors: string[], checkCleanActive: boolean, applyingPreview = false, activePathToVerify?: string): Promise<{ pending: Set<string>; expected: Map<string, string> }> {
-    const pending = new Set<string>()
-    const expected = new Map<string, string>()
-    const views = new Map<string, MarkdownView[]>()
-    for (const { view } of plugin.app.workspace.getLeavesOfType('markdown')) {
-        if (!(view instanceof MarkdownView) || view.getMode() !== 'source' || !view.file || !inScope(view.file.path)) continue
-        const path = view.file.path
-        const open = views.get(path) ?? []
-        open.push(view)
-        views.set(path, open)
-    }
-    const included = Array.from(views.keys())
-    for (const path of included) {
-        const open = views.get(path)!
-        const dirty = open.filter(view => view.file?.path === path && !sameEditorText(view.getViewData(), view.data))
-        if (dirty.length === 0) continue
-        if (applyingPreview) {
-            errors.push(`${path}: the editor has unsaved changes. Save them and open Preview Export again.`)
-            pending.add(path)
-            continue
-        }
-        const view = dirty[0]
-        const content = view.getViewData()
-        state.editorModified.add(path)
-        markModified(state, path)
-        if (dirty.some(other => !sameEditorText(other.getViewData(), content))) {
-            errors.push(`${path}: conflicting unsaved edits in split views`)
-            pending.add(path)
-            continue
-        }
-        try {
-            await view.save()
-            if (view.file?.path !== path || !sameEditorText(view.getViewData(), content) || !sameEditorText(content, view.data)) {
-                throw new Error('the editor changed during save')
-            }
-            expected.set(path, content)
-        } catch (error) {
-            errors.push(`${path}: could not save editor changes: ${String(error)}`)
-            pending.add(path)
-        }
-    }
-    for (const path of included) {
-        if (pending.has(path)) continue
-        const open = views.get(path)!.filter(view => view.file?.path === path)
-        if (open.some(view => {
-            const text = view.getViewData()
-            return !sameEditorText(text, view.data) && !sameEditorText(text, expected.get(path))
-        })) {
-            errors.push(`${path}: the editor has unsaved changes`)
-            pending.add(path)
-        } else if ((state.editorModified.has(path) || path === activePathToVerify) && !expected.has(path) && open.length === 1) {
-            expected.set(path, open[0].getViewData())
-        }
-    }
-    const active = checkCleanActive ? plugin.app.workspace.getActiveViewOfType(MarkdownView) : null
-    const activePath = active?.file?.path
-    if (active && activePath && included.includes(activePath) && !pending.has(activePath) &&
-        state.entries.has(activePath) && !state.modified.has(activePath)) {
-        const entry = state.entries.get(activePath)!
-        const hash = entry[3]
-        const content = active.getViewData()
-        const normalized = content.replace(/\r\n/g, '\n')
-        if (hash && sameEditorText(content, active.data) && Md5.hashStr(content) !== hash &&
-            Md5.hashStr(content === normalized ? normalized.replace(/\n/g, '\r\n') : normalized) !== hash) {
-            markModified(state, activePath)
-            if (active.file && sameStat(active.file, entry)) expected.set(activePath, content)
-        }
-    }
-    return { pending, expected }
-}
-
-export async function saveBidirectionalEditors(plugin: MyPlugin, includes: (path: string) => boolean): Promise<Map<string, string>> {
-    const errors: string[] = []
-    const state = states.get(plugin)
-    if (!state) throw new Error('The sync state is unavailable.')
-    const { expected } = await saveOpenEdits(plugin, state, includes, errors, false, false, plugin.app.workspace.getActiveFile?.()?.path)
-    if (errors.length) throw new Error(errors[0])
-    return expected
-}
-
-
-function previousPluginMessage(t: UiText): string {
-    return t('Disable the previous Anki export plugin in Community plugins and retry.',
-        'Отключите предыдущий плагин экспорта в Anki в разделе «Сторонние плагины» и повторите операцию.')
-}
-
-export async function withFastScanReadLock<T>(
-    plugin: MyPlugin, read: (currentRevision: () => number, pathRevision: (path: string) => number,
-        metadataRevision: () => number) => Promise<T>,
-    allowLegacyPreview = false,
-): Promise<T> {
-    if (!allowLegacyPreview && hasActiveLegacyPlugin(plugin.app)) throw new Error(previousPluginMessage(uiFor(plugin.settings)))
-    registerFastScan(plugin)
-    const state = states.get(plugin)!
-    if (state.running || state.resetting) {
-        throw new Error(uiFor(plugin.settings)('Wait for the current scan or cache reset to finish, then try again.',
-            'Дождитесь завершения текущей проверки или сброса кеша и попробуйте снова.'))
-    }
-    let finish!: () => void
-    state.running = new Promise<void>(resolve => { finish = resolve })
-    try {
-        return await read(() => state.revision, path => Math.max(state.cacheEpoch, state.pathRevisions.get(path) ?? 0),
-            () => state.metadataRevision)
-    } finally {
-        state.running = null
-        finish()
-    }
-}
-
-export async function waitForFastScanIdle(plugin: MyPlugin): Promise<void> {
-    const state = states.get(plugin)
-    let pending = state?.resetting ?? state?.running
-    while (pending) {
-        await pending
-        pending = state?.resetting ?? state?.running
-    }
-}
-
-function indexPath(plugin: MyPlugin): string {
-    const { app, manifest } = plugin
-    const directory = manifest.dir ?? `${app.vault.configDir}/plugins/${manifest.id}`
-    return `${directory}/fast-scan-index.json`
-}
-
 function lastReportPath(plugin: MyPlugin): string {
     const index = indexPath(plugin)
     return `${index.slice(0, index.lastIndexOf('/') + 1)}last-export-report.json`
@@ -437,20 +229,8 @@ export async function showLastExport(plugin: MyPlugin): Promise<void> {
             new Notice(t('Export to Anki: no export report has been saved yet.', 'Отчётов об экспорте в Anki пока нет.'))
             return
         }
-        const report = JSON.parse(await adapter.read(path)) as ExportRunReport
-        if (!report || typeof report.scope !== 'string' || typeof report.finishedAt !== 'string' ||
-            !['completed', 'stopped', 'failed', 'blocked-profile'].includes(report.outcome) ||
-            (report.ankiProfile !== undefined && typeof report.ankiProfile !== 'string') ||
-            (report.recoveredCreations !== undefined && (!Number.isSafeInteger(report.recoveredCreations) || report.recoveredCreations < 0)) ||
-            ![report.total, report.confirmed, report.pending].every(value => Number.isSafeInteger(value) && value >= 0) ||
-            !Array.isArray(report.files) || !report.files.every(file => typeof file?.path === 'string' &&
-                typeof file.retryable === 'boolean' && Array.isArray(file.errors) && file.errors.every(error => typeof error === 'string') &&
-                (file.deck === undefined || typeof file.deck === 'string') &&
-                (file.cardIssues === undefined || Array.isArray(file.cardIssues) && file.cardIssues.every(isExportCardIssue))) ||
-            (report.messages !== undefined && (!Array.isArray(report.messages) || !report.messages.every(message => typeof message === 'string'))) ||
-            (report.warnings !== undefined && (!Array.isArray(report.warnings) || !report.warnings.every(message => typeof message === 'string')))) {
-            throw new Error('invalid report format')
-        }
+        const report: unknown = JSON.parse(await adapter.read(path))
+        if (!isExportReport(report)) throw new Error('invalid report format')
         openExportRunReport(plugin.app, report, paths => {
             if (report.ankiProfile) reportRetry(plugin, paths, report.profileSignature, report.ankiProfile)
         }, t, states.get(plugin)?.openAudit, plugin.settings.Syntax)
@@ -491,6 +271,7 @@ async function showPendingCreations(plugin: MyPlugin): Promise<void> {
                             try { location.clean = readRecoveryMarker(text)?.clean } catch { /* неоднозначный маркер */ }
                         }
                     } catch {
+                        return
                     }
                 }))
             }
@@ -582,15 +363,15 @@ async function confirmedCleanupTags(rows: readonly RecoveryCleanup[], checkProfi
     const notes = [...new Set(rows.map(row => row.noteId))]
     const response = await auditRead('notesInfo', { notes })
     await checkProfile()
-    if (!Array.isArray(response)) throw new Error('Anki did not return valid notes for recovery tag cleanup.')
+    if (!isList(response)) throw new Error('Anki did not return valid notes for recovery tag cleanup.')
     const allowed = new Set(notes)
     const tags = new Map<number, ReadonlySet<string>>()
     for (const row of response) {
-        if (!row || typeof row.noteId !== 'number' || !allowed.has(row.noteId) || tags.has(row.noteId) ||
-            !Array.isArray(row.tags) || !row.tags.every((tag: unknown) => typeof tag === 'string')) {
+        if (!isRecord(row) || typeof row.noteId !== 'number' || !allowed.has(row.noteId) || tags.has(row.noteId) ||
+            !isStringList(row.tags)) {
             throw new Error('Anki did not confirm the exact recovery tag owners.')
         }
-        tags.set(row.noteId, new Set(row.tags.map((tag: string) => tag.toLowerCase())))
+        tags.set(row.noteId, new Set(row.tags.map(tag => tag.toLowerCase())))
     }
     return tags
 }
@@ -639,14 +420,17 @@ async function loadIndex(plugin: MyPlugin, state: ScanState): Promise<void> {
     const path = indexPath(plugin)
     try {
         if (await adapter.exists(path)) {
-            const saved = JSON.parse(await adapter.read(path))
-            if (Number.isInteger(saved?.version) && saved.version >= 6 && saved.version <= indexVersion) loadMediaIndex(state.mediaIndex, saved.media)
-            if (typeof saved.context === 'string' && Array.isArray(saved.entries)) {
+            const saved: unknown = JSON.parse(await adapter.read(path))
+            if (!isRecord(saved)) throw new Error('Invalid scan index.')
+            if (typeof saved.version === 'number' && Number.isInteger(saved.version) && saved.version >= 6 && saved.version <= indexVersion) loadMediaIndex(state.mediaIndex, saved.media)
+            if (typeof saved.context === 'string' && isList(saved.entries)) {
                 if (saved.version === indexVersion) {
-                    for (const [file, entry] of saved.entries) {
+                    for (const pair of saved.entries) {
+                        if (!isList(pair)) continue
+                        const [file, entry] = pair
                         if (
                             typeof file === 'string' &&
-                            Array.isArray(entry) &&
+                            isList(entry) &&
                             (entry.length === 4 || entry.length === 5 && entry[4] === true) &&
                             entry.slice(0, 3).every(Number.isFinite) &&
                             typeof entry[3] === 'string'
@@ -654,12 +438,14 @@ async function loadIndex(plugin: MyPlugin, state: ScanState): Promise<void> {
                             state.entries.set(file, entry as Entry)
                         }
                     }
-                    const savedIds = saved.idIndexVersion === idIndexVersion && Array.isArray(saved.idsByPath)
+                    const savedIds = saved.idIndexVersion === idIndexVersion && isList(saved.idsByPath)
                         ? saved.idsByPath : []
-                    for (const [file, entry] of savedIds) {
-                        if (typeof file === 'string' && Array.isArray(entry) && entry.length === 4 &&
-                            entry.slice(0, 3).every(Number.isFinite) && Array.isArray(entry[3]) &&
-                            entry[3].every(id => Number.isSafeInteger(id) && id > 0)) {
+                    for (const pair of savedIds) {
+                        if (!isList(pair)) continue
+                        const [file, entry] = pair
+                        if (typeof file === 'string' && isList(entry) && entry.length === 4 &&
+                            entry.slice(0, 3).every(Number.isFinite) && isList(entry[3]) &&
+                            entry[3].every(id => typeof id === 'number' && Number.isSafeInteger(id) && id > 0)) {
                             updateIdOwners(state, file, entry as IdEntry)
                         }
                     }
@@ -720,7 +506,8 @@ function* cachedMarkdownPaths(plugin: MyPlugin, state: ScanState): Iterable<stri
 function makeCacheOptimization(plugin: MyPlugin, state: ScanState, paths: readonly string[], skipped: number) {
     const removed = new Set(paths)
     const cachedHashes = plugin.file_hashes
-    const hashes: Record<string, string> = Object.assign(Object.create(null), cachedHashes)
+    const hashes = { ...cachedHashes }
+    Object.setPrototypeOf(hashes, null)
     const entries = new Map(state.entries)
     const idsByPath = new Map(state.idsByPath)
     const media = compactMediaLinks(state.mediaIndex, removed)
@@ -871,11 +658,6 @@ export function clearFastScanCache(plugin: MyPlugin, kind: 'files' | 'media'): P
     return reset.finally(() => {
         if (state.resetting === reset) state.resetting = null
     })
-}
-
-function sameStat(file: TFile, stamp: Entry | IdEntry): boolean {
-    const stat = file.stat
-    return stat.mtime === stamp[0] && stat.ctime === stamp[1] && stat.size === stamp[2]
 }
 
 function clearIdOwners(state: ScanState): void {
@@ -1077,7 +859,7 @@ async function findExistingIds(ids: ReadonlySet<number>, onQuery?: () => void): 
         onQuery?.()
         const response: unknown = await withAnkiDeadline(
             () => AnkiConnect.invoke('findNotes', { query: `nid:${batch.join(',')}` }), 'Anki ID search')
-        if (!Array.isArray(response) || response.some(id => !expected.has(id)) || new Set(response).size !== response.length) {
+        if (!isList(response) || !response.every((id): id is number => typeof id === 'number' && expected.has(id)) || new Set(response).size !== response.length) {
             throw new Error('findNotes: AnkiConnect did not return the requested numeric note IDs')
         }
         found.push(...response)
@@ -1105,20 +887,6 @@ async function checkAuditPreviewScope(plugin: MyPlugin, scope: AuditedExportPrev
     }
 }
 
-export async function prepareInitialSchema(plugin: MyPlugin, onFailure?: (reason: string) => Promise<void>): Promise<boolean> {
-    if (plugin.note_types?.length && Object.prototype.hasOwnProperty.call(plugin.fields_dict, plugin.note_types[0])) return true
-    const refresh = states.get(plugin)?.refreshInitialSchema
-    if (!refresh || Object.keys(plugin.fields_dict ?? {}).length) return true
-    try { await refresh(); return true }
-    catch (error) {
-        const t = uiFor(plugin.settings)
-        const reason = t('Could not load note types from Anki. ', 'Не удалось загрузить типы записей из Anki. ') + String(error)
-        new Notice(reason)
-        await onFailure?.(reason)
-        return false
-    }
-}
-
 export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedExportPreview,
     requestedPaths?: ReadonlySet<string>, card?: CursorCardTarget): Promise<void> {
     const t = uiFor(plugin.settings)
@@ -1138,9 +906,9 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
         new Notice(t(pendingBidirectionalWriteMessage, 'Дождитесь завершения предыдущей операции двусторонней синхронизации.'))
         return
     }
-    const getConfiguration = () => JSON.stringify([
-        scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings)), plugin.fields_dict, syncScopeSignature(plugin.settings),
-    ])
+    const previewInputs = () => [scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings)),
+        plugin.fields_dict, syncScopeSignature(plugin.settings)] as const
+    const getConfiguration = () => JSON.stringify(previewInputs())
     try {
         const result = await withFastScanReadLock(plugin, async currentRevision => {
             const state = states.get(plugin)!
@@ -1173,8 +941,9 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
                 expected.set(path, text)
             }
             const local: ScanState = { ...state, idsByPath: new Map(), idOwners: new Map(), duplicateIds: new Set() }
-            const configuration = getConfiguration()
-            const [settings, fields] = JSON.parse(configuration)
+            const inputs = structuredClone(previewInputs())
+            const configuration = JSON.stringify(inputs)
+            const [settings, fields] = inputs
             const profileOwnership = profileId || card
                 ? await indexProfileNoteIds(plugin, state, allFiles, paths, paths, false, undefined, false, card)
                 : undefined
@@ -1193,7 +962,7 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
                 const batch = scope.slice(offset, offset + filesPerBatch).filter(file => !pending.has(file.path))
                 const manager = new FileManager(app, data, batch, {}, [...plugin.added_media])
                 manager.cursorCard = card
-                manager.deletedArchiveLabel = uiFor(settings)('Deleted from Anki', 'Удалено из Anki')
+                manager.deletedArchiveLabel = t('Deleted from Anki', 'Удалено из Anki')
                 manager.afterDeleteMode = afterDeleteMode(settings)
                 manager.trashDeletedPages = settings.TRASH_DELETED_PAGES === true
                 manager.duplicatePreflight = duplicatePreflight
@@ -1290,6 +1059,7 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
                     return
                 }
             } catch {
+                // Failed revalidation also requires a fresh preview.
             }
             new Notice(t('Files or settings changed. Run the export preview again.',
                 'Файлы или настройки изменились. Запустите предпросмотр экспорта заново.'))
@@ -1380,10 +1150,9 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
     let finishScan!: () => void
     state.running = new Promise<void>(resolve => { finishScan = resolve })
 
-    const started = performance.now()
     const expectedPreviewHashes = control?.expectedPreviewHashes
     const applyingPreview = expectedPreviewHashes !== undefined
-    const counts = { files: 0, candidates: 0, reads: 0, parses: 0, exportFiles: 0, idLookups: 0,
+    const counts = { files: 0, reads: 0, exportFiles: 0, idLookups: 0,
         cachedIds: 0, cachedIdRequests: 0, deferred: 0 }
     const errors: string[] = []
     const cardIssuesByPath = new Map<string, readonly ExportCardIssue[]>()
@@ -1418,7 +1187,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
     let answeredRequests = 0
     const changes = new SyncOutcome()
     let markdownChanged = false
-    let recognizedCards = 0
     let recoveredCreations = 0
     let outcome: ExportRunReport['outcome'] = 'completed'
     let stopRequested = false
@@ -1513,8 +1281,10 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             BIDIRECTIONAL_FIELDS: additionalBidirectionalFields,
             ...scanSettings } = scanProfileFreeSettings(settingsWithoutAuditMode(plugin.settings))
         const exportSettings = { ...scanSettings, Defaults: addDateToIds ? { ...exportDefaults, ['Add Date to Anki IDs']: true } : exportDefaults }
+        const settings: MyPlugin['settings'] = structuredClone(exportSettings)
+        const fields = structuredClone(plugin.fields_dict)
         const context = !profileLockEnabled && !files.length && state.context !== null ? state.context
-            : JSON.stringify([vault.getName(), exportSettings, plugin.fields_dict, ankiProfile ?? intendedProfile])
+            : JSON.stringify([vault.getName(), settings, fields, ankiProfile ?? intendedProfile])
         const routingKey = routingSettingsKey(plugin.settings)
         const initialFolderDecks = plugin.settings.FOLDER_DECKS
         const initialForcedDefaults = plugin.settings.FOLDER_DEFAULT_DECKS
@@ -1615,7 +1385,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 attemptedPaths.add(file.path)
             }
         }
-        counts.candidates = candidates.length
         if (shouldStop()) return 'stopped'
         if (candidates.length) {
             ankiProfile ??= await requireExpectedAnkiProfile(plugin, previewProfile, control?.signal)
@@ -1626,7 +1395,8 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         if (reprocess) {
             state.entries.clear()
             clearIdOwners(state)
-            plugin.file_hashes = Object.create(null)
+            plugin.file_hashes = {}
+            Object.setPrototypeOf(plugin.file_hashes, null)
             state.saveData = true
             state.context = context
             state.saveIndex = true
@@ -1722,7 +1492,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             for (const id of ownership.conflictingPaths.get(path) ?? []) detectedDuplicates.add(id)
         }
 
-        const [, settings, fields] = JSON.parse(context)
         settings.Defaults['Add Date to Anki IDs'] = addDateToIds ?? false
         const data = await settingToData(plugin.app, settings, fields, [])
         const checkFields = generatedRuleGuard(settings, fields, modelName =>
@@ -1765,7 +1534,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 plugin.file_hashes, plugin.added_media,
             )
             manager.mediaIndex = state.mediaIndex
-            manager.onConfirmedNote = (action, id) => changes.record(action, id)
+            manager.onConfirmedNote = (action, id) => changes.record(action, id, action === 'cleanup' || action === 'link' ? 'Obsidian' : 'Anki')
             manager.duplicatePreflight = duplicatePreflight
             manager.imageOptimization = readImageOptimization(settings.IMAGE_OPTIMIZATION)
             manager.getRecovery = () => exportRecovery(plugin, state)
@@ -1786,7 +1555,7 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 appendChange(row)
             }
             manager.operationJournal = operationJournal
-            manager.deletedArchiveLabel = uiFor(settings)('Deleted from Anki', 'Удалено из Anki')
+            manager.deletedArchiveLabel = t('Deleted from Anki', 'Удалено из Anki')
             manager.afterDeleteMode = afterDeleteMode(settings)
             manager.trashDeletedPages = settings.TRASH_DELETED_PAGES === true
             manager.forgetConfirmedDeletions = ids => forgetConfirmedAnkiDeletions(plugin, ankiProfile!, ids)
@@ -1839,8 +1608,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 initialisationFailed = true
             } finally {
                 counts.reads += manager.readCount
-                counts.parses += manager.parseCount
-                recognizedCards += manager.recognizedCards
                 for (const { path } of group) ownership.preloaded.delete(path)
             }
             errors.push(...manager.scanErrors)
@@ -2050,11 +1817,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
                 const summary = changes.message(t)
                 if (summary) new Notice(summary)
                 else if (counts.exportFiles || markdownChanged) new Notice(t('Export finished.', 'Экспорт завершён.'))
-                else if (counts.candidates === 1 && counts.parses && !recognizedCards) {
-                    const path = candidates[0].path
-                    new Notice(t(`Checked ${path}. No cards matched. Check the format in Note type rules.`,
-                        `Проверен файл ${path}. Карточки не распознаны. Проверьте формат в настройках типа записи.`))
-                }
                 else new Notice([checkedCount(counts.files, 'file', t), t('No changes.', 'Изменений нет.')].join('\n'))
             }
         }
@@ -2145,10 +1907,6 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
             new Notice(t('Export to Anki: stopped after the confirmed batch. Open Show Last Anki Export to resume.',
                 'Экспорт остановлен после подтверждённой партии. Для повтора откройте последний отчёт об экспорте.'))
         }
-        console.info('[Rudonium Anki Toolkit] Scan', {
-            ...counts,
-            totalMs: Math.round(performance.now() - started),
-        })
     }
     return outcome
 }

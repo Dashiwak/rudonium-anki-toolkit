@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { checkedCount } from './sync-outcome'
 import { Modal, Notice, Setting } from 'obsidian'
 import type MyPlugin from '../main'
 import { previewIdMarkerConversion, applyIdMarkerConversion } from './id-marker-conversion'
@@ -69,8 +70,8 @@ class IdMarkerConversionModal extends Modal {
         const plan = this.plan
         if (!plan) return
         const t = uiFor(this.plugin.settings)
-        this.status.setText(t(`Checked ${plan.scannedFiles} files · ${plan.totalMarkers} markers in ${plan.files.length} files · selected ${this.selected.size}.`,
-            `Проверено файлов: ${plan.scannedFiles} · маркеров: ${plan.totalMarkers} · файлов с изменениями: ${plan.files.length} · выбрано: ${this.selected.size}.`))
+        this.status.setText(checkedCount(plan.scannedFiles, 'file', t) + ' ' + t(`${plan.totalMarkers} markers in ${plan.files.length} files · selected ${this.selected.size}.`,
+            `Маркеров: ${plan.totalMarkers} · файлов с изменениями: ${plan.files.length} · выбрано: ${this.selected.size}.`))
     }
 
     private async preview(): Promise<void> {

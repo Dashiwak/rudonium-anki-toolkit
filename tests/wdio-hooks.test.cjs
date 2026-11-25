@@ -13,7 +13,9 @@ test('desktop runner waits for generated specs, log directories and complete fix
         fs.rmSync(root, { recursive: true, force: true });
     });
     process.chdir(root);
-    const { config } = await import('../wdio.conf.ts');
+    const configFile = path.join(root, 'wdio.conf.mts');
+    fs.copyFileSync(path.join(__dirname, '../wdio.conf.ts'), configFile);
+    const { config } = await import(require('node:url').pathToFileURL(configFile).href);
     const put = (filename, contents = '') => {
         fs.mkdirSync(path.dirname(filename), { recursive: true });
         fs.writeFileSync(filename, contents);

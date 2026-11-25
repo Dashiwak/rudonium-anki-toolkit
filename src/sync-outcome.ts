@@ -19,13 +19,33 @@ function en(count: number, noun: string): string {
     return count + ' ' + noun + (count === 1 ? '' : 's')
 }
 
-export function checkedCount(count: number, unit: 'note' | 'file', t: UiText): string {
-    return t('Checked ' + en(count, unit) + '.', 'Проверено: ' + counted(count, unit === 'note' ? note : file) + '.')
+const checkedUnits = {
+    note: [note, 'Проверена'],
+    file: [file, 'Проверен'],
+    card: [['карточка', 'карточки', 'карточек'], 'Проверена'],
+    image: [['изображение', 'изображения', 'изображений'], 'Проверено'],
+    name: [['имя', 'имени', 'имён'], 'Проверено'],
+    'note type': [['тип записи', 'типа записей', 'типов записей'], 'Проверен'],
+} as const
+
+export function checkedCount(count: number, unit: keyof typeof checkedUnits, t: UiText): string {
+    const [noun, singular] = checkedUnits[unit]
+    const verb = form(count, [singular, 'Проверены', 'Проверено'])
+    return t('Checked ' + en(count, unit) + '.', verb + ' ' + counted(count, noun) + '.')
 }
 
 export function deferredNotes(count: number, t: UiText): string {
     return t('Deferred ' + en(count, 'note') + ' for review.',
         form(count, ['Отложена', 'Отложены', 'Отложено']) + ' ' + counted(count, note) + ' для проверки.')
+}
+
+export function skippedFields(count: number, t: UiText): string {
+    return t('Skipped ' + en(count, 'field') + '.', 'Пропущено ' + counted(count, ['поле', 'поля', 'полей']) + '.')
+}
+
+export function skippedNotes(count: number, t: UiText): string {
+    return t('Skipped ' + en(count, 'note') + ' because of card errors.',
+        form(count, ['Пропущена', 'Пропущены', 'Пропущено']) + ' ' + counted(count, note) + ' из-за ошибок в карточках.')
 }
 
 export function unconfirmedNotes(count: number, t: UiText): string {
@@ -38,43 +58,47 @@ export function skippedFiles(count: number, t: UiText): string {
         'Часть записей пропущена. Проверьте ' + counted(count, file) + '.')
 }
 
-export type NoteChange = 'add' | 'edit' | 'delete' | 'cleanup' | 'link' | 'tags' | 'move' | 'suspend' | 'resume' | 'status' | 'normalize'
-const actions: readonly NoteChange[] = ['add', 'edit', 'tags', 'move', 'suspend', 'resume', 'status', 'delete', 'cleanup', 'link', 'normalize']
+export type NoteChange = 'add' | 'edit' | 'delete' | 'cleanup' | 'link' | 'tags' | 'move' | 'suspend' | 'resume' | 'status'
+type Destination = 'Anki' | 'Obsidian'
+const actions: readonly NoteChange[] = ['add', 'edit', 'tags', 'move', 'suspend', 'resume', 'status', 'delete', 'cleanup', 'link']
 
-function describe(kind: NoteChange, count: number, t: UiText): string {
+function describe(kind: NoteChange, count: number, destination: Destination, t: UiText): string {
     const notes = counted(count, note)
     const notesEn = en(count, 'note')
     const genitive = count + ' ' + form(count, ['записи', 'записей', 'записей'])
+    const where = ' в ' + destination + '.'
+    const whereEn = ' in ' + destination + '.'
     switch (kind) {
-        case 'add': return t('Added ' + notesEn + '.', form(count, ['Добавлена', 'Добавлены', 'Добавлено']) + ' ' + notes + '.')
-        case 'edit': return t('Updated ' + notesEn + '.', form(count, ['Изменена', 'Изменены', 'Изменено']) + ' ' + notes + '.')
-        case 'delete': return t('Deleted ' + notesEn + ' from Anki.', form(count, ['Удалена', 'Удалены', 'Удалено']) + ' ' + notes + ' из Anki.')
-        case 'tags': return t('Updated tags for ' + notesEn + '.', 'Обновлены теги у ' + genitive + '.')
-        case 'move': return t('Changed the deck for ' + notesEn + '.', 'Изменена колода у ' + genitive + '.')
-        case 'suspend': return t('Paused reviews for ' + notesEn + '.', 'Приостановлены повторения для ' + genitive + '.')
-        case 'resume': return t('Resumed reviews for ' + notesEn + '.', 'Возобновлены повторения для ' + genitive + '.')
-        case 'status': return t('Updated review status for ' + notesEn + '.', 'Обновлён статус повторений для ' + genitive + '.')
-        case 'normalize': return t('Fixed separator spacing in ' + notesEn + '.',
-            'Исправлены пробелы в ' + count + ' ' + form(count, ['записи', 'записях', 'записях']) + '.')
+        case 'add': return t('Added ' + notesEn + ' to ' + destination + '.', form(count, ['Добавлена', 'Добавлены', 'Добавлено']) + ' ' + notes + where)
+        case 'edit': return t('Updated ' + notesEn + whereEn, form(count, ['Изменена', 'Изменены', 'Изменено']) + ' ' + notes + where)
+        case 'delete': return t('Deleted ' + notesEn + ' from ' + destination + '.', form(count, ['Удалена', 'Удалены', 'Удалено']) + ' ' + notes + ' из ' + destination + '.')
+        case 'tags': return t('Updated tags for ' + notesEn + whereEn, 'Обновлены теги у ' + genitive + where)
+        case 'move': return t('Changed the deck for ' + notesEn + whereEn, 'Изменена колода у ' + genitive + where)
+        case 'suspend': return t('Paused reviews for ' + notesEn + whereEn, 'Приостановлены повторения для ' + genitive + where)
+        case 'resume': return t('Resumed reviews for ' + notesEn + whereEn, 'Возобновлены повторения для ' + genitive + where)
+        case 'status': return t('Updated review status for ' + notesEn + whereEn, 'Обновлён статус повторений для ' + genitive + where)
         case 'cleanup': return t('Updated Obsidian after deletion of ' + notesEn + ' from Anki.',
             'В Obsidian учтено удаление ' + genitive + ' из Anki.')
-        case 'link': return t('Restored links to ' + notesEn + '.', 'Для ' + genitive + ' восстановлена связь с Anki.')
+        case 'link': return t('Restored Anki links for ' + notesEn + ' in Obsidian.', 'В Obsidian восстановлена связь с Anki для ' + genitive + '.')
     }
 }
 
 export class SyncOutcome {
-    private readonly notes = new Map<NoteChange, Set<number>>()
+    private readonly counts = { Anki: new Map<NoteChange, Set<number>>(), Obsidian: new Map<NoteChange, Set<number>>() }
 
-    record(kind: NoteChange, id: number): void {
-        let ids = this.notes.get(kind)
-        if (!ids) this.notes.set(kind, ids = new Set<number>())
+    record(kind: NoteChange, id: number, destination: Destination): void {
+        const notes = this.counts[destination]
+        let ids = notes.get(kind)
+        if (!ids) notes.set(kind, ids = new Set<number>())
         ids.add(id)
     }
 
     message(t: UiText): string {
-        return actions.flatMap(kind => {
-            const size = this.notes.get(kind)?.size ?? 0
-            return size ? [describe(kind, size, t)] : []
-        }).join('\n')
+        const lines: string[] = []
+        for (const kind of actions) for (const destination of ['Anki', 'Obsidian'] as const) {
+            const count = this.counts[destination].get(kind)?.size
+            if (count) lines.push(describe(kind, count, destination, t))
+        }
+        return lines.join('\n')
     }
 }

@@ -31,7 +31,7 @@ import { readSuspendLine } from './suspend-label'
 import { findIdMarkers } from './duplicate-markers'
 import { activeCardMarkdown } from './archived-card'
 import type { DuplicateMarkerSyntax } from './duplicate-markers'
-import { explicitDeletes, cleanConfirmedDeletes, deletionPresence, localDeleteEffect } from './deletion-source'
+import { explicitDeletes, cleanConfirmedDeletes, deletionPresence, localDeleteEffect, pageTrash } from './deletion-source'
 import type { LocalDeleteEffect } from './deletion-source'
 import type { AfterDeleteMode } from './deletion-policy'
 import type { BackupCheck } from './vault-backup'
@@ -105,7 +105,7 @@ function checkFastResponses(
         if (result === undefined) {
             const error = response && typeof response === "object" && "error" in response ? response.error : undefined;
             const deferred = typeof error === "string" && /^This action was not sent\. (Anki Browse: ID |Deck type unverified: )/.test(error);
-            errors.push(deferred ? error.slice("This action was not sent. ".length) : name + ": " + (error ?? "missing or malformed response"));
+            errors.push(deferred ? error.slice("This action was not sent. ".length) : name + ": " + (typeof error === "string" ? error : "missing or malformed response"));
         } else if (request.action === "multi") {
             checkFastResponses(request.params.actions, result, errors, name);
         } else if (request.action === "addNote" &&
@@ -124,7 +124,6 @@ import * as AnkiConnect from './anki'
 
 export class FileManager {
     checkedHashes = new Map<string, string>()
-    recognizedCards = 0
     readonly suspensionHints = new Set<string>()
     readonly staleSuspensionSources = new Set<string>()
     private readonly suspensionMarks = new Map<string, OneWaySuspendMark[]>()
@@ -152,7 +151,7 @@ export class FileManager {
     recoveryRevision?: () => number
     recoveryIdMarkers?: (text: string) => readonly { id: number }[]
     onWriteRequest?: (answered: boolean) => void
-    onConfirmedNote?: (action: Exclude<ExportConfirmedAction, 'unsuspend'> | 'status', id: number) => void
+    onConfirmedNote?: (action: Exclude<ExportConfirmedAction, 'unsuspend' | 'normalize'> | 'resume', id: number) => void
     onSyncChange?: (row: Omit<SyncHistoryChange, 'profile' | 'mode'>) => void
     private readonly moveOwners = new WeakMap<AnkiConnect.AnkiConnectRequest, number>()
     private readonly deletedFields = new Map<number, [string, string][]>()
@@ -169,7 +168,7 @@ export class FileManager {
     }
     private confirmedNote(action: ExportConfirmedAction, id: number, path: string,
         fields?: () => NonNullable<SyncHistoryChange['fields']>): void {
-        this.onConfirmedNote?.(action === 'unsuspend' ? 'status' : action, id)
+        if (action !== 'normalize') this.onConfirmedNote?.(action === 'unsuspend' ? 'resume' : action, id)
         this.onSyncChange?.({ action, direction: action === 'normalize' || action === 'cleanup' ? 'local' :
             action === 'link' ? 'to-obsidian' : 'to-anki', title: this.changeTitle(id),
             path, noteId: id, fields: fields?.() })
@@ -416,7 +415,6 @@ export class FileManager {
                         scanned.removeUnsafeNewCards(new Set(scanned.all_notes_to_add));
                     }
                 } else scanned.notes_to_delete = [];
-                this.recognizedCards += scanned.all_notes_to_add.length + scanned.notes_to_edit.length + scanned.notes_to_delete.length;
                 let targetOffset: number | undefined;
                 if (this.cursorCard) {
                     targetOffset = cursorCardOffset(this.cursorCard, path, content);
@@ -734,6 +732,7 @@ export class FileManager {
                 modelName: note.modelName,
                 authoredFields: authoredFieldNames(file, candidates.get(identifier), note.fields),
                 namedLayout: candidates.get(identifier)?.namedLayout,
+                repairedPair: file.separatorRepairs?.has(note) ? this.data.fields_dict[note.modelName]?.slice(0, 2) : undefined,
                 sharedPageFields: file.pageCard?.sharedFields ? [...file.pageCard.sharedFields.values.keys()] : undefined,
             }));
         });
@@ -1211,6 +1210,7 @@ export class FileManager {
                     snapshots = await readReviewedNoteSnapshots(
                         reviewed.flatMap(request => this.reviewedRequests.get(request)!.map(evidence => evidence.id)));
                 } catch {
+                    // A missing snapshot blocks each affected operation below.
                 }
                 for (const request of reviewed) {
                     const expected = this.reviewedRequests.get(request)!;
@@ -1550,6 +1550,7 @@ export class FileManager {
             try {
                 owners = await this.locateRecoveryTokens(new Set(byPath.map(row => row.token)), ids);
             } catch {
+                // Unverified owners remain pending.
             }
             for (const { path, entry, token } of byPath) {
                 if (this.recoveryRevision?.() !== revision || owners?.get(token) !== path ||
@@ -1879,13 +1880,14 @@ export class FileManager {
                     if (Array.from(verified).some(id => presence.get(id) !== false) || !current(own)) throw new Error("Deletion is no longer verified.");
                     this.deletionGuard?.();
                     if (trash.has(own.path)) {
+                        const movePage = await pageTrash(this.app);
                         if (this.afterDeleteMode !== "remove" || !this.trashDeletedPages || await this.app.vault.read(file) !== own.original_file ||
                             file.path !== own.path || !current(own)) throw new Error("Page changed before moving to trash.");
                         await verifyProfile(true);
                         this.deletionGuard?.();
                         if (!current(own)) throw new Error("Page changed before moving to trash.");
-                        await this.app.vault.trash(file, false);
-                        if (this.app.vault.getAbstractFileByPath(own.path)) throw new Error("Page was not moved to vault trash.");
+                        await movePage(file);
+                        if (this.app.vault.getAbstractFileByPath(own.path)) throw new Error("Page was not moved to trash.");
                         recordCleanup();
                         this.onMarkdownWriteVerified?.(own.path, false);
                         continue;

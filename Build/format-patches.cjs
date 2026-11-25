@@ -220,6 +220,11 @@ function patchEmbeddedMedia(source) {
 
 function patchFormatter(source) {
     source = patchEmbeddedMedia(source);
+    source = source.replace(/^import \{ basename, extname \} from ['"]path['"];?\r?\n/m, "")
+        .replace(/^(\s*)const extension = extname\(embed\.link\)\.toLowerCase\(\)/m, (_match, indent) =>
+            [String.raw`const filename = embed.link.split(/[\\/]/u).pop() ?? ''`, "const suffix = filename.lastIndexOf('.')",
+                "const extension = suffix > 0 ? filename.slice(suffix).toLowerCase() : ''"].map(line => indent + line).join("\n"))
+        .replaceAll("basename(embed.link)", "filename").replaceAll("extname(embed.link)", "extension");
     source = replaceOnce(source, /^([ \t]*)format\(note_text:\s*string,\s*cloze:\s*boolean,\s*highlights_to_cloze:\s*boolean\):\s*string\s*\{/m,
         (_match, indent) => [
             indent + "format(note_text: string, cloze: boolean, highlights_to_cloze: boolean): string {",

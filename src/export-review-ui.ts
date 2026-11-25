@@ -459,13 +459,21 @@ class ExportReviewModal extends ReviewModal {
         }, t)
     }
 
-    private showPreview(rows: readonly ExportPreviewRow[], apply: (selected: ExportPreviewSelection) => void, scopeLabel?: string): void {
+    private showPreview(allRows: readonly ExportPreviewRow[], apply: (selected: ExportPreviewSelection) => void, scopeLabel?: string): void {
         const { t } = this
         this.titleEl.setText(t('Preview Anki Export', 'Предпросмотр экспорта в Anki'))
         if (scopeLabel) this.contentEl.createEl('p', { text: t(`Sync scope · ${scopeLabel}`, `Область синхронизации · ${scopeLabel}`) })
+        const repairs = allRows.filter(row => row.operations?.some(op => op.kind === 'spacing'))
+        const rows = allRows.flatMap(row => {
+            if (!row.operations?.some(op => op.kind === 'spacing')) return [row]
+            const operations = row.operations.filter(op => op.kind !== 'spacing')
+            return operations.length || row.fieldConflicts?.length || row.keptAnkiFields?.length ||
+                row.errors?.length || row.cardIssues?.length || row.exportRules?.length ? [{ ...row, operations }] : []
+        })
         const changed = rows.filter(row => row.operations?.length).length
         const errors = rows.some(row => row.errors?.length || row.cardIssues?.length)
         const fieldConflicts = rows.some(row => row.fieldConflicts?.length)
+        const repairOnly = repairs.length > 0 && !changed && !errors && !fieldConflicts
         const selected = new Set<string>()
         const planned = new Map(rows.filter(row => row.operations?.length)
             .map(row => [row.path, new Set(row.operations?.filter(operation => !operation.cardImpact && !operation.requiresExplicitSelection)
@@ -473,7 +481,7 @@ class ExportReviewModal extends ReviewModal {
         let operationCount = Array.from(planned.values()).reduce((total, keys) => total + keys.size, 0)
         let exportButton: HTMLButtonElement | undefined
         const updateButton = () => {
-            if (exportButton) exportButton.disabled = operationCount === 0 && selected.size === 0
+            if (exportButton) exportButton.disabled = !repairOnly && operationCount === 0 && selected.size === 0
         }
         const kinds = {
             field: t('Update field', 'Обновить поле'),
@@ -540,7 +548,7 @@ class ExportReviewModal extends ReviewModal {
                     operation.modelName, operation.deck, operation.kind === 'field' ? operation.values[0]?.name : ''].filter(Boolean).join(' · ')
                 const label = operationEl.createEl('label')
                 const checkbox = label.createEl('input', { attr: { type: 'checkbox', 'aria-label': title } })
-                label.createEl('span', { text: ` ${title}` })
+                label.createSpan({ text: ` ${title}` })
                 checkbox.checked = choices.has(operation.key)
                 checkbox.onchange = () => {
                     if (checkbox.checked && !choices.has(operation.key)) {
@@ -624,7 +632,7 @@ class ExportReviewModal extends ReviewModal {
                 const label = details.createEl('label')
                 const checkbox = label.createEl('input', { attr: { type: 'checkbox',
                     'aria-label': t(`Use Obsidian for ${field.name} in Anki ID ${field.id}`, `Взять поле ${field.name} из Obsidian для Anki ID ${field.id}`) } })
-                label.createEl('span', { text: t(' Use Obsidian for this field', ' Взять значение из Obsidian') })
+                label.createSpan({ text: t(' Use Obsidian for this field', ' Взять значение из Obsidian') })
                 checkbox.checked = selected.has(choice)
                 checkbox.onchange = () => {
                     if (checkbox.checked) selected.add(choice)
@@ -636,13 +644,23 @@ class ExportReviewModal extends ReviewModal {
         }, t)
         const footer = this.footer()
         if (errors) this.addAuditButton(footer, singleAuditDeck(rows.filter(row => row.errors?.length || row.cardIssues?.length).map(auditDeckForFile)))
-        if (changed > 0 || fieldConflicts) {
-            exportButton = footer.createEl('button', { text: t('Export Changes', 'Экспортировать изменения'), cls: 'mod-cta' })
+        if (changed > 0 || fieldConflicts || repairOnly) {
+            const label = repairOnly ? t('Sync', 'Синхронизировать') : t('Export Changes', 'Экспортировать изменения')
+            exportButton = footer.createEl('button', { text: label, cls: 'mod-cta' })
             updateButton()
             exportButton.onclick = () => {
                 const mediaAliasSources = new Set(rows.flatMap(row => (row.operations ?? [])
                     .filter(operation => planned.get(row.path)?.has(operation.key))
                     .flatMap(operation => operation.mediaAliasSources ?? [])))
+                for (const row of repairs) {
+                    const keys = planned.get(row.path) ?? new Set<string>()
+                    const selectedIds = new Set(row.operations?.filter(op => keys.has(op.key)).map(op => op.id))
+                    for (const field of row.fieldConflicts ?? []) if (selected.has(oneWayFieldChoice(field))) selectedIds.add(field.id)
+                    for (const op of row.operations ?? []) {
+                        if (op.kind === 'spacing' && (repairOnly || selectedIds.has(op.id))) keys.add(op.key)
+                    }
+                    if (keys.size) planned.set(row.path, keys)
+                }
                 this.close()
                 apply({ paths: planned, conflicts: selected, mediaAliasSources })
             }
@@ -855,7 +873,7 @@ class ExportReviewModal extends ReviewModal {
             showRows(heading, ids.length, (line, position) => {
                 const id = ids[position]
                 if (!profile) {
-                    line.createEl('span', { text: String(id) })
+                    line.createSpan({ text: String(id) })
                     return
                 }
                 const button = line.createEl('button', { text: t(`Open ${id} in Anki`, `Открыть ${id} в Anki`) })

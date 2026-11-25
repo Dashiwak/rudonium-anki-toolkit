@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { checkedCount } from './sync-outcome'
 import { MarkdownView, Modal, Notice, TFile, TFolder } from 'obsidian'
 import { openObsidianFile } from './obsidian-navigation'
 import type { App } from 'obsidian'
@@ -235,7 +236,7 @@ class CloudFolderModal extends Modal {
             const result = await this.run(path, this.abort.signal, (completed, total) => {
                 const now = performance.now()
                 if (!this.abort.signal.aborted && (completed === 0 || completed === total || now - updated >= 80)) {
-                    status.setText(this.t(`Checked ${completed} of ${total} files`, `Проверено файлов: ${completed} из ${total}`))
+                    status.setText(this.t(`Checking files · ${completed} / ${total}`, `Проверка файлов · ${completed} / ${total}`))
                     updated = now
                 }
             })
@@ -250,8 +251,8 @@ class CloudFolderModal extends Modal {
     private showResult(result: CloudFolderResult): void {
         this.contentEl.empty()
         this.contentEl.createEl('p', { text: result.folder || this.t('Entire vault (/)', 'Всё хранилище (/)') })
-        this.contentEl.createEl('p', { text: this.t(`Checked ${result.checked} · Unchanged ${result.unchanged} · Changed ${result.changed.length} · Unindexed ${result.unindexed.length} · Unavailable ${result.unavailable.length}`,
-            `Проверено: ${result.checked} · Без правок: ${result.unchanged} · Изменено: ${result.changed.length} · Без экспорта: ${result.unindexed.length} · Недоступно: ${result.unavailable.length}`) })
+        this.contentEl.createEl('p', { text: checkedCount(result.checked, 'file', this.t) + ' ' + this.t(`Unchanged ${result.unchanged} · Changed ${result.changed.length} · Unindexed ${result.unindexed.length} · Unavailable ${result.unavailable.length}`,
+            `Без правок: ${result.unchanged} · Изменено: ${result.changed.length} · Без экспорта: ${result.unindexed.length} · Недоступно: ${result.unavailable.length}`) })
         if (!result.complete) this.contentEl.createEl('p', { text: this.t('The check is incomplete. Resolve the unavailable files and run it again.', 'Проверка завершилась частично. Устраните ошибки доступа и повторите её.'), cls: 'mod-warning' })
         this.showIssues(this.t('Changed since last confirmed export', 'Изменены после последнего экспорта'), result.changed)
         this.showIssues(this.t('Unavailable', 'Недоступны'), result.unavailable)
@@ -275,7 +276,7 @@ class CloudFolderModal extends Modal {
                 const entry = list.createEl('li')
                 entry.classList.add('rudonium-wrap-anywhere')
                 entry.createEl('strong', { text: path })
-                entry.createEl('div', { text: reason })
+                entry.createDiv({ text: reason })
                 if (this.app.vault.getAbstractFileByPath(path) instanceof TFile) {
                     entry.createEl('button', { text: this.t('Open in Obsidian', 'Открыть в Obsidian') }).onclick = () => { void this.openPath(path) }
                 }

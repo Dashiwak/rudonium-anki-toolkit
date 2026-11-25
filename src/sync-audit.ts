@@ -216,7 +216,7 @@ export function auditRead(
             return AnkiConnect.invoke(action, params)
         }).then(
             response => { cleanup(); resolve(response) },
-            error => { cleanup(); reject(error) },
+            (error: unknown) => { cleanup(); reject(error instanceof Error ? error : new Error(String(error))) },
         )
     })
 }
@@ -315,6 +315,7 @@ function hasVaultLink(fields: ReadonlyMap<string, string>, vaultName: string): b
                 if (url.searchParams.get('vault')?.normalize('NFC') === vaultName.normalize('NFC') &&
                     url.searchParams.get('file')) return true
             } catch {
+                continue
             }
         }
     }
@@ -823,7 +824,7 @@ async function readLightweightInventory(
         const requested = new Set(batch)
         const displaced: number[] = []
         let direct: number | undefined
-        const bundle = useMulti ? await readAuditBundle([
+        const bundle: AuditBundleRow[] | null = useMulti ? await readAuditBundle([
             { action: 'getDecks', cards: batch }, { action: 'cardsToNotes', cards: batch },
         ], signal) : null
         useMulti = !!bundle && bundle.every(row => row.error === null)

@@ -294,3 +294,24 @@ test('Preset export, page ID insertion, repeated scan and verified two-way edits
         assert.deepEqual(matches.filter(m => !blocked(m.index)).map(m=>m[1].trim()), ['Кофе'])
     })
 });
+
+test('both first-card guides document the built-in RemNote rule and a valid linked card', async () => {
+    const { load } = require('./benchmark/migration-modules.cjs');
+    const modules = await load(['card-format-presets', 'anki-id-marker', 'id-marker-literals'], {});
+    const preset = modules['card-format-presets'].cardFormatPresets.find(item => item.id === 'remnote');
+    for (const name of ['README.md', 'README.ru.md']) {
+        const guide = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+        const expressions = Array.from(guide.matchAll(/^`{3}regex\r?\n([^\r\n]+)\r?\n`{3}/gm), match => match[1]);
+        assert.ok(expressions.includes(preset.expression), name + ': the manual rule must match the preset');
+        const examples = Array.from(guide.matchAll(/^([ ]*)`{3}markdown\r?\n([\s\S]*?)^\1`{3}/gm),
+            match => match[2].trimEnd().split(/\r?\n/).map(line => line.slice(match[1].length)));
+        const card = examples.find(lines => lines.length === 1 && new RegExp(preset.expression).test(lines[0]));
+        assert.ok(card, name + ': missing new card example');
+        const fields = new RegExp(preset.expression).exec(card[0]).slice(1);
+        assert.equal(fields.length, 2);
+        assert.ok(fields.every(field => field.trim().length > 0));
+        const linked = examples.find(lines => lines.length === 2 && lines[0] === card[0]);
+        assert.ok(linked, name + ': the export must keep the original line');
+        assert.equal(modules['anki-id-marker'].parseAnkiIdMarker(linked[1])?.comment, true);
+    }
+});

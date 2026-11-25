@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import { Modal, Setting } from 'obsidian'
+import { Modal, Setting, setIcon } from 'obsidian'
 import type MyPlugin from '../main'
 import { AnkiProfileError, checkPinnedAnkiProfile, profileProblemText, readActiveAnkiProfile } from './anki-profile'
 import { readAnkiDeckKind } from './anki-study-state'
@@ -44,6 +44,61 @@ export interface FirstConnectionChoice {
     originalExpression: string
     wizardFields?: string[]
     forMigration?: boolean
+}
+
+const addOnCode = '2055492159'
+const obsidianOrigin = 'app://obsidian.md'
+const defaultLocalConfig = JSON.stringify({
+    apiKey: null,
+    apiLogPath: null,
+    webBindAddress: '127.0.0.1',
+    webBindPort: 8765,
+    webCorsOrigin: 'http://localhost',
+    webCorsOriginList: ['http://localhost', obsidianOrigin],
+}, null, 2)
+
+function copyBlock(container: HTMLElement, value: string, label: string, t: UiText): void {
+    const block = container.createDiv({ cls: 'rudonium-copy-block' })
+    block.createEl('pre').createEl('code', { text: value })
+    const button = block.createEl('button', { cls: 'clickable-icon',
+        attr: { type: 'button', title: label, 'aria-label': label } })
+    setIcon(button, 'copy')
+    const status = container.createSpan({ cls: 'rudonium-copy-status', attr: { role: 'status' } })
+    const copy = async (): Promise<void> => {
+        status.setText('')
+        try {
+            await navigator.clipboard.writeText(value)
+            status.setText(t('Copied.', 'Скопировано.'))
+        } catch {
+            status.setText(t('Select the text above and copy it manually.', 'Выделите текст выше и скопируйте его вручную.'))
+        }
+    }
+    button.onclick = () => void copy()
+}
+
+function addAnkiConnectGuide(guide: HTMLElement, t: UiText): void {
+    const steps = guide.createEl('ol')
+    const start = steps.createEl('li', { text: t(
+        'Open desktop Anki on this computer and select the profile where you want to study. ',
+        'Откройте настольную Anki на этом компьютере и выберите профиль, в котором будете заниматься. ') })
+    start.createEl('a', { text: t('Download Anki', 'Скачать Anki'), attr: { href: 'https://apps.ankiweb.net/' } })
+    const install = steps.createEl('li', { text: t(
+        'In Anki, open Tools → Add-ons → Get Add-ons, enter this code and restart Anki. ',
+        'В Anki откройте «Инструменты → Дополнения → Загрузить дополнения», введите этот код и перезапустите Anki. ') })
+    install.createEl('a', { text: t('AnkiConnect on AnkiWeb', 'AnkiConnect на AnkiWeb'),
+        attr: { href: 'https://ankiweb.net/shared/info/' + addOnCode } })
+    copyBlock(install, addOnCode, t('Copy add-on code', 'Скопировать код дополнения'), t)
+    const cors = steps.createEl('li', { text: t(
+        'Under Tools → Add-ons, select AnkiConnect and open Config. Add this quoted address to the webCorsOriginList array. Separate entries with commas and keep your existing addresses and settings.',
+        'В разделе «Инструменты → Дополнения» выберите AnkiConnect и откройте «Настройки» (Config). Добавьте этот адрес вместе с кавычками в список webCorsOriginList. Разделите адреса запятыми и сохраните прежние адреса и настройки.') })
+    copyBlock(cors, JSON.stringify(obsidianOrigin), t('Copy Obsidian address', 'Скопировать адрес Obsidian'), t)
+    cors.createEl('p', { text: t(
+        'Full example for a fresh installation. Rudonium connects to 127.0.0.1:8765 with apiKey set to null. If you already use a custom configuration, keep it and use the example to locate the origin list.',
+        'Полный пример для новой установки. Rudonium подключается к 127.0.0.1:8765 при значении null у apiKey. Если у вас уже настроен AnkiConnect, сохраните свою конфигурацию и используйте пример, чтобы найти список адресов.') })
+    copyBlock(cors, defaultLocalConfig, t('Copy example JSON', 'Скопировать пример JSON'), t)
+    steps.createEl('li', { text: t(
+        'Save the configuration, restart Anki and leave the collection open. Here in Obsidian, click Check Connection. Confirm the profile, choose your deck, note type and card format, then click Save Setup.',
+        'Сохраните настройки, перезапустите Anki и оставьте коллекцию открытой. В этом окне Obsidian нажмите «Проверить соединение». Проверьте профиль, выберите колоду, тип записи и формат карточек, затем нажмите «Сохранить настройки».') })
 }
 
 const running = new WeakMap<MyPlugin, FirstConnectionModal>()
@@ -113,6 +168,7 @@ class FirstConnectionModal extends Modal {
     private custom = false
     private sample = ''
     private customFields?: string[]
+    private connectionStatus?: 'checking' | 'offline' | 'problem' | 'connected'
     private failed = false
     private busy = false
     private closed = false
@@ -143,24 +199,36 @@ class FirstConnectionModal extends Modal {
         return uiDiagnostic(error, this.t)
     }
 
-    private async act(task: (signal: AbortSignal) => Promise<void>): Promise<void> {
+    private async act(task: (signal: AbortSignal) => Promise<void>, checkingConnection = false): Promise<void> {
         if (this.busy) return
         this.busy = true
         this.failed = false
-        this.message = this.t('Checking…', 'Проверка…')
+        if (checkingConnection) {
+            this.connection = undefined
+            this.choice = undefined
+            this.connectionStatus = 'checking'
+        }
+        this.message = checkingConnection ? '' : this.t('Checking…', 'Проверка…')
         const controller = this.controller = new AbortController()
-        this.render()
+        this.render(checkingConnection)
         try { await task(controller.signal) }
-        catch (error) { if (!controller.signal.aborted) { this.failed = true; this.message = this.errorText(error) } }
-        finally {
+        catch (error) {
+            if (!controller.signal.aborted) {
+                this.failed = true
+                const offline = error instanceof AnkiProfileError && error.reason === 'unreachable'
+                if (checkingConnection || offline) this.connectionStatus = offline ? 'offline' : 'problem'
+                this.message = offline ? this.t(
+                    'Open desktop Anki and select your profile. If Anki is already open, check that AnkiConnect is enabled, then try again.',
+                    'Откройте настольную Anki и нужный профиль. Если Anki уже открыта, проверьте, включено ли дополнение AnkiConnect, и повторите проверку.')
+                    : this.errorText(error)
+            }
+        } finally {
             this.busy = false
-            if (!this.closed) this.render()
+            if (!this.closed) this.render(checkingConnection)
         }
     }
 
     private async connect(signal: AbortSignal): Promise<void> {
-        this.connection = undefined
-        this.choice = undefined
         const connection = await inspectFirstConnection(signal)
         const names = connection.names.filter(model => connection.fields[model]?.length >= 2)
         const settings = this.plugin.settings ?? {}
@@ -171,6 +239,7 @@ class FirstConnectionModal extends Modal {
         const deck = preferred && connection.decks.includes(preferred) ? preferred
             : connection.decks.includes('Default') ? 'Default' : connection.decks[0]
         this.connection = connection
+        this.connectionStatus = 'connected'
         const originalExpression = readRule(settings, model).expression
         const expression = this.suggestRemNote ? remNoteExpression : originalExpression
         this.custom = presetId(expression) === 'custom'
@@ -182,6 +251,10 @@ class FirstConnectionModal extends Modal {
 
     private exampleValues(choice: FirstConnectionChoice): string[] {
         if (this.custom) return this.customFields ?? []
+        if (choice.expression === remNoteExpression) return [
+            this.t('Which lake in Siberia is the deepest on Earth?', 'Какое озеро в Сибири самое глубокое на Земле?'),
+            this.t('Lake Baikal', 'Байкал'),
+        ]
         const preset = cardFormatPresets.find(item => item.expression === choice.expression)
         return preset?.expression ? [preset.front, preset.back] : ['Capital of Austria?', 'Vienna']
     }
@@ -202,8 +275,7 @@ class FirstConnectionModal extends Modal {
         const { t } = this
         const values = this.exampleValues(choice)
         const fields = connection.fields[choice.model].map((name, index) => {
-            const text = this.contentEl.ownerDocument.createDocumentFragment().createSpan()
-            text.textContent = values[index] ?? ''
+            const text = createSpan({ text: values[index] ?? '' })
             return { name, html: text.innerHTML }
         })
         const verify = () => checkPinnedAnkiProfile(connection.profile, signal)
@@ -221,46 +293,52 @@ class FirstConnectionModal extends Modal {
         this.message = ''
     }
 
-    private render(): void {
+    private render(revealConnection = false): void {
         const { t, contentEl, connection, choice, busy } = this
         saveSettingsLayout(contentEl, this.plugin)
         contentEl.empty()
-        if (this.message) contentEl.createEl('p', { text: this.message, attr: { role: 'status', 'aria-live': 'polite' } })
-        if (this.failed) contentEl.createEl('a', { text: t('Help on GitFlic', 'Помощь на GitFlic'), attr: { href: supportUrl } })
+        const state = this.connectionStatus
+        if (state && (revealConnection || !this.message || (this.failed && (state === 'offline' || state === 'problem')))) {
+            const titles = {
+                checking: t('Checking Anki connection…', 'Проверяем соединение с Anki…'),
+                offline: t('No connection to Anki', 'Нет соединения с Anki'),
+                problem: t('Could not complete the connection check', 'Не удалось завершить проверку соединения'),
+                connected: t('Connected to Anki', 'Соединение с Anki установлено'),
+            }
+            const status = contentEl.createDiv({ cls: ['rudonium-connection-status', 'is-' + state],
+                attr: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', tabindex: '-1' } })
+            const icon = status.createSpan({ attr: { 'aria-hidden': 'true' } })
+            setIcon(icon, { checking: 'loader', offline: 'circle-x', problem: 'circle-alert', connected: 'circle-check' }[state])
+            const body = status.createDiv()
+            body.createEl('strong', { text: titles[state] })
+            if (this.message) body.createEl('p', { text: this.message })
+            if (revealConnection) {
+                contentEl.scrollTop = 0
+                status.focus({ preventScroll: true })
+                status.scrollIntoView({ block: 'nearest' })
+            }
+        } else if (this.message) contentEl.createEl('p', { text: this.message, attr: { role: 'status', 'aria-live': 'polite' } })
         if (!connection || !choice) {
-            contentEl.createEl('p', { text: t('Open your profile in desktop Anki with AnkiConnect enabled.',
+            if (!state) contentEl.createEl('p', { text: t('Open your profile in desktop Anki with AnkiConnect enabled.',
                 'Откройте нужный профиль в настольной Anki с включённым AnkiConnect.') })
-            const guide = contentEl.createEl('details')
-            rememberGroup(guide, this.plugin, 'quick-start-connection-help', this.firstRun || this.failed)
-            guide.createEl('summary', { text: t('Set up AnkiConnect', 'Как настроить AnkiConnect') })
-            const steps = guide.createEl('ol')
-            steps.createEl('li', { text: t(
-                'In desktop Anki, open Tools → Add-ons → Get Add-ons. Enter 2055492159 and restart Anki.',
-                'В настольной Anki откройте «Инструменты → Дополнения → Загрузить дополнения». Введите 2055492159 и перезапустите Anki.') })
-            const cors = steps.createEl('li', { text: t(
-                'Under Tools → Add-ons, select AnkiConnect and open Config. Add "app://obsidian.md" to webCorsOriginList, keeping the existing entries. Example list after editing',
-                'В разделе «Инструменты → Дополнения» выберите AnkiConnect и откройте «Настройки» (Config). Добавьте "app://obsidian.md" в список webCorsOriginList, сохранив прежние адреса. Пример списка после правки') })
-            cors.createEl('pre', { text: '["http://localhost", "app://obsidian.md"]' })
-            steps.createEl('li', { text: t(
-                'Save the configuration, restart Anki and leave your collection open. In this window, choose Check Connection.',
-                'Сохраните настройки, перезапустите Anki и оставьте коллекцию открытой. В этом окне нажмите «Проверить соединение».') })
-            guide.createEl('p', { text: t(
-                'Rudonium connects on this computer at 127.0.0.1:8765. It supports the default AnkiConnect setup with apiKey set to null.',
-                'Rudonium подключается к Anki на этом компьютере по адресу 127.0.0.1:8765. Поддерживается стандартная конфигурация AnkiConnect со значением null у apiKey.') })
-            guide.createEl('a', { text: t('AnkiConnect on AnkiWeb', 'AnkiConnect на AnkiWeb'),
-                attr: { href: 'https://ankiweb.net/shared/info/2055492159' } })
-            const actions = contentEl.createDiv({ cls: 'modal-button-container' })
+            const actions = contentEl.createDiv({ cls: ['modal-button-container', 'rudonium-connection-actions'] })
             const check = actions.createEl('button', {
                 text: t('Check Connection', 'Проверить соединение'), cls: 'mod-cta' })
             check.disabled = busy
-            check.onclick = () => { this.migrating = false; void this.act(signal => this.connect(signal)) }
+            check.onclick = () => { this.migrating = false; void this.act(signal => this.connect(signal), true) }
             if (this.firstRun) {
                 const migrate = actions.createEl('button', { text: t('Migrate existing card files', 'Перенести существующие карточки') })
                 migrate.disabled = busy
-                migrate.onclick = () => { this.migrating = true; void this.act(signal => this.connect(signal)) }
+                migrate.onclick = () => { this.migrating = true; void this.act(signal => this.connect(signal), true) }
             }
+            const guide = contentEl.createEl('details')
+            rememberGroup(guide, this.plugin, 'quick-start-connection-help', this.firstRun || this.failed)
+            guide.createEl('summary', { text: t('Set up AnkiConnect', 'Как настроить AnkiConnect') })
+            addAnkiConnectGuide(guide, t)
+            if (this.failed) contentEl.createEl('a', { text: t('Help on GitFlic', 'Помощь на GitFlic'), attr: { href: supportUrl } })
             return
         }
+        if (this.failed) contentEl.createEl('a', { text: t('Help on GitFlic', 'Помощь на GitFlic'), attr: { href: supportUrl } })
         const form = contentEl.createEl('fieldset')
         form.disabled = busy
         form.classList.add('rudonium-first-connection-form')
@@ -309,6 +387,12 @@ class FirstConnectionModal extends Modal {
             this.customFields = undefined
             this.render()
         }, expression => { choice.wizardFields = undefined; choice.expression = expression; this.customFields = undefined; refreshCard() })
+        const ruleHelp = form.createEl('details')
+        rememberGroup(ruleHelp, this.plugin, 'quick-start-remnote-expression')
+        ruleHelp.createEl('summary', { text: t('RemNote regular expression', 'Регулярное выражение RemNote') })
+        ruleHelp.createEl('p', { text: t('Choose the RemNote format above, or select Custom regular expression and paste this rule into Regular expression.',
+            'Выберите формат RemNote выше или выберите «Своё регулярное выражение» и вставьте это правило в поле «Регулярное выражение».') })
+        copyBlock(ruleHelp, remNoteExpression, t('Copy RemNote regular expression', 'Скопировать регулярное выражение RemNote'), t)
         const names = connection.fields[choice.model]
         addRegexpWizard(form, this.plugin.app, t, names, () => choice.expression, (pattern, sample, values) => {
             choice.expression = pattern
@@ -325,8 +409,9 @@ class FirstConnectionModal extends Modal {
             form.createEl('button', { text: t('Test sample', 'Проверить пример') }).onclick =
                 () => void this.act(signal => this.testCustom(choice, signal))
         } else {
-            form.createEl('pre', { text: preset?.expression ? preset.example :
-                exampleBlock(this.plugin.settings?.Syntax, choice.model, connection.fields[choice.model], choice.front, choice.back) })
+            const example = choice.expression === remNoteExpression ? '- ' + this.exampleValues(choice).join(' :: ')
+                : preset?.expression ? preset.example : exampleBlock(this.plugin.settings?.Syntax, choice.model, connection.fields[choice.model], choice.front, choice.back)
+            form.createEl('pre', { text: example })
         }
         const card = form.createEl('section')
         card.classList.add('rudonium-first-connection-card')
@@ -336,10 +421,10 @@ class FirstConnectionModal extends Modal {
             card.hidden = !values.length
             if (card.hidden) return
             card.createEl('small', { text: t('Front', 'Лицевая сторона') })
-            card.createEl('div', { text: values[0] ?? '' })
+            card.createDiv({ text: values[0] ?? '' })
             card.createEl('hr')
             card.createEl('small', { text: t('Back', 'Обратная сторона') })
-            card.createEl('div', { text: values[1] ?? '' })
+            card.createDiv({ text: values[1] ?? '' })
         }
         refreshCard()
         const options = form.createEl('details')
@@ -352,14 +437,14 @@ class FirstConnectionModal extends Modal {
             if (this.custom) await this.testCustom(choice, signal)
             if (!signal.aborted) await this.preview(connection, { ...choice }, signal)
         })
-        options.createEl('button', { text: t('Check connection again', 'Проверить соединение снова') }).onclick = () => void this.act(signal => this.connect(signal))
+        options.createEl('button', { text: t('Check connection again', 'Проверить соединение снова') }).onclick = () => void this.act(signal => this.connect(signal), true)
         if (this.firstRun) form.createEl('p', { text: t(
             'For your first card, save this setup and write a card using the example format in a Markdown note. Put the cursor in the card and run Preview Current Card. Confirm the export and keep the ID that appears next to the card.',
             'Сохраните настройки и запишите первую карточку по образцу в заметку Markdown. Поставьте курсор в карточку и выполните команду «Предпросмотр текущей карточки». Подтвердите экспорт и сохраните ID, который появится рядом с карточкой.') })
         const actions = form.createDiv({ cls: 'modal-button-container' })
         if (this.firstRun) actions.createEl('button', { text: t('Migrate existing card files', 'Перенести существующие карточки') }).onclick =
             () => { this.migrating = true; this.render() }
-        const button = actions.createEl('button', { text: t('Save Setup', 'Сохранить настройку'), cls: 'mod-cta' })
+        const button = actions.createEl('button', { text: t('Save Setup', 'Сохранить настройки'), cls: 'mod-cta' })
         button.onclick = () => void this.act(async signal => {
             const selected = { ...choice }
             const customProblem = this.custom && customExpressionProblem(selected.expression, t)
@@ -406,9 +491,10 @@ export function registerSetupCommand(plugin: MyPlugin, withLock: SetupLock, stop
 
 export function installFirstRunSetting(container: HTMLElement, plugin: MyPlugin, withLock: SetupLock, redraw: () => void): void {
     const t = uiFor(plugin.settings)
-    new Setting(container).setName(t('First Run', 'Первый запуск'))
-        .setDesc(t('Choose a deck and card format.', 'Выберите колоду и формат карточки.'))
-        .addButton(button => button.setButtonText(t('Open Setup', 'Открыть мастер')).onClick(() => openSetup(plugin, withLock, redraw)))
+    new Setting(container).setName(t('Quick Start', 'Быстрый старт'))
+        .setDesc(t('Connect to Anki and choose a deck, note type and card format.',
+            'Подключитесь к Anki и выберите колоду, тип записи и формат карточек.'))
+        .addButton(button => button.setButtonText(t('Set up sync', 'Настроить синхронизацию')).onClick(() => openSetup(plugin, withLock, redraw)))
 }
 
 function openSetup(plugin: MyPlugin, withLock: SetupLock, redraw?: () => void): void {

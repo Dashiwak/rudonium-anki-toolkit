@@ -67,7 +67,7 @@ test('Help and the language selector are available in English and Russian', asyn
             querySelectorAll() { return [] }, querySelector() { return null } }
         const plugin = { settings: { INTERFACE_LANGUAGE: initial }, async saveAllData() { saved = this.settings.INTERFACE_LANGUAGE } }
         installSettingsHelp(root, plugin)
-        assert.deepEqual(link, { tag: 'a', text: linkText, attr: { href: supportUrl } })
+        assert.deepEqual(link, { tag: 'a', cls: 'rudonium-settings-help', text: linkText, attr: { href: supportUrl } })
         installInterfaceLanguage(root, plugin, () => { redrawn = true })
         assert.equal(root.setting.label, label)
         assert.equal(root.setting.value, initial ?? 'en')
@@ -131,7 +131,12 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     const { Setting } = await import(hostModule)
     class Row extends Setting {
         addButton(cb) {
-            cb({ setButtonText() { return this }, setClass() { return this }, onClick: handler => { this.click = handler } })
+            const row = this
+            cb({
+                setButtonText(label) { row.buttonLabel = label; return this },
+                setClass() { return this },
+                onClick(handler) { row.click = handler; return this },
+            })
             return this
         }
         addText(cb) { cb({}); return this }
@@ -180,18 +185,19 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     const tab = new SettingsTab({}, plugin)
     tab.containerEl = root
     tab.display()
-    for (const [language, about, connection, first, migration, syntax, end, next] of [
-        ['Interface Language', 'About the plugin', 'Anki Connection', 'First Run', 'Card file migration', 'Syntax Settings', 'End Note', 'ru'],
-        ['Язык интерфейса', 'О плагине', 'Подключение к Anki', 'Первый запуск', 'Перенос карточек из файлов', 'Синтаксис карточек', 'Конец блока карточки', 'en'],
+    for (const [language, about, connection, first, setupButton, migration, migrationButton, syntax, end, next] of [
+        ['Interface Language', 'About the plugin', 'Anki Connection', 'Quick Start', 'Set up sync', 'Card file migration', 'Set up migration', 'Syntax Settings', 'End Note', 'ru'],
+        ['Язык интерфейса', 'О плагине', 'Подключение к Anki', 'Быстрый старт', 'Настроить синхронизацию', 'Перенос карточек из файлов', 'Настроить перенос', 'Синтаксис карточек', 'Конец блока карточки', 'en'],
     ]) {
         const [header, group] = root.children
-        const [help, controls] = header.children
+        const [controls, help] = header.children
         assert.equal(help.attr.href, supportUrl)
         assert.equal(root.children.filter(el => el.getAttribute?.('data-rudonium-settings-group') === 'connection').length, 1)
         assert.equal(group.tag, 'details')
         assert.equal(group.children[0].text, connection)
         const actions = group.children[1].children
         assert.deepEqual(actions.map(row => row.label), [first, migration])
+        assert.deepEqual(actions.map(row => row.buttonLabel), [setupButton, migrationButton])
         if (!dialogs.length) {
             actions.forEach(row => row.click())
             assert.deepEqual(dialogs, ['FirstConnectionModal', 'PageMigrationWizard'])
@@ -261,6 +267,25 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     fresh.display()
     assert.ok(fresh.containerEl.querySelectorAll('details').every(group => !group.open))
     assert.equal(storage.size, 1)
+    fresh.containerEl.empty()
+    const definitions = fresh.getSettingDefinitions()
+    assert.equal(definitions[1].name, 'Подключение к Anki')
+    assert.ok(definitions[1].aliases.includes('AnkiConnect'))
+    assert.ok(definitions[2].aliases.includes('Двусторонняя синхронизация'))
+    assert.equal(fresh.containerEl.children.length, 0, 'search indexing must not render controls')
+    for (const definition of definitions) {
+        const settingEl = fresh.containerEl.createDiv()
+        settingEl.classList = root.classList
+        definition.render({ settingEl })
+    }
+    const all = fresh.containerEl.querySelectorAll('details')
+    assert.ok(all.some(el => el.getAttribute('data-rudonium-settings-group') === 'connection'))
+    const buttons = fresh.containerEl.children[0].children[0].children[0].children
+    buttons[0].onclick()
+    assert.ok(all.every(el => el.open), 'native rows share the expand-all toolbar')
+    buttons[1].onclick()
+    assert.ok(all.every(el => !el.open))
+
 })
 
 test('autoscan slider shows minutes and manual mode in both languages', () => {

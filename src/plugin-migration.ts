@@ -2,9 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
-import * as fs from 'fs'
-import * as path from 'path'
-import * as crypto from 'crypto'
+import { files as fs, paths as path, hashes as crypto, fileErrorCode } from './desktop-io'
+import type { DesktopFiles as FileSystem, DesktopPaths as PathTools, DesktopHashes as Crypto } from './desktop-io'
 import { Modal, Notice } from 'obsidian'
 import type { FileSystemAdapter, Plugin } from 'obsidian'
 import { uiFor } from './interface-language'
@@ -22,9 +21,6 @@ const stateFile = /^(?:(?:pending-new-notes|export-operation-journal)\.json\.[01
 const stateDirectories = /^(?:image-replacements|zip-transfer-packages|(?:zip-imports|id-marker-conversions)(?:\/[a-f0-9-]{36})?)$/
 const nestedState = /^(?:image-replacements\/[a-f0-9]{64}\.json|zip-transfer-packages\/(?:[a-f0-9]{32}|archive-[a-f0-9]{64})\.json|zip-imports\/(?:pending\.json|receipts\.json|[a-f0-9-]{36}\/(?:transaction\.json|[0-9]+\.(?:before|after)))|id-marker-conversions\/[a-f0-9-]{36}\/(?:conversion\.json|Obsidian\.zip))$/
 const digestPattern = /^[a-f0-9]{64}$/
-type FileSystem = typeof import('fs')
-type PathTools = typeof import('path')
-type Crypto = typeof import('crypto')
 type Entry = { path: string; hash: string }
 
 type MigrationContext = {
@@ -258,7 +254,7 @@ async function publishExclusive(context: MigrationContext, target: string,
         checkMigrationActive(context)
         try { await fs.promises.link(staged, target) }
         catch (error) {
-            if (!['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS'].includes(String((error as NodeJS.ErrnoException).code))) throw error
+            if (!['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS'].includes(String(fileErrorCode(error)))) throw error
             await fs.promises.copyFile(staged, target, fs.constants.COPYFILE_EXCL)
         }
     } finally { await fs.promises.rm(staged, { force: true }).catch(() => {}) }

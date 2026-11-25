@@ -5,8 +5,8 @@ const { isBuiltin, stripTypeScriptTypes } = require("node:module");
 const vm = require("node:vm");
 const overlay = require("../../Build/overlay-source.cjs");
 
-async function load(names, api, generated = {}) {
-    const context = vm.createContext({ require, Buffer, performance, URL, structuredClone, TextEncoder, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout, window: { setTimeout, clearTimeout, setInterval, clearInterval } });
+async function load(names, api, generated = {}, globals = {}) {
+    const context = vm.createContext({ require, process, Buffer, performance, URL, structuredClone, TextEncoder, TextDecoder, DOMException, AbortController, setTimeout, clearTimeout, window: { setTimeout, clearTimeout, setInterval, clearInterval }, ...globals });
     const modules = new Map(), imports = new Map();
     const needed = new Set(names);
     for (const name of needed) {
@@ -14,6 +14,7 @@ async function load(names, api, generated = {}) {
         const source = stripTypeScriptTypes(raw, { mode: "transform" });
         modules.set("./" + name, new vm.SourceTextModule(source, { context }));
         for (const [, bindings, id] of source.matchAll(/\bimport\s*\{([^}]+)\}\s*from\s*'([^']+)'/g)) {
+            if (id === "./desktop-io") needed.add("desktop-io");
             if (id === "./sync-change-history" || id === "./sync-outcome") needed.add(id.slice(2));
             if (id === "./card-format-presets") needed.add("card-format-presets");
             if (name === "bidirectional-markdown" && id === "./markdown-pipeline") needed.add("markdown-pipeline");
