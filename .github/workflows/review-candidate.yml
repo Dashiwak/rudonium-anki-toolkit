@@ -1,6 +1,11 @@
 name: Build review candidate
 on:
   workflow_dispatch:
+    inputs:
+      check_published_assets:
+        description: Compare the selected tag's published release files with the build
+        type: boolean
+        default: false
   release:
     types: [published]
   push:
@@ -22,6 +27,8 @@ jobs:
           cache: npm
       - name: Check the release version across source metadata and the tag
         shell: bash
+        env:
+          CHECK_PUBLISHED: ${{ inputs.check_published_assets }}
         run: |
           node <<'JS'
           const assert = require("node:assert/strict");
@@ -32,6 +39,7 @@ jobs:
             assert.equal(entry.version, manifest.version);
           }
           assert.equal(require("./versions.json")[manifest.version], manifest.minAppVersion);
+          if (process.env.CHECK_PUBLISHED === "true") assert.equal(process.env.GITHUB_REF_TYPE, "tag", "Choose a release tag for the published asset check");
           if (process.env.GITHUB_REF_TYPE === "tag") assert.equal(process.env.GITHUB_REF_NAME, manifest.version);
           JS
       - name: Run Rudonium regression tests
@@ -60,6 +68,8 @@ jobs:
           cache: npm
       - name: Install plugin dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify installed Markdown and glob dependencies
+        run: npm run test:dependencies
       - name: Install the official lint preset separately from the runtime lockfile
         run: |
           mkdir -p "$RUNNER_TEMP/review-tools"
@@ -79,7 +89,7 @@ jobs:
 
   attest:
     if: github.ref_type == 'tag'
-    needs: verify
+    needs: [verify, lint]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -92,7 +102,7 @@ jobs:
           name: rudonium-candidate-${{ github.sha }}
           path: candidate
       - name: Download the published assets for comparison
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.check_published_assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -100,6 +110,8 @@ jobs:
             --pattern main.js --pattern manifest.json --pattern styles.css
       - name: Compare downloaded assets with the verified build
         working-directory: candidate
+        env:
+          CHECK_PUBLISHED: ${{ github.event_name == 'release' || inputs.check_published_assets }}
         run: |
           node <<'JS'
           const assert = require('node:assert/strict');
@@ -112,7 +124,7 @@ jobs:
           for (const file of files) {
             const digest = createHash('sha256').update(readFileSync('install/' + file)).digest('hex');
             assert.equal(digest, artifacts.find(item => item.path === file).sha256);
-            if (process.env.GITHUB_EVENT_NAME === 'release') {
+            if (process.env.CHECK_PUBLISHED === 'true') {
               assert.deepEqual(readFileSync('../published/' + file), readFileSync('install/' + file),
                 'Published release asset differs from the verified build: ' + file);
             }
@@ -127,10 +139,19 @@ jobs:
             candidate/install/main.js
             candidate/install/manifest.json
             candidate/install/styles.css
-      - name: Verify the attestations for each release asset
+      - name: Verify each release file and record its digest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for asset in main.js manifest.json styles.css; do
-            gh attestation verify "candidate/install/$asset" --repo "$GITHUB_REPOSITORY"
+            file="candidate/install/$asset"
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/review-candidate.yml"
+            (cd candidate/install && sha256sum "$asset") >> "$RUNNER_TEMP/attested-files.txt"
           done
+          {
+            echo "### Verified files for $GITHUB_REF_NAME"
+            echo 'Download the candidate artifact from this run and attach the three files in its install folder to the release.'
+            echo '```'
+            cat "$RUNNER_TEMP/attested-files.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

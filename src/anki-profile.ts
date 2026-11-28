@@ -12,9 +12,9 @@ type ProfileProblem = 'unconfigured' | 'mismatch' | 'unreachable' | 'unavailable
 export class AnkiProfileError extends Error {
     constructor(readonly reason: ProfileProblem, readonly expected?: string, readonly actual?: string) {
         const messages: Record<ProfileProblem, string> = {
-            unconfigured: 'Choose the expected Anki profile in Export to Anki settings.',
+            unconfigured: 'Choose the expected Anki profile in Rudonium’s profile settings.',
             mismatch: `Expected Anki profile “${expected}”, but Anki has “${actual}” open. Switch profiles in Anki and try again.`,
-            unreachable: 'AnkiConnect did not confirm the connection. Open Anki, check AnkiConnect and try again.',
+            unreachable: 'Cannot connect to Anki. Start desktop Anki. If it is already open, check that AnkiConnect is enabled and try again.',
             unavailable: 'Anki has no open profile that could be confirmed. Open the expected profile and try again.',
             unsupported: 'This AnkiConnect installation cannot report the active profile. Update AnkiConnect, restart Anki and try again.',
             changed: 'The expected Anki profile changed after the operation was prepared. Start again.',
@@ -36,8 +36,8 @@ export function profileProblemText(error: AnkiProfileError, t: UiText): string {
             return t('The Anki profile or its binding changed. Check the profile again before restarting the operation.',
                 'Профиль Anki или его привязка изменились. Повторно проверьте профиль перед запуском операции.')
         case 'unreachable':
-            return t('AnkiConnect could not verify the connection. Open Anki, check the add-on, then check again.',
-                'Связь через AnkiConnect не подтверждена. Откройте Anki, проверьте дополнение AnkiConnect и повторите проверку.')
+            return t('Start desktop Anki and open your collection. If Anki is already running, make sure AnkiConnect is enabled, then check the connection again.',
+                'Запустите Anki на компьютере и откройте коллекцию. Если Anki уже запущена, убедитесь, что AnkiConnect включён, и повторите проверку соединения.')
         case 'unavailable':
             return t('Anki did not confirm an open profile. Finish opening the collection in Anki, then check again.',
                 'Anki не подтвердила открытый профиль. Дождитесь открытия коллекции в Anki и повторите проверку.')
@@ -98,12 +98,12 @@ export async function checkPinnedAnkiProfile(pinned: string, signal?: AbortSigna
 export async function requireExpectedAnkiProfile(plugin: MyPlugin, pinned?: string, signal?: AbortSignal): Promise<string> {
     const locked = isAnkiProfileLockEnabled(plugin)
     const expected = expectedAnkiProfile(plugin)
-    if (locked && expected === undefined) throw new AnkiProfileError('unconfigured', pinned)
     if (expected !== undefined && pinned !== undefined && pinned !== expected) throw new AnkiProfileError('changed', pinned)
-    const target = expected ?? pinned
+    const target = locked ? expected : pinned
     const actual = target === undefined ? await readActiveAnkiProfile(signal) : await checkPinnedAnkiProfile(target, signal)
     if (locked !== isAnkiProfileLockEnabled(plugin) || expected !== expectedAnkiProfile(plugin)) {
         throw new AnkiProfileError('changed', target ?? actual)
     }
+    if (locked && expected === undefined) throw new AnkiProfileError('unconfigured', undefined, actual)
     return actual
 }

@@ -267,6 +267,10 @@ export function installAnkiProfileSettings(container: HTMLElement, plugin: MyPlu
                 showMode()
                 return
             }
+            if (error instanceof AnkiProfileError && error.reason === 'unreachable') {
+                showStatus(status, errorText(error, t), true)
+                return
+            }
             const active = error instanceof AnkiProfileError ? error.actual : undefined
             const names = locked ? profileNames(t, expected, active) : profileModeText(plugin, t)
             showStatus(status, `${names}\n${errorText(error, t)}`, true)
@@ -280,54 +284,67 @@ export function showAnkiProfileProblem(plugin: MyPlugin, error: AnkiProfileError
     if (problemDialogs.has(plugin) || settingsDialogs.has(plugin)) return
     const t = uiFor(plugin.settings)
     class ProfileProblemModal extends Modal {
-        private closed = false
+        private readonly abort = new AbortController()
 
         onOpen(): void {
-            const title = error.reason === 'unconfigured' ? t('Set Up Anki Profile', 'Настройте профиль Anki')
-                : stage === 'before-write' ? t('Export Stopped Before Writing', 'Экспорт остановлен до записи')
-                : t('Anki Profile Check Stopped the Operation', 'Операция остановлена при проверке профиля Anki')
-            this.titleEl.setText(title)
             installModalLayout(this, t)
-            const names = this.contentEl.createEl('p')
-            names.classList.add('rudonium-anki-profile-names')
+            const names = this.contentEl.createDiv({ cls: 'rudonium-anki-profile-names' })
             const status = addStatus(this.contentEl)
-            const show = (problem: AnkiProfileError) => {
-                names.setText(profileNames(t, problem.expected ?? expectedAnkiProfile(plugin), problem.actual))
-                showStatus(status, profileProblemText(problem, t), problem.reason !== 'unconfigured')
-            }
-            show(error)
             if (details) this.contentEl.createEl('p', { text: details })
             const footer = this.contentEl.createDiv({ cls: 'modal-button-container' })
             footer.classList.add('rudonium-wrap-controls')
-            const canCheck = !isAnkiProfileLockEnabled(plugin) || !!expectedAnkiProfile(plugin)
-            const check = canCheck ? footer.createEl('button', { text: t('Check Again', 'Проверить ещё раз'), cls: 'mod-cta' }) : undefined
-            const settings = footer.createEl('button', { text: t('Open Profile Settings', 'Открыть настройки профиля'),
-                cls: canCheck ? undefined : 'mod-cta' })
-            settings.onclick = () => openAnkiProfileSettings(plugin)
-            if (check) check.onclick = async () => {
-                if (check.disabled || this.closed) return
-                check.disabled = true
-                showStatus(status, t('Checking the active profile in Anki…', 'Проверяем открытый профиль Anki…'))
-                try {
-                    const profile = await requireExpectedAnkiProfile(plugin)
-                    if (!this.closed) {
-                        names.setText(isAnkiProfileLockEnabled(plugin) ? profileNames(t, profile, profile)
-                            : automaticProfileText(plugin, t, profile))
-                        showStatus(status, t('Profile verified. Close this window and run the operation again.',
-                            'Профиль проверен. Закройте окно и запустите операцию ещё раз.'))
+            const signal = this.abort.signal
+            const show = (problem: AnkiProfileError) => {
+                const offline = problem.reason === 'unreachable'
+                const needsSelection = problem.reason === 'unconfigured'
+                this.titleEl.setText(offline ? t('Cannot Connect to Anki', 'Нет соединения с Anki')
+                    : needsSelection ? t('Set Up Anki Profile', 'Настройте профиль Anki')
+                    : stage === 'before-write' ? t('Export Stopped Before Writing', 'Экспорт остановлен до записи')
+                    : t('Anki Profile Check Stopped the Operation', 'Операция остановлена при проверке профиля Anki'))
+                names.empty()
+                if (!offline && problem.actual) {
+                    names.createEl('p', { text: profileNames(t, problem.expected ?? expectedAnkiProfile(plugin), problem.actual) })
+                }
+                showStatus(status, profileProblemText(problem, t), !needsSelection)
+                footer.empty()
+                if (!needsSelection) {
+                    const check = footer.createEl('button', { cls: 'mod-cta', text: offline
+                        ? t('Check Connection', 'Проверить соединение') : t('Check Again', 'Проверить ещё раз') })
+                    check.onclick = async () => {
+                        if (check.disabled || signal.aborted) return
+                        check.disabled = true
+                        showStatus(status, t('Connecting to Anki…', 'Проверяем соединение с Anki…'))
+                        try {
+                            const profile = await requireExpectedAnkiProfile(plugin, undefined, signal)
+                            if (signal.aborted) return
+                            this.titleEl.setText(t('Connected to Anki', 'Соединение с Anki установлено'))
+                            names.empty()
+                            names.createEl('p', { text: t(`Active in Anki · ${profile}`, `Открыт в Anki · ${profile}`) })
+                            showStatus(status, t('Close this window and run the operation again.',
+                                'Закройте окно и запустите операцию ещё раз.'))
+                            footer.empty()
+                            footer.createEl('button', { cls: 'mod-cta', text: t('Close', 'Закрыть') }).onclick = () => this.close()
+                        } catch (cause) {
+                            if (signal.aborted) return
+                            if (cause instanceof AnkiProfileError) show(cause)
+                            else {
+                                showStatus(status, errorText(cause, t), true)
+                                check.disabled = false
+                            }
+                        }
                     }
-                } catch (cause) {
-                    if (this.closed) return
-                    if (cause instanceof AnkiProfileError) show(cause)
-                    else showStatus(status, errorText(cause, t), true)
-                } finally {
-                    if (!this.closed) check.disabled = false
+                }
+                if (needsSelection || (problem.reason === 'mismatch' && isAnkiProfileLockEnabled(plugin))) {
+                    const settings = footer.createEl('button', { text: t('Open Profile Settings', 'Открыть настройки профиля'),
+                        cls: needsSelection ? 'mod-cta' : undefined })
+                    settings.onclick = () => openAnkiProfileSettings(plugin)
                 }
             }
+            show(error)
         }
 
         onClose(): void {
-            this.closed = true
+            this.abort.abort()
             problemDialogs.delete(plugin)
             this.contentEl.empty()
         }

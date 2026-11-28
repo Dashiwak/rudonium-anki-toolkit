@@ -10,7 +10,7 @@ import { uiFor } from './interface-language'
 import type { UiText } from './interface-language'
 import { installModalLayout } from './modal-layout'
 import { setImageReceiptDirectory } from './export-image-replacement'
-import { hasActiveLegacyPlugin, previousRudoniumId, rudoniumPluginId, upstreamPluginId } from './plugin-identity'
+import { activeLegacyPlugins, hasActiveLegacyPlugin, legacyPluginName, previousRudoniumId, rudoniumPluginId, upstreamPluginId } from './plugin-identity'
 
 const sources = [previousRudoniumId, upstreamPluginId] as const
 type SourceId = typeof sources[number]
@@ -32,12 +32,13 @@ type MigrationContext = {
     isStopped: () => boolean
     plugins: string
     destination: string
+    observedSources: Set<SourceId>
     t: UiText
 }
 
 type MigrationPlan =
     | { kind: 'ready' }
-    | { kind: 'legacy-enabled' }
+    | { kind: 'legacy-enabled'; plugins: SourceId[] }
     | { kind: 'preview'; sourceId: SourceId; files: Entry[]; cachedFiles: number; indexedIds?: number; interrupted: boolean }
 
 type JsonObject = Record<string, unknown>
@@ -84,17 +85,18 @@ function inside(base: string, relative: string, path: PathTools): string {
     return target
 }
 
-async function legacyEnabled(context: MigrationContext): Promise<boolean> {
-    if (hasActiveLegacyPlugin(context.plugin.app)) return true
+async function enabledSources(context: MigrationContext): Promise<SourceId[]> {
+    const live = activeLegacyPlugins(context.plugin.app)
     const configured = await readJson(context.fs, context.path.join(context.config, 'community-plugins.json'))
-    if (configured === undefined) return false
+    if (configured === undefined) return live
     if (!Array.isArray(configured) || configured.some(id => typeof id !== 'string')) {
         throw new Error('The enabled community plugin list could not be verified.')
     }
+    const enabled = new Set(live)
     for (const id of sources) {
-        if (configured.includes(id) && await regularDirectory(context.fs, context.path.join(context.plugins, id))) return true
+        if (!enabled.has(id) && configured.includes(id) && await regularDirectory(context.fs, context.path.join(context.plugins, id))) enabled.add(id)
     }
-    return false
+    return sources.filter(id => enabled.has(id))
 }
 
 type SavedPlan = { sourceId: SourceId; files: Entry[] }
@@ -140,7 +142,11 @@ function isLegacyData(value: unknown): value is JsonObject {
 
 async function inspectMigration(context: MigrationContext): Promise<MigrationPlan> {
     const { fs, path, destination } = context
-    if (await legacyEnabled(context)) return { kind: 'legacy-enabled' }
+    const enabled = await enabledSources(context)
+    if (enabled.length) {
+        for (const id of enabled) context.observedSources.add(id)
+        return { kind: 'legacy-enabled', plugins: enabled }
+    }
     const ready = await readJson(fs, path.join(destination, readyName))
     if (ready !== undefined) {
         if (!object(ready) || ready.version !== 1 || !['copied', 'fresh'].includes(String(ready.mode)) ||
@@ -154,7 +160,10 @@ async function inspectMigration(context: MigrationContext): Promise<MigrationPla
     if (!saved && await regularPath(fs, path.join(destination, 'data.json'))) return { kind: 'ready' }
 
     let sourceId: SourceId | undefined
-    for (const id of saved ? [saved.sourceId] : sources) {
+    // When the user just disabled one exporter, its data takes precedence over an unused installation.
+    const candidates = context.observedSources.size === 1 && context.observedSources.has(upstreamPluginId)
+        ? [upstreamPluginId, previousRudoniumId] as const : sources
+    for (const id of saved ? [saved.sourceId] : candidates) {
         const folder = path.join(context.plugins, id)
         if (!await regularDirectory(fs, folder)) continue
         const hasData = await regularPath(fs, path.join(folder, 'data.json'))
@@ -214,6 +223,8 @@ async function inspectMigration(context: MigrationContext): Promise<MigrationPla
             indexedIds = ids.size
         }
     } catch {
+        // The optional ID count is unavailable. Copy and verify the original index bytes as usual.
+        indexedIds = undefined
     }
     return { kind: 'preview', sourceId, files, cachedFiles: Object.keys(data['File Hashes'] as JsonObject).length,
         indexedIds, interrupted: saved !== undefined }
@@ -316,7 +327,7 @@ async function migrationContext(plugin: Plugin, isStopped: () => boolean): Promi
     }
     setImageReceiptDirectory(app, relative)
     const t = uiFor()
-    return { fs, path, crypto, config, plugins, plugin, isStopped, destination, t }
+    return { fs, path, crypto, config, plugins, plugin, isStopped, destination, observedSources: new Set(), t }
 }
 
 class MigrationModal extends Modal {
@@ -351,8 +362,14 @@ class MigrationModal extends Modal {
         controls.createEl('button', { text: t('Check again', 'Проверить ещё раз') }).onclick =
             () => void run(this.actions.refresh)
         if (plan.kind === 'legacy-enabled') {
-            status.setText(t('Disable the previous Rudonium plugin and Export to Anki in Community plugins, then check again.',
-                'Выключите прежнюю версию Rudonium и Export to Anki в сторонних плагинах, затем нажмите «Проверить ещё раз».'))
+            const names = plan.plugins.map(legacyPluginName).join(t(' and ', ' и '))
+            status.setText(t(`Turn off ${names} under Settings → Community plugins. Rudonium will continue automatically when the plugin is disabled.`,
+                `Отключите ${names} в разделе «Настройки → Сторонние плагины». Rudonium автоматически продолжит работу после отключения.`))
+            if (plan.plugins.includes(upstreamPluginId)) {
+                const link = controls.createEl('a', { text: t('Open Obsidian to Anki', 'Открыть Obsidian to Anki'),
+                    attr: { href: 'obsidian://show-plugin?id=' + upstreamPluginId } })
+                link.onclick = () => this.close()
+            }
             return
         }
         content.insertBefore(content.createEl('p', { text: t('Source plugin folder: ', 'Папка прежнего плагина: ') + plan.sourceId }), controls)
@@ -364,8 +381,11 @@ class MigrationModal extends Modal {
         if (plan.indexedIds !== undefined) content.insertBefore(content.createEl('p', { text: t(
             `Anki IDs recorded in the previous index: ${plan.indexedIds}. The index is not a live Anki check.`,
             `ID Anki в прежнем индексе — ${plan.indexedIds}. Данные взяты из индекса, Anki не подключалась.`) }), controls)
+        if (plan.sourceId === upstreamPluginId) content.insertBefore(content.createEl('p', { text: t(
+            'Rudonium keeps your card syntax, field mappings and one-way export settings. Two-way sync, automatic backups and the change log start turned off.',
+            'Rudonium сохранит синтаксис карточек, привязки полей и параметры одностороннего экспорта. Двусторонняя синхронизация, автоматические копии и журнал изменений изначально выключены.') }), controls)
         controls.createEl('button', { text: plan.interrupted ? t('Resume migration', 'Продолжить перенос') :
-            t('Copy settings and state', 'Перенести настройки и данные'), cls: 'mod-cta' }).onclick = () => void run(async () => {
+            t('Use existing settings', 'Перейти с прежними настройками'), cls: 'mod-cta' }).onclick = () => void run(async () => {
             await copyMigration(context, plan)
             await this.actions.finish()
         })
@@ -383,7 +403,12 @@ export async function pauseForMigration(plugin: Plugin, start: () => Promise<voi
     let modal: MigrationModal | undefined
     let started = false
     let stopped = false
-    plugin.register(() => { stopped = true; modal?.close() })
+    let monitor: number | undefined
+    const stopMonitoring = () => {
+        if (monitor !== undefined) window.clearInterval(monitor)
+        monitor = undefined
+    }
+    plugin.register(() => { stopped = true; stopMonitoring(); modal?.close() })
     try {
         const context = await migrationContext(plugin, () => stopped)
         if (stopped) return true
@@ -394,29 +419,46 @@ export async function pauseForMigration(plugin: Plugin, start: () => Promise<voi
             if (context.isStopped() || started) return
             checkMigrationActive(context)
             started = true
-            try { await start(); modal?.close() }
+            try { await start(); stopMonitoring(); migrationRibbon.remove(); modal?.close() }
             catch (error) { started = false; throw error }
         }
+        let displayed: Exclude<MigrationPlan, { kind: 'ready' }> = first
         const review = (plan: Exclude<MigrationPlan, { kind: 'ready' }>) => {
             if (stopped || started) return
+            displayed = plan
+            if (plan.kind === 'legacy-enabled' && monitor === undefined) {
+                monitor = window.setInterval(() => {
+                    if (!modal?.busy) void refresh(true).catch(error => { stopMonitoring(); report(error) })
+                }, 1000)
+            } else if (plan.kind === 'preview') stopMonitoring()
             modal?.close()
             modal = new MigrationModal(plugin, context, plan, { finish, refresh })
             modal.open()
         }
-        const refresh = async () => {
-            if (context.isStopped() || started) return
-            const next = await inspectMigration(context)
-            if (next.kind === 'ready') await finish()
-            else review(next)
+        let refreshing = false
+        const refresh = async (automatic = false) => {
+            if (context.isStopped() || started || refreshing) return
+            refreshing = true
+            try {
+                const next = await inspectMigration(context)
+                if (context.isStopped() || started) return
+                if (next.kind === 'ready') await finish()
+                else if (!automatic || next.kind !== 'legacy-enabled' || displayed.kind !== 'legacy-enabled' ||
+                    next.plugins.join() !== displayed.plugins.join()) review(next)
+            } finally { refreshing = false }
         }
+        const report = (error: unknown) => {
+            if (stopped) return
+            console.error('[Rudonium Anki Toolkit] Migration error', error)
+            new Notice(context.t('Could not check migration. Review the source plugin files and try again from the Rudonium ribbon button.',
+                'Не удалось проверить перенос. Проверьте файлы прежнего плагина и повторите попытку через кнопку Rudonium на боковой панели.'))
+        }
+        const reopen = () => { if (!modal?.busy) void refresh().catch(report) }
+        const migrationRibbon = plugin.addRibbonIcon('arrow-right-left', context.t('Switch to Rudonium', 'Перейти на Rudonium'), reopen)
         plugin.addCommand({ id: 'review-legacy-migration', name: context.t('Review migration', 'Проверить перенос настроек'),
             checkCallback: checking => {
                 if (context.isStopped() || started || modal?.busy) return false
-                if (!checking) void refresh().catch(error => {
-                    console.error('[Rudonium Anki Toolkit] Migration error', error)
-                    new Notice(context.t('Could not verify migration. Restart the plugin and check the previous files.',
-                        'Не удалось проверить перенос. Перезапустите плагин и проверьте прежние файлы.'))
-                })
+                if (!checking) reopen()
                 return true
             } })
         review(first)

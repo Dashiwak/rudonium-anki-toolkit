@@ -15,7 +15,8 @@ import { sameEditorText } from './markdown-pipeline'
 import { isOptimizedImageCopyPath } from './media-sync'
 import type { MediaIndex } from './media-sync'
 import { OneWayHistory } from './oneway-history'
-import { hasActiveLegacyPlugin } from './plugin-identity'
+import { activeLegacyPlugins, hasActiveLegacyPlugin, legacyPluginName } from './plugin-identity'
+import { AnkiProfileError } from './anki-profile'
 
 export type Entry = [mtime: number, ctime: number, size: number, hash: string | null, hasSuspension?: true]
 export type IdEntry = [mtime: number, ctime: number, size: number, ids: number[]]
@@ -111,8 +112,8 @@ export function openOneWayHistory(plugin: MyPlugin, profile: string): Promise<On
     return OneWayHistory.open(plugin.app.vault.adapter, `${index.slice(0, index.lastIndexOf('/') + 1)}one-way-history.json`, profile)
 }
 
-export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW' | 'BIDIRECTIONAL_CONFLICT_POLICY' | 'SYNC_CHANGE_HISTORY'> {
-    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, BIDIRECTIONAL_CONFLICT_POLICY, SYNC_CHANGE_HISTORY, ...scanSettings } = settings
+export function settingsWithoutAuditMode(settings: MyPlugin['settings']): Omit<MyPlugin['settings'], 'AUDIT_READ_ONLY' | 'SKIP_SYNC_ERRORS' | 'ARCHIVE_TRANSFER' | 'COLLAPSE_ANKI_IDS' | 'INTERFACE_LANGUAGE' | 'BIDIRECTIONAL_PREVIEW' | 'BIDIRECTIONAL_CONFLICT_POLICY' | 'SYNC_CHANGE_HISTORY' | 'QUICK_START_STATUS' | 'EDITOR_CARD_WARNINGS'> {
+    const { AUDIT_READ_ONLY, SKIP_SYNC_ERRORS, ARCHIVE_TRANSFER, COLLAPSE_ANKI_IDS, INTERFACE_LANGUAGE, BIDIRECTIONAL_PREVIEW, BIDIRECTIONAL_CONFLICT_POLICY, SYNC_CHANGE_HISTORY, QUICK_START_STATUS, EDITOR_CARD_WARNINGS, ...scanSettings } = settings
     return scanSettings
 }
 
@@ -217,9 +218,10 @@ export async function saveBidirectionalEditors(plugin: MyPlugin, includes: (path
 }
 
 
-export function previousPluginMessage(t: UiText): string {
-    return t('Disable the previous Anki export plugin in Community plugins and retry.',
-        'Отключите предыдущий плагин экспорта в Anki в разделе «Сторонние плагины» и повторите операцию.')
+export function previousPluginMessage(app: MyPlugin['app'], t: UiText): string {
+    const names = activeLegacyPlugins(app).map(legacyPluginName).join(t(' and ', ' и '))
+    return t(`Turn off ${names} under Settings → Community plugins, then sync again.`,
+        `Отключите ${names} в разделе «Настройки → Сторонние плагины» и повторите синхронизацию.`)
 }
 
 export async function withFastScanReadLock<T>(
@@ -227,7 +229,7 @@ export async function withFastScanReadLock<T>(
         metadataRevision: () => number) => Promise<T>,
     allowLegacyPreview = false,
 ): Promise<T> {
-    if (!allowLegacyPreview && hasActiveLegacyPlugin(plugin.app)) throw new Error(previousPluginMessage(uiFor(plugin.settings)))
+    if (!allowLegacyPreview && hasActiveLegacyPlugin(plugin.app)) throw new Error(previousPluginMessage(plugin.app, uiFor(plugin.settings)))
     const state = ensureScanState(plugin)
     if (state.running || state.resetting) {
         throw new Error(uiFor(plugin.settings)('Wait for the current scan or cache reset to finish, then try again.',
@@ -270,6 +272,7 @@ export async function prepareInitialSchema(plugin: MyPlugin, onFailure?: (reason
     if (!refresh || Object.keys(plugin.fields_dict ?? {}).length) return true
     try { await refresh(); return true }
     catch (error) {
+        if (error instanceof AnkiProfileError) throw error
         const t = uiFor(plugin.settings)
         const reason = t('Could not load note types from Anki. ', 'Не удалось загрузить типы записей из Anki. ') + String(error)
         new Notice(reason)

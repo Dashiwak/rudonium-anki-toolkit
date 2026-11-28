@@ -57,7 +57,7 @@ function patchMain(source, ts) {
     editBody("getDefaultSettings", body => body.replace(/^([ \t]*)(["']Frozen Fields Line["']\s*:)/m,
         '$1"Suspend Line": "SUSPEND",\n$1$2'));
     editBody("getDefaultSettings", body => replaceOnce(body, /([ \t]*)Defaults:\s*\{/,
-        '$1EXPECTED_ANKI_PROFILE: "",\n$1REQUIRE_ANKI_PROFILE: false,\n$1BIDIRECTIONAL_SYNC: false,\n$1BIDIRECTIONAL_PREVIEW: false,\n$1BIDIRECTIONAL_CONFLICT_POLICY: "latest",\n$1SKIP_SYNC_ERRORS: false,\n$1INTERFACE_LANGUAGE: "en",\n$1PAGE_ID_LOCATION: "yaml",\n$1COLLAPSE_ANKI_IDS: false,\n$1CLEAN_DELETED_BLOCKS: false,\n$1MARK_DELETED_BLOCKS: false,\n$1TRASH_DELETED_PAGES: false,\n$&'));
+        '$1EXPECTED_ANKI_PROFILE: "",\n$1REQUIRE_ANKI_PROFILE: false,\n$1BIDIRECTIONAL_SYNC: false,\n$1BIDIRECTIONAL_PREVIEW: false,\n$1BIDIRECTIONAL_CONFLICT_POLICY: "latest",\n$1SKIP_SYNC_ERRORS: true,\n$1INTERFACE_LANGUAGE: "en",\n$1PAGE_ID_LOCATION: "yaml",\n$1COLLAPSE_ANKI_IDS: false,\n$1CLEAN_DELETED_BLOCKS: false,\n$1MARK_DELETED_BLOCKS: false,\n$1TRASH_DELETED_PAGES: false,\n$&'));
     editBody("getDefaultSettings", offlineDefaults);
     editBody("loadSettings", body => {
         const load = replaceOnce(body.replace(/new Notice\(["'](?:Need to connect to Anki generate default settings\.\.\.|Default settings successfully generated!)["']\)\s*;?/g, ""), /current_data\s*==\s*null\s*\|\|\s*Object\.keys\(current_data\)\.length\s*!=\s*4/,
@@ -77,7 +77,7 @@ function patchMain(source, ts) {
                 IGNORED_FILE_GLOBS?: string[]
                 Defaults: { "Scan Directory"?: string }
             } = current_data.settings
-            importLegacyScanScope(settings, settings.Defaults)
+            importUpstreamSettings(settings, settings.Defaults)
             if (settings.Defaults && settings.Defaults.Tag == null) settings.Defaults.Tag = ""
             return settings`);
     });
@@ -174,7 +174,7 @@ function patchMain(source, ts) {
         /("ID Comments"\s*:\s*true,)(\r?\n)([ \t]*)/,
         '$1$2$3"Add Date to Anki IDs": false,$2$3');
     source = replaceOnce(source, /export default class MyPlugin extends Plugin\s*\{/, "$&\n    readonly matchIgnoredPaths = multimatch");
-    return "import multimatch from 'multimatch'\nimport { importLegacyScanScope } from './src/sync-profiles'\n" +
+    return "import multimatch from 'multimatch'\nimport { importUpstreamSettings } from './src/sync-profiles'\n" +
         "import { uiFor } from './src/interface-language'\n" +
         "import { openAuditForExportIssue, startSyncAudit, openSyncAuditDeckPicker } from './src/sync-audit-ui'\n" +
         "import { registerPageMigrationCommand } from './src/page-migration-ui'\n" +
@@ -233,7 +233,7 @@ function patchIdDateInterfaces(source) {
     source = replaceOnce(source, /("ID Comments"\s*:\s*boolean,)(\r?\n)([ \t]*)/,
         '$1$2$3"Add Date to Anki IDs"?: boolean,$2$3');
     source = replaceOnce(source, /(export interface PluginSettings\s*\{)(\r?\n)/,
-        '$1$2    NOTE_TYPE_RULE_MODELS?: string[]$2    NOTE_TYPE_RULE_NAMES?: Record<string, string>$2    INACTIVE_CUSTOM_REGEXPS?: Record<string, string>$2    REGEXP_WIZARD_FIELDS?: Record<string, string[]>$2    PAGE_MODEL?: string$2    PAGE_ID_LOCATION?: "heading" | "yaml" | "after-answer"$2    AUDIT_READ_ONLY?: boolean$2    BIDIRECTIONAL_SYNC?: boolean$2    BIDIRECTIONAL_PREVIEW?: boolean$2    BIDIRECTIONAL_CONFLICT_POLICY?: "latest" | "skip"$2    SKIP_SYNC_ERRORS?: boolean$2' +
+        '$1$2    QUICK_START_STATUS?: "pending" | "complete" | "dismissed"$2    NOTE_TYPE_RULE_MODELS?: string[]$2    NOTE_TYPE_RULE_NAMES?: Record<string, string>$2    INACTIVE_CUSTOM_REGEXPS?: Record<string, string>$2    REGEXP_WIZARD_FIELDS?: Record<string, string[]>$2    PAGE_MODEL?: string$2    PAGE_ID_LOCATION?: "heading" | "yaml" | "after-answer"$2    AUDIT_READ_ONLY?: boolean$2    BIDIRECTIONAL_SYNC?: boolean$2    BIDIRECTIONAL_PREVIEW?: boolean$2    BIDIRECTIONAL_CONFLICT_POLICY?: "latest" | "skip"$2    SKIP_SYNC_ERRORS?: boolean$2' +
         '    LEGACY_IGNORED_FILE_GLOBS?: string[]$2    SYNC_FOLDER_PROFILES?: import("../sync-profiles").SyncFolderProfile[]$2    ACTIVE_SYNC_FOLDER_PROFILE?: string$2' +
         '    EFFECTIVE_EXPORT_RULES?: import("../export-rules").ExportRule[]$2' +
         '    BIDIRECTIONAL_FIELDS?: import("../bidirectional-fields").BidirectionalFieldRule[]$2' +
@@ -595,7 +595,17 @@ const OBS_TAG_REGEXP: RegExp = /(?<![^\s>(\[])#((?=[\p{L}\p{M}\p{N}\p{Extended_P
     if ([...source.matchAll(capture)].length !== 2) {
         throw new Error("Unexpected inline tag readers in src/note.ts.");
     }
-    return source.replace(capture, "$1this.tags.push(match[1].split('/').join('::'))");
+    source = source.replace(capture, "$1this.tags.push(match[1].split('/').join('::'))");
+    source = replaceOnce(source, /(fields\[this\.current_field\] \+= line \+ "\\n"\s*\}\n)/,
+        '$1' + String.raw`        if (this.identifier && this.text.includes(blockFieldTagSignature) &&
+            hasBlockFieldTags(this.text.slice(this.text.lastIndexOf('\n') + 1))) {
+            const first = this.field_names[0]
+            const suffix = readBlockFieldTags(fields[first])
+            fields[first] = suffix.text
+            this.tags.push(...suffix.tags)
+        }
+`);
+    return source.replace("import { FormatConverter }", "import { blockFieldTagSignature, hasBlockFieldTags, readBlockFieldTags } from './block-field-tags'\nimport { FormatConverter }");
 }
 
 function patchSourceFieldWriters(source) {

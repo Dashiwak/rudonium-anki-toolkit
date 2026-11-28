@@ -29,6 +29,29 @@ test('existing patterns and metadata survive edits and removal of a different ru
     assert.deepEqual(readRule(removed, 'Legacy'), readRule(initial, 'Legacy'))
     assert.deepEqual(readRule(removed, 'Basic'), { model: 'Basic', expression: '', file: '', context: '' })
 })
+test('upstream defaults for both selectors never create rules, with every combination of global export switches', () => {
+    const fields = { Basic: ['Front', 'Back'], Reversed: ['Q', 'A'], EnDic26: ['-FW', '-NW', 'File', 'Context'] }
+    for (const fileEnabled of [false, true]) for (const contextEnabled of [false, true]) {
+        for (const [file, context, expression, expected] of [
+            ['-FW', '-FW', '', []], ['-FW', undefined, '', []], ['File', '-FW', '', ['EnDic26']],
+            ['-FW', 'Context', '', ['EnDic26']], ['File', 'Context', '', ['EnDic26']],
+            ['-FW', '-FW', '^Q:(.+)$', ['EnDic26']], ['removed field', '-FW', '', []],
+        ]) {
+            const settings = { Defaults: { 'Add File Link': fileEnabled, 'Add Context': contextEnabled },
+                CUSTOM_REGEXPS: { Basic: '', Reversed: '', EnDic26: expression },
+                FILE_LINK_FIELDS: { Basic: 'Front', Reversed: 'Q', EnDic26: file },
+                CONTEXT_FIELDS: { Basic: 'Front', ...(context ? { EnDic26: context } : {}) } }
+            const original = structuredClone(settings)
+            assert.deepEqual(configuredModels(settings, fields), expected)
+            assert.deepEqual(configuredModels(structuredClone(settings), fields), expected)
+            assert.deepEqual(settings, original)
+            // Rules explicitly saved in Rudonium survive even when both mappings use the first field.
+            const pinned = withRule(settings, readRule(settings, 'Basic'))
+            assert.deepEqual(configuredModels(pinned, fields), ['Basic', ...expected])
+        }
+    }
+})
+
 test('rule validation rejects malformed patterns, conflicting assignments and stale fields', () => {
     const empty = readRule({}, 'Basic')
     for (const preset of cardFormatPresets) {

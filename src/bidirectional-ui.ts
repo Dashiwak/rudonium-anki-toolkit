@@ -221,7 +221,7 @@ class BidirectionalPreviewModal extends Modal {
                     openAuditSource(this.app, row, { modal: this, isClosed: () => this.closed }, t))
             }
             anki.onclick = () => {
-                if (!this.busy) void this.navigate(anki, () => openAuditAnkiNote(row.id, undefined, t))
+                if (!this.busy) void this.navigate(anki, () => openAuditAnkiNote(row.id, { active: this.preview.profile }, t))
             }
             showIssues(details, row.issues ?? [], t)
             if (row.duplicates?.length) {

@@ -115,3 +115,46 @@ test("the export notice opens only the requested repair after rechecking its pro
     assert.equal(repairs.length, 1);
     assert.ok(modal.contentEl.all().some(el => el.text?.includes("Could not confirm missing ID 82 at Dictionary.md")));
 });
+
+test("Run Audit from an export notice checks the current configured deck directly, with a deck picker only when needed", async () => {
+    const plugin = { app: {}, settings: { Defaults: { Deck: "Old" } } };
+    const checks = [], pickers = [];
+    class ReviewModal {
+        constructor() { this.modalEl = this.contentEl = new Element("div"); this.titleEl = new Element("h2"); }
+        open() { this.onOpen(); }
+        close() { this.releaseReview(); }
+    }
+    class SyncAuditDeckPicker {
+        constructor(_app, choose, _localDecks, dismiss) { this.choose = choose; this.close = dismiss; }
+        open() { pickers.push(this); }
+    }
+    const host = { AbortController, ReviewModal, SyncAuditDeckPicker, waitForFastScanIdle: async () => {},
+        uiFor: () => en => en, installModalLayout() {}, hasAuditAttachmentSources: () => false, auditCardRows: () => [],
+        syncScopeSignature: () => "current-folder", syncAuditDeckKey: deck => deck,
+        auditPluginSync: async (_plugin, _update, _signal, scope, signature) => {
+            checks.push([scope.deck, signature]);
+            return { ...auditSummary(0), deck: scope.deck };
+        },
+    };
+    const code = "import { AbortController } from './test-host';\n" + readFileSync(overlay.file("sync-audit-ui.ts"), "utf8");
+    const { "sync-audit-ui": audit } = await load(["sync-audit-ui"], host, { "sync-audit-ui": code });
+    for (const reported of [undefined, "Folder override"]) {
+        const opening = audit.openAuditForExportIssue(plugin, reported);
+        plugin.settings.Defaults.Deck = "Knowledge::Languages";
+        await opening;
+        await settle();
+    }
+    assert.equal(pickers.length, 0);
+    assert.deepEqual(checks, Array(2).fill(["Knowledge::Languages", "current-folder"]));
+    plugin.settings.Defaults.Deck = " ";
+    await audit.openAuditForExportIssue(plugin, "Only deck in export");
+    await settle();
+    assert.equal(checks.at(-1)[0], "Only deck in export");
+    await audit.openAuditForExportIssue(plugin);
+    assert.equal(pickers.length, 1);
+    assert.equal(checks.length, 3);
+    pickers[0].close();
+    pickers[0].choose("Chosen deck");
+    await settle();
+    assert.equal(checks.at(-1)[0], "Chosen deck");
+});

@@ -42,7 +42,8 @@ async function screen(saved, russian = false) {
         uiDiagnostic: String, withFastScanReadLock: (_, run) => run(), savePluginDataInOrder: (_, run) => run() })
     let opened = 0
     module['id-tools-settings-ui'].installIdMarkerSettings(new Element(), plugin, {moveVaultPages: () => { opened++ }})
-    return { plugin, notices, bulk: rows.find(r => r.button?.text === (russian ? 'Перенести ID страниц…' : 'Move page IDs…')).button, opened: () => opened, row: rows.find(r => r.dropdown), sample: nodes.find(n => n.tag === 'pre') }
+    const editorWarnings = rows.find(row => row.name === (russian ? 'Показывать предупреждения о карточках в редакторе' : 'Show card warnings in the editor')).toggle
+    return { plugin, notices, editorWarnings, bulk: rows.find(r => r.button?.text === (russian ? 'Перенести ID страниц…' : 'Move page IDs…')).button, opened: () => opened, row: rows.find(r => r.dropdown), sample: nodes.find(n => n.tag === 'pre') }
 }
 
 test('new vaults use YAML and the saved choice, examples and bulk action follow the interface language', async () => {
@@ -75,6 +76,43 @@ test('new vaults use YAML and the saved choice, examples and bulk action follow 
     assert.equal(saved.settings.PAGE_ID_LOCATION, 'heading')
     assert.match(reopened.sample.text, /# Вопрос #anki-page\n<!--ID: 123-->/)
     assert.equal((await screen(saved)).row.dropdown.value, 'heading')
+})
+
+test('upstream users can turn editor warnings on without restarting and a failed write preserves the last choice', async () => {
+    const saved = { settings: { EDITOR_CARD_WARNINGS: false } }
+    const ui = await screen(saved, true)
+    assert.equal(ui.editorWarnings.value, false)
+    await ui.editorWarnings.change(true)
+    assert.equal(saved.settings.EDITOR_CARD_WARNINGS, true)
+    ui.plugin.offline = true
+    await ui.editorWarnings.change(false)
+    assert.equal(ui.editorWarnings.value, true)
+    assert.deepEqual(ui.notices, ['Error: write failed'])
+
+    const { 'editor-card-warnings': warnings } = await load(['editor-card-warnings'], {
+        ViewPlugin: { fromClass: () => 'diagnostics' }, EditorView: { baseTheme: () => 'theme' },
+        StateEffect: { define: () => ({}) },
+    })
+    let active, updates = 0, cleanup
+    const plugin = { settings: { EDITOR_CARD_WARNINGS: false },
+        app: { workspace: { updateOptions() { updates++ } } },
+        registerEditorExtension(extensions) { active = extensions },
+        register(callback) { cleanup = callback } }
+    warnings.registerEditorCardWarnings(plugin)
+    assert.deepEqual([...active], [])
+    plugin.settings.EDITOR_CARD_WARNINGS = true
+    warnings.refreshEditorCardWarnings(plugin)
+    assert.deepEqual([...active], ['diagnostics', 'theme'])
+    warnings.refreshEditorCardWarnings(plugin)
+    assert.equal(updates, 1)
+    plugin.settings.EDITOR_CARD_WARNINGS = false
+    warnings.refreshEditorCardWarnings(plugin)
+    assert.deepEqual([...active], [])
+    assert.equal(updates, 2)
+    cleanup()
+    plugin.settings.EDITOR_CARD_WARNINGS = true
+    warnings.refreshEditorCardWarnings(plugin)
+    assert.equal(updates, 2)
 })
 
 test('generated setting-to-data passes the vault preference and defaults unset or invalid choices to YAML', async () => {

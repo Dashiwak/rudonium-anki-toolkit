@@ -219,6 +219,11 @@ function patchEmbeddedMedia(source) {
 }
 
 function patchFormatter(source) {
+    source = source.replace("import { AnkiConnectNote }", "import type { AnkiConnectNote }").replace("import { CachedMetadata }", "import type { CachedMetadata }");
+    source = replaceOnce(source, /import \{ Converter \} from 'showdown'/, "import { renderAnkiMarkdown } from './anki-markdown-renderer'", "Markdown renderer import");
+    source = replaceOnce(source, /import showdownHighlight from 'showdown-highlight'\r?\n/, "", "legacy Markdown extension");
+    source = replaceOnce(source, /let converter: Converter = new Converter\(\{[\s\S]*?^\}\)\r?\n/m, "", "legacy Markdown converter");
+    source = replaceOnce(source, /converter\.makeHtml\(note_text\)/, "renderAnkiMarkdown(note_text)", "Markdown conversion call");
     source = patchEmbeddedMedia(source);
     source = source.replace(/^import \{ basename, extname \} from ['"]path['"];?\r?\n/m, "")
         .replace(/^(\s*)const extension = extname\(embed\.link\)\.toLowerCase\(\)/m, (_match, indent) =>

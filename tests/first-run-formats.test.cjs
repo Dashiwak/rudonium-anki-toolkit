@@ -2,101 +2,25 @@
 const {test} = require('node:test')
 const assert = require('node:assert/strict')
 const {load} = require('./benchmark/migration-modules.cjs')
-const {patchMarkdownConstants} = require('../Build/format-patches.cjs')
-
 const { removeStartupSchemaFetch } = require('../Build/install.cjs')
 
-class TFile {
-    constructor(path,text) { this.path = path; this.text = text }
-}
+test('Quick Start eligibility only uses saved settings, including block-only profiles with no regexp', async () => {
+    const { 'first-run-formats': { needsFormatSetup } } = await load(['first-run-formats'], {})
+    const fresh = { CUSTOM_REGEXPS: {} }
+    assert.equal(needsFormatSetup(fresh, {}), true)
+    for (const configured of [
+        { CUSTOM_REGEXPS: { EnDic26: '' } },
+        { CUSTOM_REGEXPS: { Basic: '@page' } },
+        { NOTE_TYPE_RULE_MODELS: ['Basic'] },
+        { FILE_LINK_FIELDS: { EnDic26: 'File' }, CONTEXT_FIELDS: { EnDic26: 'Context' } },
+    ]) assert.equal(needsFormatSetup(configured, {}), false)
+    assert.equal(needsFormatSetup(fresh, { EnDic26: ['Front', 'Back', 'File', 'Context'] }), false)
 
-async function setup(notes, vaultStorage = new Map()) {
-    const names = ['OBS_INLINE_MATH_REGEXP','OBS_DISPLAY_MATH_REGEXP','OBS_CODE_REGEXP','OBS_DISPLAY_CODE_REGEXP']
-    const constants = patchMarkdownConstants(names.map(k=>'export const '+k+' = /x/g').join('\n'))
-    const api = { TFile, isDuplicateFirstFieldErrorMessage() {} }
-    const { 'first-run-formats': formats } = await load(['first-run-formats', 'card-export-diagnostics', 'markdown-pipeline',
-        'anki-transport','constants'], api, {constants})
-    const files = notes.map((text,i) => new TFile(i+'.md',text))
-    const reads=[], scans=[]
-    let inFlight=0, max=0
-    const app = { loadLocalStorage(key) {return vaultStorage.get(key)}, saveLocalStorage(key, value) {
-            if (value === null) vaultStorage.delete(key)
-            else vaultStorage.set(key,value)
-        },
-        vault: { getMarkdownFiles() {scans.push(true);return files}, getAbstractFileByPath(path) {return files.find(f=>f.path===path)},
-            async read(file) {reads.push(file.path);max=Math.max(max,++inFlight);await Promise.resolve();--inFlight
-                if (file.text instanceof Error) throw file.text
-                return file.text} } }
-    let stopped=false
-    const settings={Syntax:{}, CUSTOM_REGEXPS:{Basic:''}}
-    return {needs:()=>formats.needsFormatSetup(app,settings,()=>stopped), ack:()=>formats.acknowledgeFormatSetup(app,settings),
-        app,files,scans,reads, settings,max:()=>max,stop:()=>{stopped=true}}
-}
-test('existing vault missing both rule and complete marker pair prompts once',async()=>{
-    const h=await setup(['# Notes','START\nNo closing line', 'Something\nEND',
-        '```markdown\nSTART\nBasic\nEND\n```',
-        '---\nexample: |\n  START\n  END\n---\n',
-        '<!--\nSTART\nBasic\nEND\n-->', '%%\nSTART\nEND\n%%','`STARTI [Basic] Front: text ENDI`'])
-    assert.equal(await h.needs(),true);assert.equal(h.reads.length,8);assert.ok(h.max()<=4)
-    h.ack();h.reads.length=0
-    assert.equal(await h.needs(),false);assert.equal(h.reads.length,0)
-})
-test('configured regex or @page short-circuits before enumeration; complete custom block or inline pair suppresses prompt',async()=>{
-    const h=await setup(Array(12).fill('Other notes'))
-    for(const expr of ['@page','Q=(.+)']) {
-        h.settings.CUSTOM_REGEXPS.Basic=expr
-        assert.equal(await h.needs(),false);assert.equal(h.scans.length,0);assert.equal(h.reads.length,0)
+    for (const status of ['complete', 'dismissed']) {
+        assert.equal(needsFormatSetup({ ...fresh, QUICK_START_STATUS: status }, {}), false)
     }
-    h.settings.CUSTOM_REGEXPS.Basic=' '
-    h.settings.Syntax={'Begin Note':'S.(1)','End Note':'E*', 'Begin Inline Note':'I+','End Inline Note':'/I+'}
-    h.files[4].text='S.(1)\r\nBasic\r\nE*'
-    assert.equal(await h.needs(),false);assert.equal(h.reads.length,8)
-    h.reads.length=0;h.scans.length=0
-    assert.equal(await h.needs(),false);assert.deepEqual(h.reads,['4.md']);assert.equal(h.scans.length,0)
-    h.files[4].text='';h.files[8].text='Text I+ [Basic] Front: anything /I+'
-    assert.equal(await h.needs(),false)
-    h.files[8].text='';assert.equal(await h.needs(),true)
-})
-test('read failure and shutdown are inconclusive; another startup can retry',async()=>{
-    const h=await setup([Error('locked')]);assert.equal(await h.needs(),false)
-    h.files[0].text='';assert.equal(await h.needs(),true)
-    h.stop();h.reads.length=0;assert.equal(await h.needs(),false);assert.equal(h.reads.length,0)
-})
-
-test('the saved first-run decision survives reload and stays scoped to its vault and marker syntax', async () => {
-    const key = 'rudonium-anki-toolkit:format-check-v1'
-    const syntax = JSON.stringify(['START','END','STARTI','ENDI'])
-    const storage = new Map([[key, {syntax, shown:true}], ['other-plugin', 'keep']])
-    const previous = await setup(['unrelated text'], storage)
-    assert.equal(await previous.needs(), false)
-    assert.deepEqual(previous.scans, [])
-    const other = await setup(['unrelated text'])
-    assert.equal(await other.needs(), true)
-    previous.settings.Syntax['Begin Note'] = 'CARD'
-    assert.equal(await previous.needs(), true)
-    previous.ack()
-    const reloaded = await setup(['unrelated text'], storage)
-    reloaded.settings.Syntax['Begin Note'] = 'CARD'
-    assert.equal(await reloaded.needs(), false)
-    assert.equal(reloaded.reads.length, 0)
-    reloaded.settings.CUSTOM_REGEXPS.Basic = '@page'
-    assert.equal(await reloaded.needs(), false)
-    assert.deepEqual([...storage.entries()], [['other-plugin','keep']])
-})
-
-test('malformed caches, missing methods and local storage failures do not prevent format detection', async () => {
-    const storage = new Map([['rudonium-anki-toolkit:format-check-v1',
-        {syntax: JSON.stringify(['START','END','STARTI','ENDI']), shown: 'true', path: 7}]])
-    const h = await setup(['unrelated text'], storage)
-    assert.equal(await h.needs(), true)
-    h.app.loadLocalStorage = () => { throw Error('unavailable') }
-    h.app.saveLocalStorage = () => { throw Error('unavailable') }
-    assert.doesNotThrow(h.ack)
-    assert.equal(await h.needs(), true)
-    delete h.app.loadLocalStorage
-    delete h.app.saveLocalStorage
-    h.files[0].text = 'START\nBasic\nEND'
-    assert.equal(await h.needs(), false)
+    // Fetching fields during an incomplete setup is not evidence of a successful save.
+    assert.equal(needsFormatSetup({ ...fresh, QUICK_START_STATUS: 'pending' }, { Basic: ['Front', 'Back'] }), true)
 })
 
 test('the upstream new-install template has an empty tag before any save or Anki request', () => {

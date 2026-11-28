@@ -54,8 +54,7 @@ test('Help and the language selector are available in English and Russian', asyn
     assert.match(generated, /installSettingsHelp\(containerEl,/)
     assert.doesNotMatch(generated, /Obsidian_to_Anki settings/)
     const actual = readFileSync(new URL('../src/settings.ts', import.meta.url), 'utf8')
-    const layout = actual.slice(actual.indexOf('setup_display(): void'))
-    assert.doesNotMatch(layout, /For more information check the wiki|Rudonium Anki Toolkit settings/)
+    assert.doesNotMatch(actual, /For more information check the wiki|Rudonium Anki Toolkit settings/)
     assert.match(generated, /installInterfaceLanguage\(info,[^\n]*\n\s*installProjectInfo\(info, \(this as any\)\.plugin, RUDONIUM_BUILD_VERSION\)/)
     for (const [initial, next, label, linkText] of [
         [undefined, 'ru', 'Interface Language', 'Rudonium help on GitFlic'],
@@ -165,9 +164,19 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     }
     const { 'card-lifecycle-settings': { isLifecycleSyntax } } = await load(['card-lifecycle-settings'], {})
     const { settings: { SettingsTab }, 'settings-layout': layout } = await load(['settings', 'settings-layout', 'first-connection', 'page-migration-ui', 'card-format-presets'], {
-        PluginSettingTab: class { hide() {} }, Setting: Row, Modal: class { open() { dialogs.push(this.constructor.name) } },
+        PluginSettingTab: class {
+            update() {
+                this.containerEl.empty()
+                for (const definition of this.getSettingDefinitions()) {
+                    const settingEl = this.containerEl.createDiv()
+                    settingEl.classList = this.containerEl.classList
+                    definition.render({ settingEl })
+                }
+            }
+            hide() {}
+        }, Setting: Row, Modal: class { open() { dialogs.push(this.constructor.name) } },
         uiFor, installInterfaceLanguage, installProjectInfo, installSettingsHelp, legacySettingLabel, isLifecycleSyntax, bindSyntaxEdit: noop,
-        acknowledgeFormatSetup: noop, installBidirectionalSettings: noop, installNoteTypeRules: noop,
+        needsFormatSetup: () => true, installBidirectionalSettings: noop, installNoteTypeRules: noop,
         installIgnoredFilesSetting: noop, installDefaultDeckSetting: noop, legacySettingDescription, installNoteTypeRefresh: noop,
         installFolderTagSettings: noop, installCardLifecycleSettings: noop, installAnkiProfileSettings: noop,
         installSyncProfileSettings: noop, installDeckRoutingSettings: noop, installIdMarkerSettings: noop,
@@ -184,15 +193,16 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
         'Suspend Line': 'PAUSE', 'Suspend Line Aliases': '[]' } }, fields_dict: {}, manifest: release, register: noop, saveAllData: async () => {} }
     const tab = new SettingsTab({}, plugin)
     tab.containerEl = root
-    tab.display()
+    tab.update()
     for (const [language, about, connection, first, setupButton, migration, migrationButton, syntax, end, next] of [
         ['Interface Language', 'About the plugin', 'Anki Connection', 'Quick Start', 'Set up sync', 'Card file migration', 'Set up migration', 'Syntax Settings', 'End Note', 'ru'],
         ['Язык интерфейса', 'О плагине', 'Подключение к Anki', 'Быстрый старт', 'Настроить синхронизацию', 'Перенос карточек из файлов', 'Настроить перенос', 'Синтаксис карточек', 'Конец блока карточки', 'en'],
     ]) {
-        const [header, group] = root.children
+        const rendered = root.children.flatMap(row => row.children)
+        const [header, group] = rendered
         const [controls, help] = header.children
         assert.equal(help.attr.href, supportUrl)
-        assert.equal(root.children.filter(el => el.getAttribute?.('data-rudonium-settings-group') === 'connection').length, 1)
+        assert.equal(rendered.filter(el => el.getAttribute?.('data-rudonium-settings-group') === 'connection').length, 1)
         assert.equal(group.tag, 'details')
         assert.equal(group.children[0].text, connection)
         const actions = group.children[1].children
@@ -202,9 +212,9 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
             actions.forEach(row => row.click())
             assert.deepEqual(dialogs, ['FirstConnectionModal', 'PageMigrationWizard'])
         }
-        const syntaxGroup = root.children.find(el => el.children?.[0]?.text === syntax)
+        const syntaxGroup = rendered.find(el => el.children?.[0]?.text === syntax)
         assert.deepEqual(syntaxGroup.children[1].children.map(row => row.label), [end])
-        const groups = root.children.slice(1)
+        const groups = rendered.slice(1)
         assert.ok(groups.every(el => el.tag === 'details'))
         const keys = groups.map(el => el.getAttribute('data-rudonium-settings-group'))
         assert.deepEqual(keys.slice(0, 4), ['connection', 'syntax', 'defaults', 'actions'])
@@ -238,7 +248,7 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     const restarted = { ...plugin, settings: { ...plugin.settings, INTERFACE_LANGUAGE: 'ru' } }
     const reopened = new SettingsTab(app, restarted)
     reopened.containerEl = root
-    reopened.display()
+    reopened.update()
     assert.ok(section('connection').open && section('syntax').open)
     assert.equal(section('defaults').open, false)
     assert.equal(section('connection').children[0].text, 'Подключение к Anki')
@@ -253,7 +263,7 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     const again = { ...restarted }
     const last = new SettingsTab(app, again)
     last.containerEl = root
-    last.display()
+    last.update()
     const newExample = section('defaults').createEl('details')
     layout.rememberGroup(newExample, again, 'id-markers-example')
     assert.equal(newExample.open, false)
@@ -264,7 +274,7 @@ test('SettingsTab keeps connection directly under help, lifecycle directives out
     const fresh = new SettingsTab(app, { ...again })
     fresh.containerEl = new Element('root')
     fresh.containerEl.classList = root.classList
-    fresh.display()
+    fresh.update()
     assert.ok(fresh.containerEl.querySelectorAll('details').every(group => !group.open))
     assert.equal(storage.size, 1)
     fresh.containerEl.empty()
@@ -389,4 +399,37 @@ test('imported ignore patterns remain editable after clearing and recover from a
     area = undefined
     installIgnoredFilesSetting({}, plugin)
     assert.equal(area.value, '')
+})
+
+test('Quick Start resumes once per visit to its own settings tab until explicitly saved or dismissed', async () => {
+    const { load } = await import('./benchmark/migration-modules.cjs').then(module => module.default)
+    let opens = 0
+    const noop = () => {}
+    const { settings: {SettingsTab} } = await load(['settings','first-run-formats'], {
+        PluginSettingTab:class { hide() {} }, uiFor, createSettingsGroup:body=>body, installFirstRunSetting:noop,
+        installPageMigrationSetting:noop, saveSettingsLayout:noop, openSetup(){ opens++ },
+    })
+    let nextFrame
+    const document = { defaultView:{requestAnimationFrame(callback){ nextFrame=callback }} }
+    const owner = {ownerDocument:document, isConnected:true, getClientRects:()=>[{}],
+        classList:{remove:noop}, contains:body=>body===owner }
+    const plugin = {settings:{Defaults:{}, QUICK_START_STATUS:'pending'}, fields_dict:{}, register() {}}
+    const tab = new SettingsTab({},plugin)
+    tab.containerEl=owner
+    tab.setup_connection({ownerDocument:document}); nextFrame()
+    assert.equal(opens,0,'search result outside tab')
+    tab.setup_connection()
+    tab.hide()
+    nextFrame()
+    assert.equal(opens,0,'a pending frame from the closed tab cannot open Quick Start')
+    tab.setup_connection(); nextFrame()
+    tab.setup_connection(); nextFrame()
+    assert.equal(opens,1,'redraw while reading settings')
+    tab.hide(); tab.setup_connection(); nextFrame()
+    assert.equal(opens,2,'returned from another settings tab')
+    for (const status of ['dismissed','complete']) {
+        tab.hide(); nextFrame=undefined; plugin.settings.QUICK_START_STATUS=status
+        tab.setup_connection()
+        assert.equal(nextFrame,undefined)
+    }
 })

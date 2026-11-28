@@ -5,9 +5,8 @@
 import { Notice } from 'obsidian'
 import type { Editor, TFile } from 'obsidian'
 import type MyPlugin from '../main'
-import * as AnkiConnect from './anki'
+import { browseAnkiNote } from './anki-browser'
 import { AnkiProfileError, profileProblemText, requireExpectedAnkiProfile } from './anki-profile'
-import { withAnkiDeadline } from './anki-transport'
 import { buildCardPreview } from './card-preview'
 import { findIdMarkers } from './duplicate-markers'
 import { auditRead } from './sync-audit'
@@ -88,17 +87,13 @@ export async function openCurrentCardInAnki(plugin: MyPlugin, editor: Editor, fi
             throw new Error(t(`Anki note ${id} has a different note type. Check its ID and profile in the sync audit.`,
                 `Тип записи Anki с ID ${id} отличается от типа в исходнике. Проверьте ID и профиль в аудите синхронизации.`))
         }
-        await requireExpectedAnkiProfile(plugin, profile, signal)
-        requireCurrent()
-        const cards: unknown = await withAnkiDeadline(() => AnkiConnect.invoke('guiBrowse', { query: `nid:${id}` }),
-            'Open Anki Browse', readTimeoutMs, signal)
-        if (!Array.isArray(cards) || cards.some(card => !Number.isSafeInteger(card) || card <= 0)) {
-            throw new Error(t('Anki Browse did not return a valid card list.', 'Обозреватель Anki не вернул корректный список карточек.'))
+        const verify = async () => {
+            await requireExpectedAnkiProfile(plugin, profile, signal)
+            requireCurrent()
         }
-        await requireExpectedAnkiProfile(plugin, profile, signal)
-        requireCurrent()
-        if (!cards.length) new Notice(t(`Anki Browse opened for nid:${id}, but the note has no generated cards.`,
-            `В обозревателе Anki открыт поиск nid:${id}, но у записи нет созданных карточек.`), 8_000)
+        const message = await browseAnkiNote(id, t, verify, signal)
+        await verify()
+        new Notice(message, 8_000)
     } catch (error) {
         if (!signal.aborted && opens.get(plugin) === controller) new Notice(t(
             `Open in Anki · ${problemText(error, t)}`, `Переход в Anki · ${problemText(error, t)}`), 12_000)

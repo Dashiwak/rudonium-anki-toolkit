@@ -43,7 +43,9 @@ Development and support are on GitFlic. GitHub mirrors the source code and hosts
 
 4. Save the configuration, restart Anki, and leave the selected profile open while you work in Obsidian.
 5. Open your vault in desktop Obsidian **1.15.1 or later**. Under **Settings → Community plugins**, enable community plugins if prompted. Choose **Browse** and search for **Rudonium Anki Toolkit**. If it is listed, click **Install**, then **Enable**. You can also install from the release ZIP as described below. [Download Obsidian](https://obsidian.md/)
-6. The plugin starts in English. To change the language, open **Interface and plugin information → Interface Language** in its settings and reload the plugin to update command names. Open **Anki Connection → Quick Start → Set up sync** and click **Check Connection**. Check that the profile name matches the one open in Anki. Continue with **Set up your first card** below to choose your deck, note type, and card format.
+6. The plugin starts in English. To change the language, open **Interface and plugin information → Interface Language** in its settings and reload the plugin to update command names. Open **Anki Connection → Quick Start → Set up sync** and wait for the automatic connection check. Verify that the profile name matches the one open in Anki. Continue with **Set up your first card** below to choose your deck, note type, and card format.
+
+After you enable Rudonium, look for the Anki button ![Anki ribbon icon](Images/anki-ribbon-sync.png) on the far left of Obsidian. Hover over it to see **Rudonium — Sync vault with Anki**. Clicking it runs sync for the folders in your active folder profile, which initially covers the entire vault. To try syncing just one card first, follow **Set up your first card** below.
 
 ### Manual installation from a release ZIP
 
@@ -55,7 +57,7 @@ Development and support are on GitFlic. GitHub mirrors the source code and hosts
 
 A RemNote-style card fits on one line. The question goes before `::` and the answer after it. This example uses the **Basic** Anki note type, which has two fields, **Front** and **Back**.
 
-1. **Choose the format.** Quick Start opens automatically in a new vault with no card rules or complete pairs of card markers. You can reopen it with the **Quick Start** command. Click **Check Connection** if the deck selector is not visible. Choose an ordinary deck, such as **Default**, the note type **Basic**, and the card format **RemNote · single line**. The preset fills in the rule for you. You can also expand **RemNote regular expression** to copy it, or follow the [manual setup instructions](#enter-the-remnote-rule-manually) below. If you use the preset, check the front and back of the sample, then click **Save Setup**.
+1. **Choose the deck and note type.** Open **Quick Start** and choose an ordinary deck, such as **Default**. Under **Note types**, select **Add note type**, or **Edit** beside an existing **Basic** rule. In the rule window choose **Basic** and **RemNote · single line**. Check the example about Yuri Gagarin and its front and back. Choose **Save rule**, then **Save Setup** in Quick Start.
 2. **Write one card.** Create a Markdown note in a folder included in your sync profile. Paste just this line into the editor as ordinary text and save the note.
 
    ```markdown
@@ -76,7 +78,7 @@ A RemNote-style card fits on one line. The question goes before `::` and the ans
 
 ### Enter the RemNote rule manually
 
-If you selected the preset above, the rule is already saved. To enter the same expression by hand, open the plugin settings and expand **Note type rules**. Next to **Basic**, click **Edit**. If it has no rule yet, click **+ Add rule** and select **Basic**. Under **Card format**, choose **Custom regular expression**. Paste the following line into **Regular expression**, exactly as shown, then click **Save rule**.
+If you selected the preset above, the rule is already saved. To enter the same expression by hand, open the plugin settings and expand **Note type rules**. Next to **Basic**, click **Edit**. If it has no rule yet, click **Add note type** and select **Basic**. Under **Card format**, choose **Custom regular expression**. Paste the following line into **Regular expression**, exactly as shown, then click **Save rule**.
 
 ```regex
 ^(?:[-*+][ \t]+)?((?!::)[^\s](?:(?:(?!::)[^\r\n])*?(?!::)[^\s])?)[ \t]*::(?!:)[ \t]*((?!::)[^\s](?:(?:(?!::)[^\r\n])*?(?!::)[^\s])?)(?:[ \t]*::[ \t]*(?:R|[FB]=[a-z]{2,3}\\?_[A-Z]{2}\.?))*[ \t]*(?=\r?$)

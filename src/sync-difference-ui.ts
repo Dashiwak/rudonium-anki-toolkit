@@ -2,8 +2,9 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { Notice } from 'obsidian'
 import type { App } from 'obsidian'
-import * as AnkiConnect from './anki'
+import { browseAnkiNote } from './anki-browser'
 import { readActiveAnkiProfile } from './anki-profile'
 import { openObsidianFile, ReviewModal } from './obsidian-navigation'
 import type { NavigationOrigin } from './obsidian-navigation'
@@ -21,7 +22,6 @@ type FieldDifference = SyncAuditDifference['fields'][number]
 const openReviews = new WeakMap<App, SyncDifferenceModal>()
 const blockTags = new Set(['br', 'p', 'div', 'li', 'ul', 'ol', 'tr', 'blockquote', 'pre', 'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
 const maxDiffCells = 200_000
-const browseTimeoutMs = 10_000
 
 const Segmenter = (Intl as typeof Intl & {
     Segmenter?: new () => { segment: (value: string) => Iterable<{ segment: string }> }
@@ -135,8 +135,8 @@ export function openAuditSource(app: App, source: NavigationSource, origin?: Nav
 }
 
 export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnkiProfile, t: UiText = englishUi): Promise<void> {
-    if (!Number.isSafeInteger(id) || id <= 0) throw new Error(t('This Anki note ID is invalid.', 'Некорректный ID записи Anki.'))
-    if (auditProfile) {
+    const verify = async () => {
+        if (!auditProfile) return
         if (!('active' in auditProfile)) throw new Error(t('The audit could not confirm the Anki profile. Recheck before opening the note.',
             'При проверке не удалось подтвердить профиль Anki. Повторите проверку перед открытием записи.'))
         if (await readActiveAnkiProfile() !== auditProfile.active) {
@@ -144,21 +144,13 @@ export async function openAuditAnkiNote(id: number, auditProfile?: SyncAuditAnki
                 'После проверки профиль Anki изменился. Повторите проверку перед открытием записи.'))
         }
     }
-    let timer: number | undefined
     try {
-        const response = await Promise.race([
-            AnkiConnect.invoke('guiBrowse', { query: `nid:${id}` }),
-            new Promise<never>((_, reject) => {
-                timer = window.setTimeout(() => reject(new Error(t('AnkiConnect did not reply in time.', 'AnkiConnect не ответил вовремя.'))), browseTimeoutMs)
-            }),
-        ])
-        if (!Array.isArray(response)) throw new Error(t('Anki Browse did not return a card list.', 'Обозреватель Anki не вернул список карточек.'))
+        const message = await browseAnkiNote(id, t, verify)
+        new Notice(message, 8_000)
     } catch (error) {
         const reason = uiDiagnostic(error, t)
         throw new Error(t(`Could not open Anki Browse. Search for nid:${id} in Anki. ${reason}`,
             `Не удалось открыть обозреватель Anki. Найдите запись вручную по запросу nid:${id}. ${reason}`))
-    } finally {
-        window.clearTimeout(timer)
     }
 }
 
@@ -299,7 +291,7 @@ class SyncDifferenceModal extends ReviewModal {
             try {
                 await operation()
                 if (this.closed) return
-                if (!source) status.setText(t(`Anki Browse opened for nid:${note.id}.`, `В Anki открыт результат поиска nid:${note.id}.`))
+                if (!source) status.setText('')
             } catch (error) {
                 if (!this.closed) status.setText(error instanceof Error ? error.message : String(error))
             } finally {

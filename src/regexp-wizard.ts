@@ -5,16 +5,17 @@ import type { UiText } from './interface-language'
 import { delimitedRule, readDelimitedRule } from './delimited-rule'
 
 export function addRegexpWizard(container: HTMLElement, app: App, t: UiText, fields: readonly string[],
-    expression: () => string, accept: (pattern: string, sample: string, values: string[]) => void): void {
+    expression: () => string, accept: (pattern: string, sample: string, values: string[]) => void): () => void {
     const label = t('Regular expression wizard', 'Мастер регулярных выражений')
     const open = container.createEl('button', { text: label })
     open.type = 'button'
     open.disabled = fields.length < 2
+    let active: Modal | undefined
     open.onclick = () => {
-        const dialog = new Modal(app)
+        const dialog = active = new Modal(app)
         dialog.titleEl.setText(label)
         const body = dialog.contentEl
-        dialog.onClose = () => body.empty()
+        dialog.onClose = () => { active = undefined; body.empty() }
         const prior = readDelimitedRule(expression())
         let count = prior && prior.count <= fields.length ? prior.count : 2
         let separator = prior?.separator ?? ':'
@@ -100,4 +101,5 @@ export function addRegexpWizard(container: HTMLElement, app: App, t: UiText, fie
         render()
         dialog.open()
     }
+    return () => active?.close()
 }

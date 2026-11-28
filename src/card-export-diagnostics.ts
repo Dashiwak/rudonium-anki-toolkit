@@ -446,13 +446,29 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
         edits.set(range.identifier, list)
     }
 
+    const lineAt = (offset: number) => {
+        let low = 0
+        let high = rows.length
+        while (low < high) {
+            const mid = low + Math.floor((high - low) / 2)
+            if (rows[mid].offset <= offset) low = mid + 1
+            else high = mid
+        }
+        return Math.max(1, low)
+    }
+    const malformedCards: ExportCardIssue[] = []
     const flagBlock = (row: SourceLine, offset: number, finish: number, type: string | undefined, form: string) => {
-        const code = !type ? 'missing-note-type' : !noteTypes.has(type) ? 'unknown-note-type' : 'unrecognized-block'
+        const code: ExportCardIssueCode = !type ? 'missing-note-type' : !noteTypes.has(type) ? 'unknown-note-type' : 'unrecognized-block'
         const message = !type ? `${form} card needs a note type.` :
             !noteTypes.has(type) ? `Unknown Anki note type “${type}”. Check Note Type Settings.` :
                 `${form} card could not be parsed. Check its fields and closing marker.`
-        issues.push({ code, line: row.line, message })
-        if (finish > offset) invalidBlocks.push([offset, finish])
+        const endRow = rows[lineAt(Math.max(offset, finish - 1)) - 1]
+        const source = { line: row.line, startColumn: offset - row.offset, endLine: endRow.line,
+            endColumn: Math.min(finish, endRow.end) - endRow.offset }
+        const issue = { code, line: row.line, message, source } satisfies ExportCardIssue
+        issues.push(issue)
+        malformedCards.push(issue)
+        invalidBlocks.push([offset, finish])
     }
 
     for (let index = 0; index < rows.length; index++) {
@@ -504,22 +520,28 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
         }
     }
 
+    // Link the invalid-block diagnostic and its ID diagnostic to the same note.
+    // These spans were collected in document order. Further spans added below describe loose markers.
+    const malformedCardAt = (offset: number, row: SourceLine): ExportCardIssue | undefined => {
+        let low = 0, high = malformedCards.length
+        while (low < high) {
+            const mid = Math.floor((low + high) / 2)
+            if (invalidBlocks[mid][0] <= offset) low = mid + 1
+            else high = mid
+        }
+        if (!low) return
+        const [startAt, endAt] = invalidBlocks[low - 1]
+        if (offset < endAt || endAt >= row.offset && inlineEnd && endAt - startAt >= inlineEnd.length &&
+            text.startsWith(inlineEnd, endAt - inlineEnd.length) && /^[ \t]*(?:<!--[ \t]*)?$/u.test(text.slice(endAt, offset))) {
+            return malformedCards[low - 1]
+        }
+    }
     const isInvalidBlock = makeSpanLookup(invalidBlocks)
     const reportedLinkedIds = new Set<string>()
     const markers = findIdMarkers(text, input.syntax)
     const markedLines = new Set(markers.map(marker => marker.line))
     const damagedMarkers = new Map<IdMarker, boolean>()
     const commentEnds = new Map(comments)
-    const lineAt = (offset: number) => {
-        let low = 0
-        let high = rows.length
-        while (low < high) {
-            const mid = low + Math.floor((high - low) / 2)
-            if (rows[mid].offset <= offset) low = mid + 1
-            else high = mid
-        }
-        return Math.max(1, low)
-    }
     const missingIssue = (id: number, line: number, markerColumn: number | undefined, range?: CardRange): ExportCardIssue => {
         let source: ExportCardLocation | undefined
         if (range) {
@@ -616,6 +638,8 @@ export function inspectCardSources<T extends CardRange>(input: InspectSource<T>)
                 id: marker.id })
             skippedIds.add(marker.id)
         } else continue
+        const malformed = malformedCardAt(offset, row)
+        if (malformed) malformed.id ??= marker.id
         if (accepted) {
             reportedLinkedIds.add(`${marker.id}:${marker.line}`)
             continue

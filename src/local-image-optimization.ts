@@ -400,7 +400,7 @@ class LocalImageModal extends Modal {
                 label.classList.add('rudonium-local-image-optimization-label')
                 const input = label.createEl('input', { attr: { type: 'checkbox', 'aria-label': row.path } })
                 label.createEl('strong', { text: ` ${row.path}` })
-                label.createEl('span', {
+                label.createSpan({
                     text: `${row.originalWidth} × ${row.originalHeight} → ${row.width} × ${row.height} · ${formatBytes(row.before)} → ${formatBytes(row.after)}`,
                 }).classList.add('rudonium-block')
                 if (row.references.length) {

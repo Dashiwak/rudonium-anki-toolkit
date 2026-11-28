@@ -14,6 +14,7 @@ export interface IdMarkerSettingsActions {
     toPlain(): void
     moveVaultPages(): void
     foldingChanged?(): void
+    warningsChanged?(): void
 }
 
 export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin, actions: IdMarkerSettingsActions): void {
@@ -22,7 +23,7 @@ export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin
         t('Choose how saved IDs appear in the editor. Conversion opens a preview and saves a backup before changes.',
             'Выберите вид сохранённых ID в редакторе. Преобразование открывает предпросмотр и сохраняет резервную копию перед изменениями.'))
     const settings = plugin.settings
-    const save = (patch: Partial<Pick<MyPlugin['settings'], 'PAGE_ID_LOCATION' | 'COLLAPSE_ANKI_IDS'>>) =>
+    const save = (patch: Partial<Pick<MyPlugin['settings'], 'PAGE_ID_LOCATION' | 'COLLAPSE_ANKI_IDS' | 'EDITOR_CARD_WARNINGS'>>) =>
         withFastScanReadLock(plugin, () => savePluginDataInOrder(plugin, async () => {
             const current = plugin.settings
             const saved: unknown = await plugin.loadData()
@@ -87,6 +88,17 @@ export function installIdMarkerSettings(container: HTMLElement, plugin: MyPlugin
                 busy = false
                 toggle.setValue(plugin.settings.COLLAPSE_ANKI_IDS === true).setDisabled(false)
             }
+        }))
+    new Setting(body).setName(t('Show card warnings in the editor', 'Показывать предупреждения о карточках в редакторе'))
+        .setDesc(t('Underline invalid IDs, duplicate IDs in view, unknown note types and missing attachments.',
+            'Подчёркивать некорректные ID, дубликаты ID в видимой части заметки, неизвестные типы записей и отсутствующие вложения.'))
+        .addToggle(toggle => toggle.setValue(settings.EDITOR_CARD_WARNINGS !== false).onChange(async value => {
+            toggle.setDisabled(true)
+            try {
+                await save({ EDITOR_CARD_WARNINGS: value })
+                actions.warningsChanged?.()
+            } catch (error) { new Notice(uiDiagnostic(error, t)) }
+            finally { toggle.setValue(plugin.settings.EDITOR_CARD_WARNINGS !== false).setDisabled(false) }
         }))
     new Setting(body).setName(t('Convert ID Markers', 'Преобразовать маркеры ID'))
         .setDesc(t('Wrap IDs in HTML comments or remove only their comment wrappers. Ordinary HTML comments are preserved.',

@@ -10,7 +10,7 @@ const path = require("node:path");
 function bundleNotice(release, license) {
     return [
         "/*!",
-        " * " + release.name + " " + release.version + " — modified 2026-11-24.",
+        " * " + release.name + " " + release.version + " — modified 2026-11-28.",
         " * SPDX-License-Identifier: " + license,
         " * Rudonium additions: Copyright (C) 2026 dashiwak. GNU GPLv3. Original component permissions and notices are retained.",
         " * Derived from Obsidian_to_Anki 3.6.0 by Pseudonium and contributors.",

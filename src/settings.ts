@@ -9,9 +9,11 @@ import { clearFastScanCache, previewVaultExport, withFastScanReadLock } from './
 import { installIdMarkerSettings } from './id-tools-settings-ui'
 import { openIdMarkerConversion } from './id-marker-conversion-ui'
 import { openPageIdBulk } from './page-id-bulk-ui'
+import { refreshEditorCardWarnings } from './editor-card-warnings'
 import { refreshEditorIdFolding } from './editor-id-folding'
 import { installBidirectionalSettings } from './bidirectional-field-settings'
-import { installFirstRunSetting } from './first-connection'
+import { installFirstRunSetting, openSetup } from './first-connection'
+import { needsFormatSetup } from './first-run-formats'
 import { installPageMigrationSetting } from './page-migration-ui'
 import { installZipImportSettings } from './zip-import-ui'
 import { installImageOptimizationSettings } from './image-optimization-ui'
@@ -49,9 +51,16 @@ interface SettingsSection {
 
 export class SettingsTab extends PluginSettingTab {
 
+    // Types bundled with the upstream build predate declarative settings. Both methods
+    // are provided by the host on every supported Obsidian version (minAppVersion 1.15.1).
+    declare display: () => void
+    declare update: () => void
+
     private readonly rudonium: RudoniumAnkiPlugin
     private scanInterval?: number
     private unloaded = false
+    private offeredQuickStart = false
+    private settingsVisit = 0
 
     constructor(app: App, plugin: RudoniumAnkiPlugin) {
         super(app, plugin)
@@ -126,6 +135,18 @@ export class SettingsTab extends PluginSettingTab {
         const connectionBody = createSettingsGroup(containerEl, plugin, 'connection', t('Anki Connection', 'Подключение к Anki'))
         installFirstRunSetting(connectionBody, plugin, task => withFastScanReadLock(plugin, task), () => this.redraw())
         installPageMigrationSetting(connectionBody, plugin)
+        if (!this.offeredQuickStart && needsFormatSetup(plugin.settings, plugin.fields_dict)) {
+            // Search can render a setting outside this tab. Wait for the actual tab to be mounted.
+            const visit = this.settingsVisit
+            this.containerEl.ownerDocument?.defaultView?.requestAnimationFrame(() => {
+                if (visit !== this.settingsVisit || this.unloaded || this.offeredQuickStart || !this.containerEl.isConnected ||
+                    !this.containerEl.contains(connectionBody) || !this.containerEl.getClientRects().length) return
+                this.offeredQuickStart = true
+                if (needsFormatSetup(plugin.settings, plugin.fields_dict)) {
+                    openSetup(plugin, task => withFastScanReadLock(plugin, task), () => this.redraw())
+                }
+            })
+        }
     }
 
     private setupProfiles(containerEl: HTMLElement): void {
@@ -162,6 +183,7 @@ export class SettingsTab extends PluginSettingTab {
             toPlain: () => openIdMarkerConversion(plugin, 'to-plain'),
             moveVaultPages: () => openPageIdBulk(plugin),
             foldingChanged: () => refreshEditorIdFolding(plugin),
+            warningsChanged: () => refreshEditorCardWarnings(plugin),
         })
     }
 
@@ -169,7 +191,6 @@ export class SettingsTab extends PluginSettingTab {
         const { rudonium } = this
         const t = uiFor(rudonium.settings)
         const body = createSettingsGroup(containerEl, rudonium, 'actions', t('Actions', 'Обслуживание'))
-        installNoteTypeRefresh(this.containerEl, body, rudonium, () => this.redraw())
         // Both cache changes wait for the active scan to finish.
         const clear = async (kind: 'media' | 'files'): Promise<void> => {
             try { await clearFastScanCache(rudonium, kind) }
@@ -203,8 +224,10 @@ export class SettingsTab extends PluginSettingTab {
             section('Sync settings', 'Настройки синхронизации',
                 [t('Bidirectional sync', 'Двусторонняя синхронизация'), t('Change history', 'Журнал изменений'), t('Preview', 'Предпросмотр')],
                 el => installBidirectionalSettings(el, plugin)),
-            section('Note type rules', 'Правила типов записей', [t('Regular expressions', 'Регулярные выражения')],
-                el => installNoteTypeRules(el, plugin)),
+            section('Note type rules', 'Правила типов записей', [t('Regular expressions', 'Регулярные выражения'), t('Refresh note types', 'Обновить типы записей')], el => {
+                installNoteTypeRules(el, plugin)
+                installNoteTypeRefresh(el, el, plugin, () => this.redraw())
+            }),
             section('Folder tags', 'Теги папок', [], el => installFolderTagSettings(el, plugin, 'FOLDER_TAGS')),
             section('Syntax Settings', 'Синтаксис карточек',
                 Object.keys(plugin.settings.Syntax ?? {}).filter(key => !isLifecycleSyntax(key)).map(key => legacySettingLabel(key, t)),
@@ -246,25 +269,14 @@ export class SettingsTab extends PluginSettingTab {
 
     private redraw(): void {
         saveSettingsLayout(this.containerEl, this.rudonium)
-        const tab: SettingsTab & { update?(): void } = this
-        if (tab.update) tab.update()
-        else this.display()
-    }
-
-    setup_display(): void {
-        saveSettingsLayout(this.containerEl, this.rudonium)
-        this.containerEl.empty()
-        for (const section of this.sections()) section.mount(this.containerEl, section.name)
-        finalizeSettingsLayout(this.containerEl, this.rudonium)
+        this.update()
     }
 
     hide(): void {
+        this.settingsVisit++
+        this.offeredQuickStart = false
         saveSettingsLayout(this.containerEl, this.rudonium)
         this.containerEl.classList.remove('rudonium-settings-pane')
         super.hide()
-    }
-
-    display(): void {
-        this.setup_display()
     }
 }

@@ -18,6 +18,7 @@ function register(name, code) {
 }
 register('obsidian', `
 const createClassList = ${createClassList}
+export class Notice {}
 export const modals = []
 export function setIcon(element, icon) { element.icon = icon }
 export class Element {
@@ -59,16 +60,21 @@ export class Setting {
     addButton(render) { render(this.element.createEl('button')); return this }
 }
 `)
-register('first-run-formats', `export const acknowledgeFormatSetup = app => {app.firstRunShown = true}
-export async function needsFormatSetup(app, settings, stopped) {return !stopped() && !app.firstRunShown && !Object.values(settings.CUSTOM_REGEXPS || {}).some(Boolean)}`)
-register('anki-profile', "export class AnkiProfileError extends Error { constructor(reason) { super(reason); this.reason=reason } }; export const profileProblemText = err => err.message; export const checkPinnedAnkiProfile = async () => {}; export const profile = { read: async () => 'Default profile' }; export const readActiveAnkiProfile = () => profile.read()")
-register('anki-study-state', "export const readAnkiDeckKind = async () => 'ordinary'")
+register('first-run-formats', source('first-run-formats'))
+register('anki-profile', "export class AnkiProfileError extends Error { constructor(reason) { super(reason); this.reason=reason } }; export const profileProblemText = err => err.message; export const expectedAnkiProfile = () => undefined; export const checkPinnedAnkiProfile = async name => { if (await profile.read() !== name) throw new AnkiProfileError('mismatch'); }; export const profile = { read: async () => 'Default profile' }; export const readActiveAnkiProfile = () => profile.read()")
+register('anki-study-state', "export const deckKind = { read: async () => 'ordinary' }; export const readAnkiDeckKind = name => deckKind.read(name)")
 register('card-preview-render', 'export const readCardTemplateVariants = () => {}; export const buildBasicCardVariants = () => []')
 register('card-preview-ui', 'export const openCardPreview = () => {}; export const previewFieldText = (_document, html) => html')
 register('modal-layout', 'export const installModalLayout = () => {}')
-register('sync-audit', "export const auditRead = async () => ['Default', 'Cities']")
-register('note-type-refresh', "export const schema = {names: ['Basic','Other'], fields: {Basic: ['Front','Back','Source'], Other: ['Q','A']}}; export const readNoteTypeSchema = async () => schema")
-register('fast-scan', 'export const withFastScanReadLock = async (_plugin, task) => task()')
+register('sync-audit', `
+export const schema = {names: ['Basic','Other'], fields: {Basic: ['Front','Back','Source'], Other: ['Q','A']}}
+export async function auditRead(action, params) {
+    if (action === 'deckNames') return ['Default','Cities']
+    if (action === 'modelNames') return [...schema.names]
+    if (action === 'multi') return params.actions.map(a => ({error: null, result: [...schema.fields[a.params.modelName]]}))
+    throw Error('Unexpected Anki action: ' + action)
+}`)
+register('fast-scan', 'export const withFastScanReadLock = async (_plugin, task) => task(); export const savePluginDataInOrder = async (_plugin, task) => task()')
 register('settings-layout', source('settings-layout'))
 register('custom-regexp-worker', `export const customRegexpKey = p => p.source; export const matchCustomRegexps = async (sample, [p]) => new Map([[p.source, [...sample.matchAll(new RegExp(p.source, p.flags))]]])`)
 register('rule-note-preview', 'export const previewRuleOnNote = (...args) => args[0].previewRule(...args.slice(1)); export const showRuleReport = (el, result) => el.setText(result.path)')
@@ -84,16 +90,28 @@ export const previewPageMigration = async (plugin, options, signal, progress) =>
 export const migrationBackupDirectory = async () => '/backups/test vault'
 export const applyPageMigration = async (plugin, ...args) => plugin.apply(...args)
 `)
-for (const name of ['interface-language', 'sync-outcome', 'page-id-location', 'plugin-identity', 'card-format-presets', 'note-type-rules', 'delimited-rule', 'regexp-wizard', 'note-type-rule-ui', 'page-migration-ui', 'first-connection']) register(name, source(name))
+for (const name of ['interface-language', 'sync-outcome', 'page-id-location', 'plugin-identity', 'copy-block', 'card-format-presets', 'note-type-rules', 'delimited-rule', 'regexp-wizard', 'note-type-rule-ui', 'page-migration-ui', 'note-type-refresh', 'first-connection']) register(name, source(name))
 
 const { modals, Element } = await import(modules.obsidian)
 const { cardFormatPresets } = await import(modules['card-format-presets'])
 const { installNoteTypeRules } = await import(modules['note-type-rule-ui'])
 const { registerSetupCommand, verifyFirstConnection } = await import(modules['first-connection'])
-const { schema } = await import(modules['note-type-refresh'])
+const { schema } = await import(modules['sync-audit'])
+const { profile, AnkiProfileError } = await import(modules['anki-profile'])
+function offline(t) {
+    const original = profile.read
+    profile.read = async () => { throw new AnkiProfileError('unreachable') }
+    t.after(() => { profile.read = original })
+}
 const row = (el, name) => { const found = el.all().find(item => item.text === name); assert.ok(found, 'control: ' + name); return found }
 const select = (el, label, value) => row(el, label).children[0].change(value)
 const click = (el, label) => row(el, label).onclick()
+function openRuleTools(el, label = 'Rule tools') {
+    const details = row(el, label).parent
+    assert.equal(details.tag, 'details')
+    details.open = true
+    return details
+}
 const settle = () => setImmediate()
 const id = 'rudonium-anki-toolkit'
 
@@ -112,7 +130,7 @@ function freshSetup(settings, save) {
     command.callback()
     return plugin
 }
-test('Quick Start opens after layout on a fresh vault without connecting, and only once', async () => {
+test('Quick Start opens after layout once per session and reopens after a dismissed window on the next launch', async () => {
     let ready
     const plugin = {settings:{Defaults:{Deck:'Default'}}, fields_dict:{}, register(){}, app:{workspace:{onLayoutReady(cb){ready=cb}}}}
     const before = modals.length
@@ -129,11 +147,78 @@ test('Quick Start opens after layout on a fresh vault without connecting, and on
     command.callback()
     assert.equal(modals.length,before + 1)
     modals.at(-1).close()
-    plugin.app.firstRunShown=false; plugin.stopped=true
+    const reopened = {...plugin}
+    setupCommand(reopened)
+    ready(); await settle()
+    assert.equal(modals.length, before + 1)
+    modals.at(-1).close()
+    reopened.stopped=true
     ready(); await settle()
     assert.equal(modals.length,before)
 })
+test('opting out while offline persists without saving a deck or format, and can be reversed in manual setup', async t => {
+    offline(t)
+    let saved, ready
+    const launch = () => {
+        const plugin = { settings: structuredClone(saved ?? {Defaults:{Deck:'Default'}, QUICK_START_STATUS:'pending'}),
+            fields_dict: {}, app:{workspace:{onLayoutReady(cb){ ready=cb }}}, register(){},
+            async saveAllData() { saved = structuredClone(this.settings) } }
+        const command = setupCommand(plugin)
+        ready()
+        return command
+    }
+    const before = modals.length
+    const checkbox = () => row(modals.at(-1).contentEl, 'Don’t show Quick Start automatically').parent.children[0]
+    launch(); await settle()
+    checkbox().checked = true; checkbox().onchange(); await settle()
+    assert.deepEqual(saved,{Defaults:{Deck:'Default'}, QUICK_START_STATUS:'dismissed'})
+    modals.at(-1).close()
+    const manual = launch()
+    assert.equal(modals.length,before)
+    manual.callback(); await settle()
+    assert.equal(checkbox().checked, true)
+    checkbox().checked = false; checkbox().onchange(); await settle()
+    modals.at(-1).close()
+    launch()
+    assert.equal(modals.length,before+1)
+    modals.at(-1).close()
+})
+
+test('legacy block-only profile retains its custom delimiters, optional fields and export settings after Quick Start', async t => {
+    const originalFields = schema.fields, originalNames = schema.names
+    schema.names = ['Basic','EnDic26']
+    schema.fields = {Basic:['Front','Back'], EnDic26:['Word','Translation','File','Context']}
+    t.after(() => { schema.fields = originalFields; schema.names = originalNames })
+    const settings = { Defaults:{Deck:'Cities',Tag:'vocabulary','Add File Link':true,'Add Context':true,'Scheduling Interval':15},
+        Syntax:{'Begin Note':'CARD','End Note':'ENDCARD'}, CUSTOM_REGEXPS:{Basic:'',EnDic26:''},
+        FILE_LINK_FIELDS:{Basic:'Front',EnDic26:'File'}, CONTEXT_FIELDS:{Basic:'Front',EnDic26:'Context'},
+        FOLDER_DECKS:{Cards:'Cities'}, FOLDER_TAGS:{Cards:'study'},
+        SYNC_CHANGE_HISTORY:false, BIDIRECTIONAL_SYNC:false, INTERFACE_LANGUAGE:'ru' }
+    let saved
+    const plugin = {settings, fields_dict:{}, app:{}, note_types:[], register(){},
+        async saveAllData() { saved = structuredClone(settings) } }
+    const before = structuredClone(settings)
+    setupCommand(plugin).callback()
+    const modal = modals.at(-1)
+    await settle()
+    const types = row(modal.contentEl, 'Типы записей').parent
+    assert.equal(types.tag,'fieldset')
+    assert.equal(row(types, 'EnDic26').hint, 'CARD / ENDCARD')
+    assert.ok(!modal.contentEl.all().some(el => ['Basic', 'Формат карточки', 'Поле ссылки на файл', 'Поле контекста'].includes(el.text)))
+    click(modal.contentEl,'Изменить')
+    const editor = modals.at(-1).contentEl
+    assert.equal(row(editor, 'Формат карточки').children[0].value, 'explicit')
+    assert.equal(row(editor, 'Поле ссылки на файл').children[0].value, 'File')
+    assert.equal(row(editor, 'Поле контекста').children[0].value, 'Context')
+    assert.ok(editor.all().some(el => el.text?.startsWith('CARD\nEnDic26\nWord: На каком корабле') && el.text.endsWith('Восток-1\nENDCARD')))
+    click(editor, 'Отмена')
+    click(modal.contentEl,'Сохранить настройки'); await settle()
+    for (const [key,value] of Object.entries(before)) assert.deepEqual(saved[key], value, key)
+    assert.equal(saved.QUICK_START_STATUS,'complete')
+})
+
 test('Quick Start offers a complete local AnkiConnect example and copies only the selected value', async t => {
+    offline(t)
     let reject = false
     const copied = []
     const clipboard = { async writeText(text) {
@@ -150,7 +235,11 @@ test('Quick Start offers a complete local AnkiConnect example and copies only th
         freshSetup({ INTERFACE_LANGUAGE: lang, Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: {} },
             () => assert.fail('Reading setup instructions must not change settings'))
         const modal = modals.at(-1)
+        await settle()
         const guide = row(modal.contentEl, title).parent
+        const linkText = lang === 'en' ? 'Quick Start guide' : 'Руководство по быстрому старту'
+        assert.equal(row(modal.contentEl, linkText).attr.href,
+            'https://github.com/Dashiwak/rudonium-anki-toolkit/blob/HEAD/docs/' + lang + '/quick-start.md')
         const elements = guide.all()
         const [addon, origin, json] = elements.filter(el => el.tag === 'code').map(el => el.text)
         const readme = readFileSync(new URL('../' + (lang === 'en' ? 'README.md' : 'README.ru.md'), import.meta.url), 'utf8')
@@ -190,126 +279,174 @@ test('Quick Start offers a complete local AnkiConnect example and copies only th
         modal.close()
     }
 })
-test('the connection status remains visible above expanded help during a failed check and retry', async t => {
-    const { profile, AnkiProfileError } = await import(modules['anki-profile'])
+test('opening Quick Start automatically checks Anki once, offers help only after failure and retries in place', async t => {
     const original = profile.read
     t.after(() => { profile.read = original })
-    for (const [lang, check, help, checking, offline, connected, problem] of [
-        ['en', 'Check Connection', 'Set up AnkiConnect', 'Checking Anki connection…', 'No connection to Anki', 'Connected to Anki', 'Could not complete the connection check'],
-        ['ru', 'Проверить соединение', 'Как настроить AnkiConnect', 'Проверяем соединение с Anki…', 'Нет соединения с Anki', 'Соединение с Anki установлено', 'Не удалось завершить проверку соединения'],
+    for (const [language, check, help, checking, offline, connected] of [
+        ['en', 'Check Connection', 'Set up AnkiConnect', 'Checking Anki connection…', 'No connection to Anki', 'Connected to Anki'],
+        ['ru', 'Проверить соединение', 'Как настроить AnkiConnect', 'Проверяем соединение с Anki…', 'Нет соединения с Anki', 'Соединение с Anki установлено'],
     ]) {
-        freshSetup({INTERFACE_LANGUAGE:lang, Defaults:{Deck:'Default'}, CUSTOM_REGEXPS:{}}, () => assert.fail())
-        const modal = modals.at(-1), el = modal.contentEl
-        row(el,help).parent.open = true
-        el.scrollTop = 800
         let rejectCheck
         profile.read = () => new Promise((_resolve, reject) => { rejectCheck = reject })
-        click(el,check)
-        const assertStatus = title => {
-            const banner = row(el,title).parent.parent
-            assert.equal(el.children[0],banner)
-            assert.equal(banner.focused,true)
-            assert.equal(banner.scrolled,true)
-            assert.equal(el.scrollTop,0)
-            assert.equal(banner.attr.role,'status')
-        }
-        assertStatus(checking)
-        assert.equal(row(el,check).disabled,true)
-        rejectCheck(new AnkiProfileError('unreachable'))
-        await settle()
-        assertStatus(offline)
-        assert.equal(row(el,help).parent.open,true)
-        assert.equal(row(el,check).disabled,false)
-        assert.ok(row(el,offline).parent.children[1].text.includes('AnkiConnect'))
-        profile.read = async () => { throw new AnkiProfileError('unavailable') }
-        click(el,check); await settle()
-        assertStatus(problem)
+        freshSetup({INTERFACE_LANGUAGE:language, Defaults:{Deck:'Default'}}, () => assert.fail('check must be read-only'))
+        const modal = modals.at(-1), el = modal.contentEl
+        assert.ok(row(el,checking))
+        assert.ok(!el.all().some(item => item.text === help || item.text === check))
+        rejectCheck(new AnkiProfileError('unreachable')); await settle()
+        assert.ok(row(el,offline))
+        assert.match(row(el,offline).parent.children[1].text, /AnkiConnect/)
+        assert.equal(row(el,help).parent.open,false)
         profile.read = original
         click(el,check); await settle()
-        assertStatus(connected)
-        assert.ok(el.all().some(item => item.text?.includes('Default profile')))
-        assert.ok(!el.all().some(item => item.text === offline))
-        const label = lang === 'en' ? 'RemNote regular expression' : 'Регулярное выражение RemNote'
-        const expression = row(el,label).parent.all().find(item => item.tag === 'code')
-        assert.equal(expression.text,cardFormatPresets.find(item => item.id === 'remnote').expression)
+        assert.ok(row(el,connected))
+        assert.equal(row(el,language === 'en' ? 'Deck' : 'Колода').children[0].value, 'Default')
+        assert.ok(!el.all().some(item => item.text === help || item.text === check))
         modal.close()
     }
 })
-test('Quick Start remembers both disclosure choices on redraw, close and restart', async () => {
-    const local = new Map()
-    function session(language) {
-        const plugin = {manifest: {id}, settings: { Defaults: { Deck: 'Default' }, INTERFACE_LANGUAGE: language },
-            fields_dict: {}, register() {}, app: { loadLocalStorage: key => local.get(key),
-                saveLocalStorage: (key, value) => local.set(key, structuredClone(value)) }}
-        setupCommand(plugin).callback()
-        return modals.at(-1)
-    }
-    let modal = session('en')
-    const guide = row(modal.contentEl, 'Set up AnkiConnect').parent
-    assert.equal(guide.open, true)
-    guide.open = false
-    click(modal.contentEl, 'Check Connection'); await settle()
-    const more = row(modal.contentEl, 'More options').parent
-    assert.equal(more.open, false)
-    more.open = true
-    select(modal.contentEl, 'Deck', 'Cities')
-    assert.equal(row(modal.contentEl, 'More options').parent.open, true)
+test('closing Quick Start while the automatic check is running never opens another window or saves', async t => {
+    const original = profile.read
+    let resume
+    profile.read = () => new Promise(resolve => { resume = resolve })
+    t.after(() => { profile.read = original })
+    const before = modals.length
+    freshSetup({Defaults:{}}, () => assert.fail())
+    const modal = modals.at(-1)
     modal.close()
-    modal = session('ru')
-    const reopened = row(modal.contentEl, 'Как настроить AnkiConnect').parent
-    assert.equal(reopened.open, false)
-    click(modal.contentEl, 'Проверить соединение'); await settle()
-    assert.equal(row(modal.contentEl, 'Дополнительные настройки').parent.open, true)
-    row(modal.contentEl, 'Дополнительные настройки').parent.open = false
-    modal.close()
-    modal = session('en')
-    click(modal.contentEl, 'Check Connection'); await settle()
-    assert.equal(row(modal.contentEl, 'More options').parent.open, false)
-    modal.close()
+    profile.read = original
+    resume('Default profile'); await settle()
+    assert.equal(modals.length, before)
+    assert.equal(modal.contentEl.children.length,0)
 })
-test('first setup saves the first verified schema', async () => {
+test('the same profile recovers pending choices after an offline Save; switching profiles resets the draft', async t => {
+    const original = profile.read
+    t.after(() => { profile.read = original })
+    const plugin = freshSetup({ Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: {} }, () => assert.fail('read-only check'))
+    const modal = modals.at(-1), el = modal.contentEl
+    try {
+        await settle()
+        select(el,'Deck','Cities')
+        click(el,'Add note type')
+        const editor = modals.at(-1).contentEl
+        select(editor,'Note type','Other'); click(editor,'Save rule'); await settle()
+        assert.ok(row(el,'Other'))
+        profile.read = async () => { throw new AnkiProfileError('unreachable') }
+        click(el,'Save Setup'); await settle()
+        assert.ok(row(el,'No connection to Anki'))
+        assert.ok(!el.all().some(item => item.text === 'Save Setup'))
+        profile.read = original
+        click(el,'Check Connection'); await settle()
+        assert.equal(row(el,'Deck').children[0].value,'Cities')
+        assert.ok(row(el,'Other'))
+        profile.read = async () => 'Another profile'
+        click(el,'Save Setup'); await settle()
+        click(el,'Check Connection'); await settle()
+        assert.equal(row(el,'Deck').children[0].value,'Default')
+        assert.ok(!el.all().some(item => item.text === 'Other'))
+        assert.deepEqual(plugin.settings,{ Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: {} })
+    } finally { modal.close() }
+})
+test('first setup saves the verified schema and deck without silently assigning a format', async () => {
     const before = modals.length
     let written
-    {
-        const plugin = freshSetup({ Defaults: { Deck: 'Default' }, INTERFACE_LANGUAGE: 'en', CUSTOM_REGEXPS: {} },
-            data => {written = data})
-        const modal = modals.at(-1)
-        assert.equal(modal.titleEl.text, 'Quick Start')
-        click(modal.contentEl, 'Check Connection'); await settle()
-        select(modal.contentEl, 'Deck', 'Cities')
-        assert.equal(row(modal.contentEl, 'Card format').children[0].value, 'remnote')
-        assert.ok(row(modal.contentEl, '- Which lake in Siberia is the deepest on Earth? :: Lake Baikal'))
-        assert.ok(row(modal.contentEl, 'Front'))
-        assert.ok(row(modal.contentEl, 'Lake Baikal'))
-        assert.ok(!modal.contentEl.all().some(el => el.text === 'File link field'))
-        click(modal.contentEl, 'Save Setup'); await settle()
-        assert.deepEqual(plugin.note_types, schema.names)
-        assert.equal(written.settings.Defaults.Deck, 'Cities')
-        assert.equal(written.settings.CUSTOM_REGEXPS.Basic, cardFormatPresets.find(p => p.id === 'remnote').expression)
-        assert.deepEqual(written.settings.NOTE_TYPE_RULE_MODELS, ['Basic'])
-        assert.equal(written.settings.FILE_LINK_FIELDS.Basic, '')
-        assert.equal(written.settings.CUSTOM_REGEXPS.Other, '')
-    }
+    const plugin = freshSetup({Defaults:{Deck:'Default'},CUSTOM_REGEXPS:{}}, data => { written = data })
+    const modal = modals.at(-1), el = modal.contentEl
+    await settle()
+    select(el,'Deck','Cities')
+    const types = row(el, 'Note types').parent
+    assert.equal(types.tag, 'fieldset')
+    assert.ok(row(types,'Add note type'))
+    assert.ok(!el.all().some(item => ['Card format','Note type','File link field','More options','Migrate existing card files','Regular expression wizard'].includes(item.text)))
+    click(el,'Save Setup'); await settle()
+    assert.deepEqual(plugin.note_types,schema.names)
+    assert.equal(written.settings.QUICK_START_STATUS,'complete')
+    assert.equal(written.settings.Defaults.Deck,'Cities')
+    assert.deepEqual(written.settings.CUSTOM_REGEXPS,{Basic:'',Other:''})
+    assert.equal(written.settings.NOTE_TYPE_RULE_MODELS,undefined)
     assert.equal(modals.length,before)
 })
-test('an existing setup preserves mappings and restores prior settings on a failed save', async () => {
+test('Cancel or failed Save does not persist staged rules, deck, schema, or profile', async () => {
     const settings = { Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: { Basic: '', Other: 'Q=(.+)' },
         FILE_LINK_FIELDS: { Other: 'Q' }, CONTEXT_FIELDS: { Basic: 'Source' }, NOTE_TYPE_RULE_MODELS: ['Basic'],
         EXPECTED_ANKI_PROFILE: 'Default profile', REQUIRE_ANKI_PROFILE: true }
     const snapshot = structuredClone(settings)
     const plugin = { settings, fields_dict: schema.fields, app: {}, register() {}, saveAllData: async () => { throw Error('write failed') } }
-    setupCommand(plugin).callback()
-    const modal = modals.at(-1)
-    click(modal.contentEl, 'Check Connection'); await settle()
-    assert.equal(row(modal.contentEl, 'Card format').children[0].value, 'explicit')
-    select(modal.contentEl, 'Card format', 'page')
-    select(modal.contentEl, 'Card format', 'custom')
-    assert.equal(row(modal.contentEl, 'Regular expression').children[0].value, '')
-    select(modal.contentEl, 'Card format', 'page')
-    click(modal.contentEl, 'Save Setup'); await settle()
-    assert.ok(row(modal.contentEl, 'write failed'))
-    assert.equal(row(modal.contentEl, 'Help on GitFlic').attr.href, 'https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue')
-    assert.deepEqual(settings, snapshot)
+    const cmd = setupCommand(plugin)
+    for (const attemptSave of [false, true]) {
+        cmd.callback(); await settle()
+        const modal = modals.at(-1), el = modal.contentEl
+        click(el,'Edit')
+        const editor = modals.at(-1).contentEl
+        select(editor,'Card format','page')
+        click(editor,'Save rule'); await settle()
+        select(el,'Deck','Cities')
+        assert.deepEqual(settings,snapshot)
+        if (attemptSave) {
+            click(el,'Save Setup'); await settle()
+            assert.ok(row(el,'write failed'))
+        }
+        modal.close()
+        assert.deepEqual(settings,snapshot)
+        assert.equal(plugin.fields_dict,schema.fields)
+    }
+})
+test('schema drift aborts a save and a retry loads current fields before accepting another edit', async t => {
+    const fields = schema.fields
+    t.after(() => { schema.fields = fields })
+    let saved
+    freshSetup({ Defaults:{Deck:'Cities'}, CUSTOM_REGEXPS:{} }, data => { saved = data })
+    const modal = modals.at(-1), el = modal.contentEl
+    await settle()
+    click(el,'Add note type')
+    select(modals.at(-1).contentEl,'File link field','Source')
+    click(modals.at(-1).contentEl,'Save rule'); await settle()
+    schema.fields = { ...fields, Basic: ['Front','Back','Link'] }
+    click(el,'Save Setup'); await settle()
+    assert.equal(saved,undefined)
+    assert.ok(row(el,'The Anki note types changed. Check the connection again.'))
+    click(el,'Check Connection'); await settle()
+    assert.ok(!el.all().some(item => item.text === 'Basic'))
+    click(el,'Add note type')
+    const editor = modals.at(-1).contentEl
+    select(editor,'File link field','Link')
+    click(editor,'Save rule'); await settle()
+    click(el,'Save Setup'); await settle()
+    assert.equal(saved.settings.FILE_LINK_FIELDS.Basic,'Link')
+    assert.deepEqual(saved.fields_dict.Basic,schema.fields.Basic)
+})
+test('a deck removed after opening allows a reconnect and a closed Anki during verification shows the offline view', async t => {
+    const { deckKind } = await import(modules['anki-study-state'])
+    const original = profile.read, readKind = deckKind.read
+    t.after(() => { profile.read = original; deckKind.read = readKind })
+    let saved
+    freshSetup({Defaults:{Deck:'Cities'},CUSTOM_REGEXPS:{}}, data => { saved = data })
+    const modal = modals.at(-1), el = modal.contentEl
+    await settle()
+    deckKind.read = async () => 'missing'
+    click(el,'Save Setup'); await settle()
+    assert.equal(saved,undefined)
+    assert.ok(row(el,'The selected deck is no longer available. Check the connection again.'))
+    click(el,'Check Connection'); await settle()
+    deckKind.read = async () => {
+        profile.read = async () => { throw new AnkiProfileError('unreachable') }
+        throw Error('network request failed')
+    }
+    click(el,'Save Setup'); await settle()
+    assert.ok(row(el,'No connection to Anki'))
+    assert.ok(!el.all().some(item => item.text === 'Save Setup'))
+    assert.equal(saved,undefined)
+    modal.close()
+})
+test('another settings edit during Quick Start keeps its value and requires a fresh draft', async () => {
+    const plugin = freshSetup({Defaults:{Deck:'Default'},CUSTOM_REGEXPS:{}}, () => assert.fail('stale write'))
+    const modal = modals.at(-1), el = modal.contentEl
+    await settle()
+    click(el,'Add note type'); click(modals.at(-1).contentEl,'Save rule'); await settle()
+    plugin.settings.CUSTOM_REGEXPS.Other = 'Q=(.+)'
+    click(el,'Save Setup'); await settle()
+    assert.ok(el.all().some(item => item.text?.startsWith('The setup changed while Quick Start was open.')))
+    assert.equal(plugin.settings.CUSTOM_REGEXPS.Other,'Q=(.+)')
+    assert.equal(plugin.settings.QUICK_START_STATUS,undefined)
     modal.close()
 })
 test('rule editor adds one rule and cancels a later edit without touching existing regex or metadata', async () => {
@@ -318,60 +455,49 @@ test('rule editor adds one rule and cancels a later edit without touching existi
     const plugin = { settings, fields_dict: schema.fields, saveAllData: async () => { writes++ } }
     const container = new Element()
     installNoteTypeRules(container, plugin)
-    click(container, '+ Add rule')
-    select(container, 'Card format', 'qa')
-    select(container, 'File link field', 'Source')
-    click(container, 'Save rule'); await settle()
+    click(container, 'Add note type')
+    select(modals.at(-1).contentEl, 'Card format', 'qa')
+    select(modals.at(-1).contentEl, 'File link field', 'Source')
+    click(modals.at(-1).contentEl, 'Save rule'); await settle()
     assert.equal(writes, 1)
     assert.equal(settings.CUSTOM_REGEXPS.Basic, cardFormatPresets.find(p => p.id === 'qa').expression)
     assert.deepEqual(settings.FILE_LINK_FIELDS, { Basic: 'Source', Other: 'Q' })
     const before = structuredClone(settings)
     click(container, 'Edit')
-    select(container, 'File link field', 'Back')
-    click(container, 'Cancel')
+    select(modals.at(-1).contentEl, 'File link field', 'Back')
+    click(modals.at(-1).contentEl, 'Cancel')
     assert.deepEqual(settings, before)
     assert.equal(writes, 1)
 })
 
-test('a new custom format saves only after its sample produces a nonempty first field', async () => {
+test('a valid handwritten rule saves in Quick Start with empty optional sample and invalid syntax still blocks saving', async () => {
     let saved
     freshSetup({Defaults:{}, CUSTOM_REGEXPS:{}}, data => { saved = data })
     const modal = modals.at(-1)
-    click(modal.contentEl, 'Check Connection'); await settle()
-    select(modal.contentEl, 'Card format', 'custom')
-    select(modal.contentEl, 'Regular expression', '@page')
-    click(modal.contentEl, 'Save Setup'); await settle()
-    assert.ok(row(modal.contentEl, 'Select Whole page to use @page.'))
-    select(modal.contentEl, 'Regular expression', '^Q=(.+) A=(.+)$')
-    select(modal.contentEl, 'Sample Markdown', 'no match')
-    click(modal.contentEl, 'Save Setup'); await settle()
+    await settle()
+    click(modal.contentEl, 'Add note type')
+    const editor = modals.at(-1)
+    select(editor.contentEl, 'Card format', 'custom')
+    select(editor.contentEl, 'Regular expression', '@page')
+    click(editor.contentEl, 'Save rule'); await settle()
+    assert.ok(row(editor.contentEl, 'Select Whole page to use @page.'))
+    const tools = row(editor.contentEl,'Rule tools').parent
+    assert.equal(tools.open,false)
+    for (const label of ['Regular expression wizard','Sample Markdown','Test sample','Check current note']) assert.ok(row(tools,label))
+    assert.ok(!editor.contentEl.all().some(el => el.text === 'RemNote regular expression'))
+    assert.equal(row(tools, 'Sample Markdown').children[0].value,'')
+    select(editor.contentEl, 'Regular expression', 'no captures')
+    click(editor.contentEl, 'Save rule'); await settle()
+    assert.ok(row(editor.contentEl, 'Add a capture group for the first Anki field.'))
+    assert.ok(!tools.all().some(el => el.text === 'Add a capture group for the first Anki field.'))
+    select(editor.contentEl, 'Regular expression', '^Q=(.+) A=(.+)$')
+    click(editor.contentEl, 'Save rule'); await settle()
     assert.equal(saved, undefined)
-    assert.ok(row(modal.contentEl, 'Enter one sample card that matches the pattern and captures its first field.'))
-    select(modal.contentEl, 'Sample Markdown', 'Q=Name A=Vienna')
-    click(modal.contentEl, 'Test sample'); await settle()
-    assert.ok(row(modal.contentEl, 'Name'))
-    assert.ok(row(modal.contentEl, 'Vienna'))
     click(modal.contentEl, 'Save Setup'); await settle()
     assert.equal(saved.settings.CUSTOM_REGEXPS.Basic, '^Q=(.+) A=(.+)$')
 })
 
 const { openPageMigration, installPageMigrationSetting, registerPageMigrationCommand } = await import(modules['page-migration-ui'])
-test('first-run migration opens a read-only wizard after setup and preserves initial Anki configuration', async () => {
-    const settings = { Defaults: { Deck: 'Default' }, CUSTOM_REGEXPS: { Basic: '', Other: 'Q=(.+)' } }
-    let saved
-    const plugin = freshSetup(structuredClone(settings), data => { saved = data })
-    const first = modals.at(-1)
-    click(first.contentEl, 'Migrate existing card files'); await settle()
-    assert.equal(saved, undefined)
-    assert.ok(!first.contentEl.all().some(el => el.text === 'Card format'))
-    click(first.contentEl, 'Continue to migration'); await settle()
-    const wizard = modals.at(-1)
-    assert.equal(wizard.titleEl.text, 'Migrate card files')
-    assert.ok(row(wizard.contentEl, 'Preview files'))
-    assert.deepEqual(saved.settings.CUSTOM_REGEXPS, settings.CUSTOM_REGEXPS)
-    wizard.close()
-})
-
 test('migration settings and palette reach one bilingual wizard with scoped preview, ZIP and explicit unlinked confirmation', async () => {
     const calls = []
     const checked = { model: 'Basic', scanned: 4, warnings: [], rows: [
@@ -636,7 +762,7 @@ test('registering the startup check defers vault reads until layout and preserve
 })
 test('Anki may enumerate models in a different order between preview and verification', async () => {
     const connection = {names:[...schema.names].reverse(), fields:schema.fields, decks:['Cities'], profile:'Default profile'}
-    await verifyFirstConnection(connection,{deck:'Cities',model:'Basic',front:'Front',back:'Back'})
+    await verifyFirstConnection(connection,'Cities')
 })
 
 test('Quick Start generates a four-field literal-colon rule from a live sample and pins field order', async () => {
@@ -646,9 +772,11 @@ test('Quick Start generates a four-field literal-colon rule from a live sample a
     try {
         freshSetup({Defaults:{}, CUSTOM_REGEXPS:{}}, data => { saved=data })
         const parent=modals.at(-1)
-        click(parent.contentEl,'Check Connection'); await settle()
-        select(parent.contentEl,'Note type','Vocabulary')
-        click(parent.contentEl,'Regular expression wizard')
+        await settle()
+        click(parent.contentEl,'Add note type')
+        const editor = modals.at(-1)
+        select(editor.contentEl,'Note type','Vocabulary')
+        click(openRuleTools(editor.contentEl),'Regular expression wizard')
         const wizard = modals.at(-1)
         select(wizard.contentEl,'Number of fields','4')
         const sample='- Wirtshaus : трактир : Ein altes Haus : de_DE'
@@ -658,9 +786,11 @@ test('Quick Start generates a four-field literal-colon rule from a live sample a
         assert.deepEqual(wizard.contentEl.all().filter(el=>el.tag==='dt').map(x=>x.text),schema.fields.Vocabulary)
         assert.deepEqual(wizard.contentEl.all().filter(el=>el.tag==='dd').map(x=>x.text),['Wirtshaus','трактир','Ein altes Haus','de_DE'])
         click(wizard.contentEl,'Use this format')
-        assert.equal(modals.at(-1),parent)
+        assert.equal(modals.at(-1),editor)
         assert.equal(saved,undefined)
-        assert.equal(row(parent.contentEl,'Sample Markdown').children[0].value,sample)
+        assert.equal(row(editor.contentEl,'Sample Markdown').children[0].value,sample)
+        click(editor.contentEl,'Save rule'); await settle()
+        assert.equal(saved,undefined)
         click(parent.contentEl,'Save Setup'); await settle()
         assert.deepEqual(saved.settings.REGEXP_WIZARD_FIELDS.Vocabulary,schema.fields.Vocabulary)
         const pattern=saved.settings.CUSTOM_REGEXPS.Vocabulary
@@ -673,21 +803,21 @@ test('rule editor keeps edits local; wizard reopens with saved count and literal
     let saves=0
     const container=new Element()
     installNoteTypeRules(container,{app:{}, settings,fields_dict:fields,saveAllData:async()=>{saves++}})
-    click(container,'+ Add rule')
-    click(container,'Regular expression wizard')
+    click(container,'Add note type')
+    click(openRuleTools(modals.at(-1).contentEl), 'Regular expression wizard')
     let wizard=modals.at(-1)
     select(wizard.contentEl,'Field separator','||');select(wizard.contentEl,'Number of fields','3')
     click(wizard.contentEl,'Use this format')
     assert.equal(saves,0)
-    click(container,'Save rule');await settle()
+    click(modals.at(-1).contentEl, 'Save rule');await settle()
     assert.deepEqual(settings.REGEXP_WIZARD_FIELDS.Basic,fields.Basic)
     const before=structuredClone(settings)
-    click(container,'Edit');click(container,'Regular expression wizard')
+    click(container,'Edit');click(openRuleTools(modals.at(-1).contentEl), 'Regular expression wizard')
     wizard=modals.at(-1)
     assert.equal(row(wizard.contentEl,'Field separator').children[0].value,'||')
     assert.equal(row(wizard.contentEl,'Number of fields').children[0].value,'3')
     select(wizard.contentEl,'Field separator','.')
-    click(wizard.contentEl,'Cancel');click(container,'Cancel')
+    click(wizard.contentEl,'Cancel');click(modals.at(-1).contentEl, 'Cancel')
     assert.deepEqual(settings,before)
     assert.equal(saves,1)
 })
@@ -716,8 +846,8 @@ test('rule wizard previews multiline Markdown and reopens its layout; directive 
     const plugin={settings,fields_dict:fields,app:{},saveAllData:async()=>{}}
     const container=new Element()
     installNoteTypeRules(container,plugin)
-    click(container,'+ Add rule')
-    click(container,'Regular expression wizard')
+    click(container,'Add note type')
+    click(openRuleTools(modals.at(-1).contentEl), 'Regular expression wizard')
     const wizard=modals.at(-1)
     select(wizard.contentEl,'Sample Markdown line','Tags: geography')
     assert.equal(row(wizard.contentEl,'Use this format').disabled,true)
@@ -726,11 +856,11 @@ test('rule wizard previews multiline Markdown and reopens its layout; directive 
     select(wizard.contentEl,'Number of fields','3')
     select(wizard.contentEl,'Sample Markdown block',':::anki\nWirtshaus : inn\nA paragraph.\n\nAnother paragraph.\n:::')
     assert.deepEqual(wizard.contentEl.all().filter(x=>x.tag==='dd').map(x=>x.text),['Wirtshaus','inn','A paragraph.\n\nAnother paragraph.'])
-    click(wizard.contentEl,'Use this format');click(container,'Save rule');await settle()
+    click(wizard.contentEl,'Use this format');click(modals.at(-1).contentEl, 'Save rule');await settle()
     assert.deepEqual(settings.REGEXP_WIZARD_FIELDS.Basic,fields.Basic)
-    click(container,'Edit');click(container,'Regular expression wizard')
+    click(container,'Edit');click(openRuleTools(modals.at(-1).contentEl), 'Regular expression wizard')
     assert.equal(row(modals.at(-1).contentEl,'Answer layout').children[0].value,'block')
-    click(modals.at(-1).contentEl,'Cancel');click(container,'Cancel')
+    click(modals.at(-1).contentEl,'Cancel');click(modals.at(-1).contentEl, 'Cancel')
 })
 
 test('wizard uses the currently typed custom expression when launched without rerendering settings', async () => {
@@ -738,14 +868,14 @@ test('wizard uses the currently typed custom expression when launched without re
     const container=new Element(), plugin={settings,fields_dict:fields,app:{},saveAllData:async()=>{}}
     const {delimitedRule}=await import(modules['delimited-rule'])
     installNoteTypeRules(container,plugin)
-    click(container,'+ Add rule')
-    select(container,'Card format','custom')
-    select(container,'Regular expression',delimitedRule(3,'||'))
-    click(container,'Regular expression wizard')
+    click(container,'Add note type')
+    select(modals.at(-1).contentEl, 'Card format','custom')
+    select(modals.at(-1).contentEl, 'Regular expression',delimitedRule(3,'||'))
+    click(openRuleTools(modals.at(-1).contentEl), 'Regular expression wizard')
     const wizard=modals.at(-1)
     assert.equal(row(wizard.contentEl,'Field separator').children[0].value,'||')
     assert.equal(row(wizard.contentEl,'Number of fields').children[0].value,'3')
-    click(wizard.contentEl,'Cancel');click(container,'Cancel')
+    click(wizard.contentEl,'Cancel');click(modals.at(-1).contentEl, 'Cancel')
 })
 
 test('rule label falls back to the model, displays Knowledge syntax and previews an unsaved draft', async () => {
@@ -758,15 +888,53 @@ test('rule label falls back to the model, displays Knowledge syntax and previews
     installNoteTypeRules(view,plugin)
     assert.match(row(view,'Knowledge').hint,/Вопрос :: Ответ/)
     click(view,'Изменить')
-    select(view,'Название правила (необязательно)','Основное')
-    select(view,'Регулярное выражение','^(a) :: (b)$')
-    await click(view,'Проверить на текущей заметке')
+    select(modals.at(-1).contentEl, 'Название правила (необязательно)','Основное')
+    select(modals.at(-1).contentEl, 'Регулярное выражение','^(a) :: (b)$')
+    const editor = modals.at(-1).contentEl
+    const tools = openRuleTools(editor,'Инструменты правила')
+    select(tools, 'Пример Markdown','a :: b')
+    await click(tools,'Проверить пример')
+    assert.ok(row(tools, 'a'))
+    assert.ok(row(tools, 'b'))
+    await click(tools, 'Проверить на текущей заметке')
     assert.equal(checked.expression,'^(a) :: (b)$')
     assert.equal(checked.model,'Knowledge')
     assert.equal(checked.name,'Основное')
     assert.equal(saves,0)
-    assert.ok(row(view,'Dictionary.md'))
-    click(view,'Сохранить правило'); await settle()
+    assert.ok(row(modals.at(-1).contentEl, 'Dictionary.md'))
+    click(modals.at(-1).contentEl, 'Сохранить правило'); await settle()
     assert.equal(settings.NOTE_TYPE_RULE_NAMES.Knowledge,'Основное')
     assert.match(row(view,'Основное').hint,/Knowledge/)
+})
+
+
+test('new note types open in a separate editor, show the complete RemNote example and retain a failed save for retry', async () => {
+    const container = new Element()
+    let fail = true
+    const plugin = { app: {}, settings: {CUSTOM_REGEXPS:{}}, fields_dict: schema.fields,
+        saveAllData: async () => { if (fail) throw new Error('write failed') } }
+    installNoteTypeRules(container, plugin)
+    const body = container.all().find(item => Object.hasOwn(item.attr, 'data-anki-note-type-refresh')).parent
+    assert.equal(body.children.at(-1).attr['data-anki-note-type-refresh'], '')
+    click(container, 'Add note type')
+    const editor = modals.at(-1)
+    assert.equal(container.all().some(el => el.text === 'Card format'), false)
+    assert.deepEqual(row(editor.contentEl, 'Note type').children[0].options, ['Basic', 'Other'])
+    select(editor.contentEl, 'Note type', 'Other')
+    select(editor.contentEl, 'Card format', 'remnote')
+    const rows = editor.contentEl.all()
+    assert.ok(rows.some(el => el.attr['aria-label'] === 'Copy RemNote regular expression'))
+    assert.ok(rows.some(el => el.tag === 'pre' && el.text?.includes('Yuri Gagarin') && el.text.includes(' :: Vostok 1')))
+    assert.ok(row(editor.contentEl, 'Front'))
+    assert.ok(row(editor.contentEl, 'Back'))
+    assert.ok(row(editor.contentEl, 'Vostok 1'))
+    select(editor.contentEl, 'File link field', 'A')
+    click(editor.contentEl, 'Save rule'); await settle()
+    assert.equal(modals.at(-1), editor)
+    assert.ok(row(editor.contentEl, 'write failed'))
+    assert.deepEqual(plugin.settings, {CUSTOM_REGEXPS:{}})
+    fail = false
+    click(editor.contentEl, 'Save rule'); await settle()
+    assert.equal(plugin.settings.FILE_LINK_FIELDS.Other, 'A')
+    assert.ok(row(container, 'Other'))
 })

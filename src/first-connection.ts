@@ -6,22 +6,16 @@ import { Modal, Setting, setIcon } from 'obsidian'
 import type MyPlugin from '../main'
 import { AnkiProfileError, checkPinnedAnkiProfile, profileProblemText, readActiveAnkiProfile } from './anki-profile'
 import { readAnkiDeckKind } from './anki-study-state'
-import { buildBasicCardVariants, readCardTemplateVariants } from './card-preview-render'
-import { openCardPreview } from './card-preview-ui'
+import { copyBlock } from './copy-block'
 import { installModalLayout } from './modal-layout'
 import { rememberGroup, saveSettingsLayout } from './settings-layout'
-import { readNoteTypeSchema } from './note-type-refresh'
+import { readNoteTypeSchema, updatedChoices } from './note-type-refresh'
 import { auditRead } from './sync-audit'
 import { uiDiagnostic, uiFor } from './interface-language'
 import type { UiText } from './interface-language'
-import { openPageMigration } from './page-migration-ui'
-import { acknowledgeFormatSetup, needsFormatSetup } from './first-run-formats'
-import { supportUrl } from './plugin-identity'
-import { cardFormatPresets } from './card-format-presets'
-import { customRegexpKey, matchCustomRegexps } from './custom-regexp-worker'
-import { addRegexpWizard } from './regexp-wizard'
-import { formatControl } from './note-type-rule-ui'
-import { applyRuleSettings, configuredModels, customExpressionProblem, presetId, readRule, ruleProblem, withRule } from './note-type-rules'
+import { needsFormatSetup } from './first-run-formats'
+import { renderQuickStartNoteTypeRules } from './note-type-rule-ui'
+import { applyRuleSettings } from './note-type-rules'
 import type { RuleSettings } from './note-type-rules'
 
 export interface FirstConnectionSchema {
@@ -34,16 +28,11 @@ interface Connection extends FirstConnectionSchema {
     decks: string[]
 }
 
-export interface FirstConnectionChoice {
+interface SetupDraft {
     deck: string
-    model: string
-    front: string
-    back: string
-    lock: boolean
-    expression: string
-    originalExpression: string
-    wizardFields?: string[]
-    forMigration?: boolean
+    originalDeck: string
+    originalRules: RuleSettings
+    rules: RuleSettings
 }
 
 const addOnCode = '2055492159'
@@ -56,25 +45,6 @@ const defaultLocalConfig = JSON.stringify({
     webCorsOrigin: 'http://localhost',
     webCorsOriginList: ['http://localhost', obsidianOrigin],
 }, null, 2)
-
-function copyBlock(container: HTMLElement, value: string, label: string, t: UiText): void {
-    const block = container.createDiv({ cls: 'rudonium-copy-block' })
-    block.createEl('pre').createEl('code', { text: value })
-    const button = block.createEl('button', { cls: 'clickable-icon',
-        attr: { type: 'button', title: label, 'aria-label': label } })
-    setIcon(button, 'copy')
-    const status = container.createSpan({ cls: 'rudonium-copy-status', attr: { role: 'status' } })
-    const copy = async (): Promise<void> => {
-        status.setText('')
-        try {
-            await navigator.clipboard.writeText(value)
-            status.setText(t('Copied.', 'Скопировано.'))
-        } catch {
-            status.setText(t('Select the text above and copy it manually.', 'Выделите текст выше и скопируйте его вручную.'))
-        }
-    }
-    button.onclick = () => void copy()
-}
 
 function addAnkiConnectGuide(guide: HTMLElement, t: UiText): void {
     const steps = guide.createEl('ol')
@@ -97,8 +67,8 @@ function addAnkiConnectGuide(guide: HTMLElement, t: UiText): void {
         'Полный пример для новой установки. Rudonium подключается к 127.0.0.1:8765 при значении null у apiKey. Если у вас уже настроен AnkiConnect, сохраните свою конфигурацию и используйте пример, чтобы найти список адресов.') })
     copyBlock(cors, defaultLocalConfig, t('Copy example JSON', 'Скопировать пример JSON'), t)
     steps.createEl('li', { text: t(
-        'Save the configuration, restart Anki and leave the collection open. Here in Obsidian, click Check Connection. Confirm the profile, choose your deck, note type and card format, then click Save Setup.',
-        'Сохраните настройки, перезапустите Anki и оставьте коллекцию открытой. В этом окне Obsidian нажмите «Проверить соединение». Проверьте профиль, выберите колоду, тип записи и формат карточек, затем нажмите «Сохранить настройки».') })
+        'Save the configuration, restart Anki and leave the collection open. Here in Obsidian, click Check Connection. Choose your deck, review the note types and click Save Setup.',
+        'Сохраните настройки, перезапустите Anki и оставьте коллекцию открытой. В этом окне Obsidian нажмите «Проверить соединение». Выберите колоду, проверьте типы записей и нажмите «Сохранить настройки».') })
 }
 
 const running = new WeakMap<MyPlugin, FirstConnectionModal>()
@@ -112,355 +82,220 @@ async function decksFromAnki(signal?: AbortSignal): Promise<string[]> {
     return response
 }
 
+// A profile may change or Anki may close while decks or fields are being read.
+async function checkedAnkiRead<T>(profile: string, signal: AbortSignal | undefined, read: () => Promise<T>): Promise<T> {
+    try { return await read() }
+    finally { if (!signal?.aborted) await checkPinnedAnkiProfile(profile, signal) }
+}
+
 export async function inspectFirstConnection(signal?: AbortSignal): Promise<Connection> {
     const profile = await readActiveAnkiProfile(signal)
-    const decks = await decksFromAnki(signal)
-    const { names, fields } = await readNoteTypeSchema(performance.now() + 20000, signal)
-    await checkPinnedAnkiProfile(profile, signal)
-    if (!names.length || !names.some(model => fields[model]?.length >= 2)) {
-        throw new Error('Create or enable an Anki note type with at least two fields, then check the connection again.')
-    }
-    return { profile, decks, names, fields }
+    return checkedAnkiRead(profile, signal, async () => {
+        const decks = await decksFromAnki(signal)
+        const { names, fields } = await readNoteTypeSchema(performance.now() + 20000, signal)
+        return { profile, decks, names, fields }
+    })
 }
 
-export async function verifyFirstConnection(connection: Connection, choice: FirstConnectionChoice, signal?: AbortSignal): Promise<void> {
-    const names = connection.fields[choice.model]
-    if (!choice.deck || !connection.decks.includes(choice.deck) || !names ||
-        choice.front === choice.back || !names.includes(choice.front) || !names.includes(choice.back)) {
-        throw new Error('Choose an existing deck and two different fields.')
-    }
+class ConnectionChanged extends Error {
+    constructor(message: string, readonly russian: string) { super(message) }
+}
+
+function sameSchema(left: FirstConnectionSchema, right: FirstConnectionSchema): boolean {
+    return left.names.length === right.names.length && left.names.every(model => {
+        const before = left.fields[model], after = right.fields[model]
+        return Object.hasOwn(right.fields, model) && before.length === after.length &&
+            before.every((field, index) => field === after[index])
+    })
+}
+
+export async function verifyFirstConnection(connection: Connection, deck: string, signal?: AbortSignal): Promise<void> {
     await checkPinnedAnkiProfile(connection.profile, signal)
-    const kind = await readAnkiDeckKind(choice.deck, (action, params) => auditRead(action, params ?? {}, signal, 5000))
-    if (kind !== 'ordinary') throw new Error('Choose a confirmed ordinary Anki deck.')
-    const matches = (left: readonly string[], right: readonly string[]) =>
-        left.length === right.length && left.every((value, index) => value === right[index])
-    const current = await readNoteTypeSchema(performance.now() + 20000, signal)
-    if (connection.names.length !== current.names.length ||
-        connection.names.some(name => !current.fields[name] || !matches(current.fields[name], connection.fields[name]))) {
-        throw new Error('The Anki note types changed. Check the connection again.')
-    }
-    await checkPinnedAnkiProfile(connection.profile, signal)
+    await checkedAnkiRead(connection.profile, signal, async () => {
+        const kind = connection.decks.includes(deck)
+            ? await readAnkiDeckKind(deck, (action, params) => auditRead(action, params ?? {}, signal, 5000))
+            : 'missing'
+        if (kind === 'missing') throw new ConnectionChanged('The selected deck is no longer available. Check the connection again.',
+            'Выбранная колода больше недоступна. Проверьте соединение снова.')
+        if (kind !== 'ordinary') throw new Error('Choose a confirmed ordinary Anki deck.')
+        const current = await readNoteTypeSchema(performance.now() + 20000, signal)
+        if (!sameSchema(connection, current)) throw new ConnectionChanged('The Anki note types changed. Check the connection again.',
+            'Типы записей в Anki изменились. Проверьте соединение снова.')
+    })
 }
 
-export function exampleBlock(syntax: MyPlugin['settings']['Syntax'] | undefined, model: string,
-    fields: readonly string[], front: string, back: string): string {
-    const values = fields.flatMap(name => name === front ? [name + ': Capital of Austria?'] : name === back ? [name + ': Vienna'] : [])
-    return [syntax?.['Begin Note'] ?? 'START', model, ...values, syntax?.['End Note'] ?? 'END'].join('\n')
+function ruleSnapshot(settings: RuleSettings): RuleSettings {
+    const { CUSTOM_REGEXPS, INACTIVE_CUSTOM_REGEXPS, FILE_LINK_FIELDS, CONTEXT_FIELDS,
+        NOTE_TYPE_RULE_NAMES, NOTE_TYPE_RULE_MODELS, REGEXP_WIZARD_FIELDS } = settings
+    return structuredClone({ CUSTOM_REGEXPS, INACTIVE_CUSTOM_REGEXPS, FILE_LINK_FIELDS, CONTEXT_FIELDS,
+        NOTE_TYPE_RULE_NAMES, NOTE_TYPE_RULE_MODELS, REGEXP_WIZARD_FIELDS })
 }
 
-function setupRule(settings: RuleSettings, fields: FirstConnectionSchema['fields'], choice: FirstConnectionChoice, t: UiText) {
-    const current = readRule(settings, choice.model)
-    if (current.expression !== choice.originalExpression) throw new Error(t('This rule changed. Reopen Quick Start.', 'Правило изменилось. Откройте быстрый старт заново.'))
-    const rule = { ...current, expression: choice.expression }
-    const problem = ruleProblem(settings, fields, rule, t)
-    if (problem) throw new Error(problem)
-    return withRule(settings, rule, false, choice.wizardFields)
-}
-
-const remNoteExpression = cardFormatPresets.find(preset => preset.id === 'remnote')!.expression
-
-type Save = (connection: Connection, choice: FirstConnectionChoice, signal: AbortSignal) => Promise<void>
+type Save = (connection: Connection, draft: SetupDraft, signal: AbortSignal) => Promise<void>
+type Status = 'checking' | 'offline' | 'problem' | 'connected'
 
 class FirstConnectionModal extends Modal {
     private connection?: Connection
-    private choice?: FirstConnectionChoice
+    private draft?: SetupDraft
     private controller?: AbortController
-    private custom = false
-    private sample = ''
-    private customFields?: string[]
-    private connectionStatus?: 'checking' | 'offline' | 'problem' | 'connected'
-    private failed = false
+    private closeRuleEditor?: () => void
+    private state: Status = 'checking'
     private busy = false
     private closed = false
     private message = ''
-    private migrating = false
 
     constructor(private readonly plugin: MyPlugin, private readonly t: UiText, private readonly save: Save,
-        private readonly firstRun: boolean, private readonly suggestRemNote: boolean) { super(plugin.app) }
+        private readonly firstRun: boolean, private readonly savePreference: (dismiss: boolean) => Promise<void>) { super(plugin.app) }
+
     onOpen(): void {
         this.titleEl.setText(this.t('Quick Start', 'Быстрый старт'))
         installModalLayout(this, this.t)
-        this.render()
+        this.contentEl.classList.add('rudonium-quick-start')
+        this.checkConnection()
     }
+
     onClose(): void {
-        saveSettingsLayout(this.contentEl, this.plugin)
         this.closed = true
         this.controller?.abort()
+        this.closeRuleEditor?.()
+        saveSettingsLayout(this.contentEl, this.plugin)
         if (running.get(this.plugin) === this) running.delete(this.plugin)
         this.contentEl.empty()
     }
 
-    private errorText(error: unknown): string {
-        if (error instanceof AnkiProfileError) return this.t(error.message, profileProblemText(error, this.t))
-        if (error instanceof Error) {
-            if (/ordinary Anki deck/.test(error.message)) return this.t(error.message, 'Выберите обычную колоду Anki с подтверждённым типом.')
-            if (/note types changed/.test(error.message)) return this.t(error.message, 'Типы записей в Anki изменились. Проверьте соединение снова.')
-        }
-        return uiDiagnostic(error, this.t)
-    }
-
-    private async act(task: (signal: AbortSignal) => Promise<void>, checkingConnection = false): Promise<void> {
-        if (this.busy) return
+    private async act(task: (signal: AbortSignal) => Promise<void>): Promise<void> {
+        if (this.busy || this.closed) return
         this.busy = true
-        this.failed = false
-        if (checkingConnection) {
-            this.connection = undefined
-            this.choice = undefined
-            this.connectionStatus = 'checking'
-        }
-        this.message = checkingConnection ? '' : this.t('Checking…', 'Проверка…')
+        this.message = ''
         const controller = this.controller = new AbortController()
-        this.render(checkingConnection)
+        this.render()
         try { await task(controller.signal) }
         catch (error) {
             if (!controller.signal.aborted) {
-                this.failed = true
-                const offline = error instanceof AnkiProfileError && error.reason === 'unreachable'
-                if (checkingConnection || offline) this.connectionStatus = offline ? 'offline' : 'problem'
-                this.message = offline ? this.t(
-                    'Open desktop Anki and select your profile. If Anki is already open, check that AnkiConnect is enabled, then try again.',
-                    'Откройте настольную Anki и нужный профиль. Если Anki уже открыта, проверьте, включено ли дополнение AnkiConnect, и повторите проверку.')
-                    : this.errorText(error)
+                const { t } = this
+                if (error instanceof AnkiProfileError) {
+                    this.state = error.reason === 'unreachable' ? 'offline' : 'problem'
+                    this.message = this.state === 'offline' ? t(
+                        'Start desktop Anki, then check the connection again. If Anki is already open, check that AnkiConnect is enabled.',
+                        'Запустите настольную Anki и повторите проверку. Если Anki уже открыта, проверьте, включено ли дополнение AnkiConnect.')
+                        : profileProblemText(error, t)
+                } else if (error instanceof ConnectionChanged) {
+                    this.state = 'problem'
+                    this.message = t(error.message, error.russian)
+                } else {
+                    if (this.state === 'checking') this.state = 'problem'
+                    this.message = error instanceof Error && error.message === 'Choose a confirmed ordinary Anki deck.'
+                        ? t(error.message, 'Выберите обычную колоду Anki с подтверждённым типом.')
+                        : uiDiagnostic(error, t)
+                }
             }
         } finally {
             this.busy = false
-            if (!this.closed) this.render(checkingConnection)
+            if (!this.closed) this.render()
         }
     }
 
-    private async connect(signal: AbortSignal): Promise<void> {
-        const connection = await inspectFirstConnection(signal)
-        const names = connection.names.filter(model => connection.fields[model]?.length >= 2)
-        const settings = this.plugin.settings ?? {}
-        const existing = configuredModels(settings, connection.fields).find(model => names.includes(model))
-        const model = existing ?? (names.includes('Basic') ? 'Basic' : names[0])
-        const [front, back] = connection.fields[model]
-        const preferred = this.plugin.settings?.Defaults?.Deck
-        const deck = preferred && connection.decks.includes(preferred) ? preferred
-            : connection.decks.includes('Default') ? 'Default' : connection.decks[0]
-        this.connection = connection
-        this.connectionStatus = 'connected'
-        const originalExpression = readRule(settings, model).expression
-        const expression = this.suggestRemNote ? remNoteExpression : originalExpression
-        this.custom = presetId(expression) === 'custom'
-        this.customFields = undefined
-        this.sample = ''
-        this.choice = { deck, model, front, back, expression, originalExpression, lock: this.plugin.settings?.REQUIRE_ANKI_PROFILE === true }
-        this.message = ''
-    }
-
-    private exampleValues(choice: FirstConnectionChoice): string[] {
-        if (this.custom) return this.customFields ?? []
-        if (choice.expression === remNoteExpression) return [
-            this.t('Which lake in Siberia is the deepest on Earth?', 'Какое озеро в Сибири самое глубокое на Земле?'),
-            this.t('Lake Baikal', 'Байкал'),
-        ]
-        const preset = cardFormatPresets.find(item => item.expression === choice.expression)
-        return preset?.expression ? [preset.front, preset.back] : ['Capital of Austria?', 'Vienna']
-    }
-
-    private async testCustom(choice: FirstConnectionChoice, signal: AbortSignal): Promise<void> {
-        const pattern = { source: choice.expression, flags: 'gm', label: choice.model }
-        const results = await matchCustomRegexps(this.sample, [pattern], { signal })
-        if (signal.aborted) return
-        const matches = results.get(customRegexpKey(pattern)) ?? []
-        if (matches.length !== 1 || !matches[0][1]) throw new Error(this.t(
-            'Enter one sample card that matches the pattern and captures its first field.',
-            'Введите одну карточку, которая подходит под выражение и заполняет первое поле.'))
-        this.customFields = matches[0].slice(1)
-        this.message = ''
-    }
-
-    private async preview(connection: Connection, choice: FirstConnectionChoice, signal: AbortSignal): Promise<void> {
-        const { t } = this
-        const values = this.exampleValues(choice)
-        const fields = connection.fields[choice.model].map((name, index) => {
-            const text = createSpan({ text: values[index] ?? '' })
-            return { name, html: text.innerHTML }
+    private checkConnection(): void {
+        if (this.busy || this.closed) return
+        this.state = 'checking'
+        void this.act(async signal => {
+            const connection = await inspectFirstConnection(signal)
+            if (signal.aborted) return
+            const settings = this.plugin.settings
+            if (settings.REQUIRE_ANKI_PROFILE && settings.EXPECTED_ANKI_PROFILE &&
+                settings.EXPECTED_ANKI_PROFILE !== connection.profile) {
+                throw new AnkiProfileError('mismatch', settings.EXPECTED_ANKI_PROFILE, connection.profile)
+            }
+            const previous = this.connection
+            const existing = this.draft
+            const rules = ruleSnapshot(settings)
+            const reuse = existing && previous?.profile === connection.profile && sameSchema(previous, connection) &&
+                JSON.stringify(existing.originalRules) === JSON.stringify(rules) && existing.originalDeck === settings.Defaults.Deck
+            const preferred = reuse ? existing.deck : settings.Defaults.Deck
+            const deck = connection.decks.includes(preferred) ? preferred :
+                connection.decks.includes('Default') ? 'Default' : connection.decks[0]
+            this.draft = reuse ? { ...existing, deck } : { deck, originalDeck: settings.Defaults.Deck, rules, originalRules: rules }
+            if (!reuse && existing && (existing.rules !== existing.originalRules || existing.deck !== existing.originalDeck)) {
+                this.message = this.t('The profile or its settings changed. Review the current deck and rules.',
+                    'Профиль или настройки изменились. Проверьте текущую колоду и правила.')
+            }
+            this.connection = connection
+            this.state = 'connected'
         })
-        const verify = () => checkPinnedAnkiProfile(connection.profile, signal)
-        const layout = await readCardTemplateVariants(choice.model, fields, verify,
-            actions => auditRead('multi', { actions }, signal, 5000), { deck: choice.deck }, t)
-        await verify()
-        if (signal.aborted) return
-        openCardPreview(this.plugin.app, {
-            source: t('Connection setup example', 'Пример из мастера подключения'), line: 1,
-            fields, modelName: choice.model, deck: choice.deck, deckReason: t('Setup selection', 'Выбрано в мастере'),
-            variants: layout.variants.length ? layout.variants : buildBasicCardVariants(fields, choice.model, t),
-            previewNotice: t('Read-only example', 'Тестовый предпросмотр без записи'),
-            cautions: layout.cautions,
-        }, t)
-        this.message = ''
     }
 
-    private render(revealConnection = false): void {
-        const { t, contentEl, connection, choice, busy } = this
+    private showStartupPreference(parent: HTMLElement): void {
+        if (!this.firstRun && this.plugin.settings.QUICK_START_STATUS !== 'dismissed') return
+        const label = parent.createEl('label', { cls: 'rudonium-first-run-preference' })
+        const checkbox = label.createEl('input', { attr: { type: 'checkbox' } })
+        checkbox.checked = this.plugin.settings.QUICK_START_STATUS === 'dismissed'
+        checkbox.disabled = this.busy
+        label.createSpan({ text: this.t('Don’t show Quick Start automatically', 'Не показывать быстрый старт автоматически') })
+        checkbox.onchange = () => {
+            const dismiss = checkbox.checked
+            void this.act(() => this.savePreference(dismiss))
+        }
+    }
+
+    private render(): void {
+        const { t, contentEl, connection, draft, state } = this
+        this.closeRuleEditor?.()
+        this.closeRuleEditor = undefined
         saveSettingsLayout(contentEl, this.plugin)
         contentEl.empty()
-        const state = this.connectionStatus
-        if (state && (revealConnection || !this.message || (this.failed && (state === 'offline' || state === 'problem')))) {
-            const titles = {
-                checking: t('Checking Anki connection…', 'Проверяем соединение с Anki…'),
-                offline: t('No connection to Anki', 'Нет соединения с Anki'),
-                problem: t('Could not complete the connection check', 'Не удалось завершить проверку соединения'),
-                connected: t('Connected to Anki', 'Соединение с Anki установлено'),
+        const titles = {
+            checking: t('Checking Anki connection…', 'Проверяем соединение с Anki…'),
+            offline: t('No connection to Anki', 'Нет соединения с Anki'),
+            problem: t('Could not complete the connection check', 'Не удалось завершить проверку соединения'),
+            connected: t('Connected to Anki', 'Соединение с Anki установлено'),
+        }
+        const status = contentEl.createDiv({ cls: ['rudonium-connection-status', 'is-' + state],
+            attr: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' } })
+        setIcon(status.createSpan({ attr: { 'aria-hidden': 'true' } }),
+            { checking: 'loader', offline: 'circle-x', problem: 'circle-alert', connected: 'circle-check' }[state])
+        const body = status.createDiv()
+        body.createEl('strong', { text: titles[state] })
+        if (state === 'checking') return
+        if (state === 'connected' && connection && draft) {
+            const form = contentEl.createEl('fieldset', { cls: 'rudonium-first-connection-form' })
+            form.disabled = this.busy
+            form.createEl('legend', { text: t(`Anki profile · ${connection.profile}`, `Профиль Anki · ${connection.profile}`) })
+            new Setting(form).setName(t('Deck', 'Колода')).addDropdown(list => {
+                for (const deck of connection.decks) list.addOption(deck, deck)
+                list.setValue(draft.deck).onChange(deck => { draft.deck = deck })
+            })
+            this.closeRuleEditor = renderQuickStartNoteTypeRules(form, this.plugin, connection.fields,
+                () => draft.rules, rules => { draft.rules = rules })
+            if (this.message) {
+                form.createEl('p', { text: this.message, attr: { role: 'status' } })
             }
-            const status = contentEl.createDiv({ cls: ['rudonium-connection-status', 'is-' + state],
-                attr: { role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true', tabindex: '-1' } })
-            const icon = status.createSpan({ attr: { 'aria-hidden': 'true' } })
-            setIcon(icon, { checking: 'loader', offline: 'circle-x', problem: 'circle-alert', connected: 'circle-check' }[state])
-            const body = status.createDiv()
-            body.createEl('strong', { text: titles[state] })
+            const actions = form.createDiv({ cls: 'modal-button-container' })
+            actions.createEl('button', { text: t('Save Setup', 'Сохранить настройки'), cls: 'mod-cta' }).onclick =
+                () => void this.act(async signal => {
+                    await verifyFirstConnection(connection, draft.deck, signal)
+                    if (signal.aborted) return
+                    await this.save(connection, draft, signal)
+                    if (!this.closed) this.close()
+                })
+        } else {
             if (this.message) body.createEl('p', { text: this.message })
-            if (revealConnection) {
-                contentEl.scrollTop = 0
-                status.focus({ preventScroll: true })
-                status.scrollIntoView({ block: 'nearest' })
-            }
-        } else if (this.message) contentEl.createEl('p', { text: this.message, attr: { role: 'status', 'aria-live': 'polite' } })
-        if (!connection || !choice) {
-            if (!state) contentEl.createEl('p', { text: t('Open your profile in desktop Anki with AnkiConnect enabled.',
-                'Откройте нужный профиль в настольной Anki с включённым AnkiConnect.') })
             const actions = contentEl.createDiv({ cls: ['modal-button-container', 'rudonium-connection-actions'] })
-            const check = actions.createEl('button', {
-                text: t('Check Connection', 'Проверить соединение'), cls: 'mod-cta' })
-            check.disabled = busy
-            check.onclick = () => { this.migrating = false; void this.act(signal => this.connect(signal), true) }
-            if (this.firstRun) {
-                const migrate = actions.createEl('button', { text: t('Migrate existing card files', 'Перенести существующие карточки') })
-                migrate.disabled = busy
-                migrate.onclick = () => { this.migrating = true; void this.act(signal => this.connect(signal), true) }
-            }
+            const retry = actions.createEl('button', { text: t('Check Connection', 'Проверить соединение'), cls: 'mod-cta' })
+            retry.disabled = this.busy
+            retry.onclick = () => this.checkConnection()
             const guide = contentEl.createEl('details')
-            rememberGroup(guide, this.plugin, 'quick-start-connection-help', this.firstRun || this.failed)
+            rememberGroup(guide, this.plugin, 'quick-start-connection-help')
             guide.createEl('summary', { text: t('Set up AnkiConnect', 'Как настроить AnkiConnect') })
             addAnkiConnectGuide(guide, t)
-            if (this.failed) contentEl.createEl('a', { text: t('Help on GitFlic', 'Помощь на GitFlic'), attr: { href: supportUrl } })
-            return
         }
-        if (this.failed) contentEl.createEl('a', { text: t('Help on GitFlic', 'Помощь на GitFlic'), attr: { href: supportUrl } })
-        const form = contentEl.createEl('fieldset')
-        form.disabled = busy
-        form.classList.add('rudonium-first-connection-form')
-        form.createEl('legend', { text: t(`Anki profile · ${connection.profile}`, `Профиль Anki · ${connection.profile}`) })
-        const dropdown = (label: string, items: readonly string[], value: string, change: (value: string) => void) =>
-            new Setting(form).setName(label).addDropdown(control => {
-                for (const item of items) control.addOption(item, item)
-                control.setValue(value).onChange(value => { change(value); this.render() })
-            })
-        dropdown(t('Deck', 'Колода'), connection.decks, choice.deck, deck => { choice.deck = deck })
-        dropdown(this.migrating ? t('Default note type for unlinked pages', 'Тип записи для страниц без связи') : t('Note type', 'Тип записи'),
-            connection.names.filter(name => connection.fields[name].length >= 2),
-            choice.model, model => {
-                choice.wizardFields = undefined
-                choice.model = model
-                choice.front = connection.fields[model][0]
-                choice.back = connection.fields[model][1]
-                choice.originalExpression = readRule(this.plugin.settings ?? {}, model).expression
-                choice.expression = this.suggestRemNote ? remNoteExpression : choice.originalExpression
-                this.custom = presetId(choice.expression) === 'custom'
-                this.customFields = undefined
-                this.sample = ''
-            })
-        if (this.migrating) {
-            form.createEl('p', { text: t('Save this connection, then preview existing card files. You can select files and review the backup location before conversion.',
-                'Сохраните подключение, чтобы проверить существующие карточки. Перед преобразованием можно выбрать файлы и папку для резервной копии.') })
-            const actions = form.createDiv({ cls: 'modal-button-container' })
-            actions.createEl('button', { text: t('Back to setup', 'К настройке') }).onclick =
-                () => { this.migrating = false; this.render() }
-            actions.createEl('button', { text: t('Continue to migration', 'Перейти к переносу'), cls: 'mod-cta' }).onclick =
-                () => void this.act(async signal => {
-                    const selected = { ...choice, forMigration: true }
-                    await verifyFirstConnection(connection, selected, signal)
-                    if (signal.aborted) return
-                    await this.save(connection, selected, signal)
-                    if (signal.aborted || this.closed) return
-                    this.close()
-                    openPageMigration(this.plugin, selected.model)
-                })
-            return
-        }
-        formatControl(form, t, choice.expression, this.custom, (expression, custom) => {
-            choice.wizardFields = undefined
-            choice.expression = expression
-            this.custom = custom
-            this.customFields = undefined
-            this.render()
-        }, expression => { choice.wizardFields = undefined; choice.expression = expression; this.customFields = undefined; refreshCard() })
-        const ruleHelp = form.createEl('details')
-        rememberGroup(ruleHelp, this.plugin, 'quick-start-remnote-expression')
-        ruleHelp.createEl('summary', { text: t('RemNote regular expression', 'Регулярное выражение RemNote') })
-        ruleHelp.createEl('p', { text: t('Choose the RemNote format above, or select Custom regular expression and paste this rule into Regular expression.',
-            'Выберите формат RemNote выше или выберите «Своё регулярное выражение» и вставьте это правило в поле «Регулярное выражение».') })
-        copyBlock(ruleHelp, remNoteExpression, t('Copy RemNote regular expression', 'Скопировать регулярное выражение RemNote'), t)
-        const names = connection.fields[choice.model]
-        addRegexpWizard(form, this.plugin.app, t, names, () => choice.expression, (pattern, sample, values) => {
-            choice.expression = pattern
-            choice.wizardFields = names.slice(0, values.length)
-            this.custom = true
-            this.sample = sample
-            this.customFields = values
-            this.render()
-        })
-        const preset = cardFormatPresets.find(item => item.expression === choice.expression)
-        if (this.custom) {
-            new Setting(form).setName(t('Sample Markdown', 'Пример Markdown')).addTextArea(area =>
-                area.setValue(this.sample).onChange(value => { this.sample = value; this.customFields = undefined; refreshCard() }))
-            form.createEl('button', { text: t('Test sample', 'Проверить пример') }).onclick =
-                () => void this.act(signal => this.testCustom(choice, signal))
-        } else {
-            const example = choice.expression === remNoteExpression ? '- ' + this.exampleValues(choice).join(' :: ')
-                : preset?.expression ? preset.example : exampleBlock(this.plugin.settings?.Syntax, choice.model, connection.fields[choice.model], choice.front, choice.back)
-            form.createEl('pre', { text: example })
-        }
-        const card = form.createEl('section')
-        card.classList.add('rudonium-first-connection-card')
-        const refreshCard = () => {
-            card.empty()
-            const values = this.exampleValues(choice)
-            card.hidden = !values.length
-            if (card.hidden) return
-            card.createEl('small', { text: t('Front', 'Лицевая сторона') })
-            card.createDiv({ text: values[0] ?? '' })
-            card.createEl('hr')
-            card.createEl('small', { text: t('Back', 'Обратная сторона') })
-            card.createDiv({ text: values[1] ?? '' })
-        }
-        refreshCard()
-        const options = form.createEl('details')
-        rememberGroup(options, this.plugin, 'quick-start-more-options')
-        options.createEl('summary', { text: t('More options', 'Дополнительные настройки') })
-        new Setting(options).setName(t('Require this profile before writing', 'Проверять этот профиль перед записью'))
-            .addToggle(control => control.setValue(choice.lock).onChange(lock => { choice.lock = lock }))
-        const preview = options.createEl('button', { text: t('Preview Anki template', 'Посмотреть шаблон Anki') })
-        preview.onclick = () => void this.act(async signal => {
-            if (this.custom) await this.testCustom(choice, signal)
-            if (!signal.aborted) await this.preview(connection, { ...choice }, signal)
-        })
-        options.createEl('button', { text: t('Check connection again', 'Проверить соединение снова') }).onclick = () => void this.act(signal => this.connect(signal), true)
-        if (this.firstRun) form.createEl('p', { text: t(
-            'For your first card, save this setup and write a card using the example format in a Markdown note. Put the cursor in the card and run Preview Current Card. Confirm the export and keep the ID that appears next to the card.',
-            'Сохраните настройки и запишите первую карточку по образцу в заметку Markdown. Поставьте курсор в карточку и выполните команду «Предпросмотр текущей карточки». Подтвердите экспорт и сохраните ID, который появится рядом с карточкой.') })
-        const actions = form.createDiv({ cls: 'modal-button-container' })
-        if (this.firstRun) actions.createEl('button', { text: t('Migrate existing card files', 'Перенести существующие карточки') }).onclick =
-            () => { this.migrating = true; this.render() }
-        const button = actions.createEl('button', { text: t('Save Setup', 'Сохранить настройки'), cls: 'mod-cta' })
-        button.onclick = () => void this.act(async signal => {
-            const selected = { ...choice }
-            const customProblem = this.custom && customExpressionProblem(selected.expression, t)
-            if (customProblem) throw new Error(customProblem)
-            setupRule(this.plugin.settings ?? {}, connection.fields, selected, t)
-            if (this.custom && selected.expression !== selected.originalExpression) await this.testCustom(selected, signal)
-            if (signal.aborted) return
-            await verifyFirstConnection(connection, selected, signal)
-            if (signal.aborted) return
-            await this.save(connection, selected, signal)
-            if (!this.closed) this.close()
-        })
+        this.showStartupPreference(contentEl)
+        const links = contentEl.createDiv({ cls: 'rudonium-quick-start-links' })
+        links.createEl('a', { text: t('Quick Start guide', 'Руководство по быстрому старту'),
+            attr: { href: 'https://github.com/Dashiwak/rudonium-anki-toolkit/blob/HEAD/docs/' + t('en', 'ru') + '/quick-start.md' } })
     }
 }
 
-function open(plugin: MyPlugin, t: UiText, save: Save, firstRun = false, suggestRemNote = firstRun): void {
+function open(plugin: MyPlugin, t: UiText, save: Save, firstRun: boolean, savePreference: (dismiss: boolean) => Promise<void>): void {
     if (running.has(plugin)) return
     if (!registeredCleanup.has(plugin)) {
         plugin.register(() => {
@@ -469,7 +304,7 @@ function open(plugin: MyPlugin, t: UiText, save: Save, firstRun = false, suggest
         })
         registeredCleanup.add(plugin)
     }
-    const modal = new FirstConnectionModal(plugin, t, save, firstRun, suggestRemNote)
+    const modal = new FirstConnectionModal(plugin, t, save, firstRun, savePreference)
     running.set(plugin, modal)
     modal.open()
 }
@@ -480,63 +315,69 @@ export function registerSetupCommand(plugin: MyPlugin, withLock: SetupLock, stop
     plugin.addCommand({ id: 'ankiconnect-first-run', name: uiFor(plugin.settings)('Quick Start', 'Быстрый старт'),
         callback: () => openSetup(plugin, withLock) })
     plugin.app.workspace.onLayoutReady(() => {
-        const settings = plugin.settings
-        const cancelled = () => stopped() || settings !== plugin.settings || registeredCleanup.has(plugin)
-        if (cancelled()) return
-        void needsFormatSetup(plugin.app, settings, cancelled).then(needed => {
-            if (needed && !cancelled()) openSetup(plugin, withLock)
-        }).catch(error => console.warn('[Rudonium] Could not check first-run formats', error))
+        if (!stopped() && !registeredCleanup.has(plugin) && needsFormatSetup(plugin.settings, plugin.fields_dict)) {
+            openSetup(plugin, withLock)
+        }
     })
 }
 
 export function installFirstRunSetting(container: HTMLElement, plugin: MyPlugin, withLock: SetupLock, redraw: () => void): void {
     const t = uiFor(plugin.settings)
     new Setting(container).setName(t('Quick Start', 'Быстрый старт'))
-        .setDesc(t('Connect to Anki and choose a deck, note type and card format.',
-            'Подключитесь к Anki и выберите колоду, тип записи и формат карточек.'))
+        .setDesc(t('Choose a deck and configure note types for this vault.',
+            'Выберите колоду и настройте типы записей для этого хранилища.'))
         .addButton(button => button.setButtonText(t('Set up sync', 'Настроить синхронизацию')).onClick(() => openSetup(plugin, withLock, redraw)))
 }
 
-function openSetup(plugin: MyPlugin, withLock: SetupLock, redraw?: () => void): void {
-    acknowledgeFormatSetup(plugin.app, plugin.settings)
+export function openSetup(plugin: MyPlugin, withLock: SetupLock, redraw?: () => void): void {
     const t = uiFor(plugin.settings)
-    const first = !Object.keys(plugin.fields_dict).length
-    open(plugin, t, (connection, choice, signal) => withLock(async () => {
+    const first = needsFormatSetup(plugin.settings, plugin.fields_dict) || plugin.settings.QUICK_START_STATUS === 'dismissed'
+    open(plugin, t, (connection, draft, signal) => withLock(async () => {
         await checkPinnedAnkiProfile(connection.profile, signal)
         if (signal.aborted) return
         const { settings } = plugin
+        if (settings.REQUIRE_ANKI_PROFILE && settings.EXPECTED_ANKI_PROFILE && settings.EXPECTED_ANKI_PROFILE !== connection.profile) {
+            throw new AnkiProfileError('mismatch', settings.EXPECTED_ANKI_PROFILE, connection.profile)
+        }
+        const edited = draft.rules !== draft.originalRules
+        if ((edited && JSON.stringify(ruleSnapshot(settings)) !== JSON.stringify(draft.originalRules)) ||
+            settings.Defaults.Deck !== draft.originalDeck) {
+            throw new Error(t('The setup changed while Quick Start was open. Close and reopen it to load the latest settings.',
+                'Настройки изменились, пока был открыт быстрый старт. Закройте окно и откройте его снова.'))
+        }
         const previousFields = plugin.fields_dict
         const previousTypes = plugin.note_types
-        const empty = !Object.keys(previousFields).length
-        if (!empty && (!Object.prototype.hasOwnProperty.call(previousFields, choice.model) ||
-            JSON.stringify(previousFields[choice.model]) !== JSON.stringify(connection.fields[choice.model]))) {
-            throw new Error(t('Refresh note types in settings and reopen Quick Start.', 'Обновите типы записей в настройках и заново откройте быстрый старт.'))
-        }
-        const expressions = settings.CUSTOM_REGEXPS
         const previousDeck = settings.Defaults.Deck
-        const previousProfile = settings.EXPECTED_ANKI_PROFILE
-        const previousLock = settings.REQUIRE_ANKI_PROFILE
-        const initial = empty ? { ...settings, CUSTOM_REGEXPS: { ...Object.fromEntries(connection.names.map(name => [name, ''])), ...expressions } } : settings
-        const rule = choice.forMigration ? undefined : setupRule(initial, connection.fields, choice, t)
-        const restoreRule = rule ? applyRuleSettings(settings, rule) : undefined
-        if (empty) {
-            if (!rule) settings.CUSTOM_REGEXPS = initial.CUSTOM_REGEXPS
-            plugin.fields_dict = connection.fields
-            plugin.note_types = connection.names
+        const previousStatus = settings.QUICK_START_STATUS
+        const schemaChanged = !sameSchema({ names: Object.keys(previousFields), fields: previousFields }, connection)
+        const updates: RuleSettings = edited ? { ...draft.rules } : {}
+        if (schemaChanged) {
+            Object.assign(updates, updatedChoices({ ...settings, ...updates }, connection.names, connection.fields))
         }
-        settings.Defaults.Deck = choice.deck
-        settings.EXPECTED_ANKI_PROFILE = choice.lock ? connection.profile : previousProfile
-        settings.REQUIRE_ANKI_PROFILE = choice.lock
+        const restore = applyRuleSettings(settings, updates)
+        plugin.fields_dict = connection.fields
+        plugin.note_types = connection.names
+        settings.Defaults.Deck = draft.deck
+        settings.QUICK_START_STATUS = 'complete'
         try { await plugin.saveAllData() } catch (error) {
-            restoreRule?.()
-            if (empty) settings.CUSTOM_REGEXPS = expressions
+            if (previousStatus === undefined) delete settings.QUICK_START_STATUS
+            else settings.QUICK_START_STATUS = previousStatus
+            restore()
             plugin.fields_dict = previousFields
             plugin.note_types = previousTypes
             settings.Defaults.Deck = previousDeck
-            settings.EXPECTED_ANKI_PROFILE = previousProfile
-            settings.REQUIRE_ANKI_PROFILE = previousLock
             throw error
         }
         redraw?.()
-    }), first, first || (!plugin.settings.NOTE_TYPE_RULE_MODELS?.length && !Object.values(plugin.settings.CUSTOM_REGEXPS ?? {}).some(value => value?.trim())))
+    }), first, dismiss => withLock(async () => {
+        const settings = plugin.settings
+        const before = settings.QUICK_START_STATUS
+        settings.QUICK_START_STATUS = dismiss ? 'dismissed' : 'pending'
+        try { await plugin.saveAllData() }
+        catch (error) {
+            if (before === undefined) delete settings.QUICK_START_STATUS
+            else settings.QUICK_START_STATUS = before
+            throw error
+        }
+    }))
 }

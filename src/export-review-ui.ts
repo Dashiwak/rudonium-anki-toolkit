@@ -8,7 +8,6 @@ import type { ExportDeckMove, ExportFieldPreview, OneWayFieldConflict } from './
 import { oneWayFieldChoice } from './export-plan'
 import { describeDeckRoute } from './deck-routes'
 import { openAuditAnkiNote, openAuditSource } from './sync-difference-ui'
-import { AnkiProfileError, checkPinnedAnkiProfile, profileProblemText } from './anki-profile'
 import { exportCardIssueText, exportCardSourceDigest, isDuplicateFirstFieldErrorMessage, localizeExportError } from './card-export-diagnostics'
 import type { ExportCardIssue } from './card-export-diagnostics'
 import { findIdMarkers } from './duplicate-markers'
@@ -183,8 +182,11 @@ async function openExportCardSource(app: App, path: string, issue: ExportCardIss
 
 class CardIssueNotice extends Notice {
     onDismiss?: () => void
+    dismissed = false
 
     hide(): void {
+        if (this.dismissed) return
+        this.dismissed = true
         this.onDismiss?.()
         this.onDismiss = undefined
         super.hide()
@@ -212,7 +214,7 @@ function showCardNotice(path: string, issue: ExportCardIssue, t: UiText, details
         if (label === t('Review Repair', 'Исправить запись') || label === t('Run Audit', 'Провести аудит')) button.className = 'mod-cta'
         button.onclick = async event => {
             event.stopPropagation()
-            if (button.disabled) return
+            if (button.disabled || notice.dismissed) return
             button.disabled = true
             if (!keepOpen) notice.hide()
             try { await action?.() }
@@ -254,7 +256,7 @@ export function showMissingAnkiCardNotice(app: App, cards: readonly ReportedCard
         const buttons: NoticeButton[] = [[t('Show Note', 'Показать запись'), showNoticeSource(app, path, issue, t, syntax), true]]
         const id = issue.id
         if (repair && id !== undefined) buttons.push([t('Review Repair', 'Исправить запись'), () => repair(issue.deck ?? card.deck, { id, path })])
-        buttons.push([t('Skip', 'Пропустить'), next])
+        buttons.push([t('Skip', 'Пропустить'), next], [t('Skip All', 'Пропустить все')])
         const notice = showCardNotice(path, issue, t, undefined, buttons, 0)
         activeMissing.set(app, notice)
         notice.onDismiss = () => { if (activeMissing.get(app) === notice) activeMissing.delete(app) }
@@ -880,13 +882,9 @@ class ExportReviewModal extends ReviewModal {
                 button.onclick = async () => {
                     button.disabled = true
                     try {
-                        await checkPinnedAnkiProfile(profile)
-                        await openAuditAnkiNote(id, undefined, t)
+                        await openAuditAnkiNote(id, { active: profile }, t)
                     } catch (error) {
-                        const message = error instanceof AnkiProfileError
-                            ? t(error.message, profileProblemText(error, t))
-                            : localizeExportError(error instanceof Error ? error.message : String(error), t)
-                        new Notice(message)
+                        new Notice(localizeExportError(error instanceof Error ? error.message : String(error), t))
                     } finally {
                         button.disabled = false
                     }

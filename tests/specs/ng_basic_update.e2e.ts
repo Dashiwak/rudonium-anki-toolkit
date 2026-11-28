@@ -17,7 +17,7 @@ function delay(ms: number) {
 }
 
 async function syncObsidianAnki() {
-    const SyncButton = await $('aria/Obsidian_to_Anki - Scan Vault')
+    const SyncButton = await $('aria/Rudonium — Sync vault with Anki')
     await expect(SyncButton).toExist()
     await $(SyncButton).click()
 
@@ -153,7 +153,7 @@ describe(test_name_fmt, () => {
         await delay(100);        
         
         await browser.saveScreenshot(`logs/${test_name}/Obsidian PreTest.png`)
-        // const SyncButton = await $('aria/Obsidian_to_Anki - Scan Vault')
+        // const SyncButton = await $('aria/Rudonium — Sync vault with Anki')
         // await expect(SyncButton).toExist()
         // await $(SyncButton).click()
 

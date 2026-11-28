@@ -181,6 +181,36 @@ test("missing-ID notice keeps the current record on Show, advances on Skip, and 
     assert.equal(notices.at(-1).hidden, true);
 });
 
+test("Skip All closes this scan's missing-ID queue and stale controls cannot advance a later scan", async () => {
+    global.createFragment = () => page.createDocumentFragment();
+    const modules = await loadModules();
+    const app = makeHost().plugin.app;
+    const { showMissingAnkiCardNotice } = modules["./export-review-ui"];
+    const cards = [101, 102, 103].map(id => ({ path: id + ".md", issue: { id, line: 1, code: "missing-id" } }));
+    const show = batch => showMissingAnkiCardNotice(app, batch, english);
+    const click = (notice, label) => notice.el.button(label).onclick({ stopPropagation() {} });
+    show(cards);
+    await click(notices.at(-1), "Skip");
+    const second = notices.at(-1);
+    const count = notices.length;
+    await click(second, "Skip All");
+    assert.equal(second.hidden, true);
+    assert.equal(notices.length, count);
+    show(cards);
+    const nextScan = notices.at(-1);
+    assert.match(nextScan.el.textContent, /Missing ID 101/);
+    await click(second, "Skip");
+    assert.equal(notices.at(-1), nextScan);
+    assert.equal(nextScan.hidden, undefined);
+    show([cards[2]]);
+    const single = notices.at(-1);
+    assert.equal(nextScan.hidden, true);
+    await click(nextScan, "Skip All");
+    assert.equal(single.hidden, undefined);
+    await click(single, "Skip All");
+    assert.equal(single.hidden, true);
+});
+
 test("a visible settings tab without a shell provides a return path and a hidden cached tab is ignored", async () => {
     const modules = await loadModules();
     const nav = modules["./obsidian-navigation"];

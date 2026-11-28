@@ -34,7 +34,7 @@ test('Preset export, page ID insertion, repeated scan and verified two-way edits
     const temp = fs.mkdtempSync(path.join(tmpdir(), 'rudonium-formats-'));
     t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
     for (const name of ['legacy-field-sections', 'page-frontmatter', 'page-named-fields', 'page-field-insertion', 'page-card', 'delimited-rule', 'archived-card', 'suspend-label', 'card-format-presets', 'anki-id-marker', 'id-marker-literals',
-        'duplicate-markers', 'card-export-diagnostics', 'markdown-pipeline', 'interface-language', 'export-recovery', 'anki-transport', 'bidirectional-markdown', 'bidirectional-blocks', 'bidirectional-fields']) {
+        'duplicate-markers', 'card-export-diagnostics', 'markdown-pipeline', 'interface-language', 'export-recovery', 'anki-transport', 'bidirectional-markdown', 'bidirectional-blocks', 'bidirectional-fields', 'block-field-tags']) {
         const code = stripTypeScriptTypes(fs.readFileSync(overlay.file(name + '.ts'), 'utf8'))
             .replace(/from '(.\/[^']+)'/g, "from '$1.mjs'")
             .replace("from 'ts-md5'", "from './unused-md5.mjs'");

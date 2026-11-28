@@ -1,10 +1,9 @@
 import { markdownHighlightPattern, memoizeMarkdownField } from './markdown-pipeline'
-import { AnkiConnectNote } from './interfaces/note-interface'
-import { Converter } from 'showdown'
-import { CachedMetadata } from 'obsidian'
+import type { AnkiConnectNote } from './interfaces/note-interface'
+import { renderAnkiMarkdown } from './anki-markdown-renderer'
+import type { CachedMetadata } from 'obsidian'
 import * as c from './constants'
 
-import showdownHighlight from 'showdown-highlight'
 
 const ANKI_MATH_REGEXP:RegExp = /(\\\[[\s\S]*?\\\])|(\\\([\s\S]*?\\\))/g
 const HIGHLIGHT_REGEXP = markdownHighlightPattern()
@@ -22,15 +21,6 @@ const PARA_OPEN:string = "<p>"
 const PARA_CLOSE:string = "</p>"
 
 let cloze_unset_num: number = 1
-
-let converter: Converter = new Converter({
-	simplifiedAutoLink: true,
-	literalMidWordUnderscores: true,
-	tables: true, tasklists: true,
-	simpleLineBreaks: true,
-	requireSpaceBeforeHeadingText: true,
-	extensions: [showdownHighlight]
-})
 
 function escapeHtml(unsafe: string): string {
     return unsafe
@@ -180,7 +170,7 @@ export class FormatConverter {
 		note_text = note_text.replace(HIGHLIGHT_REGEXP, String.raw`<mark>$1</mark>`)
 		note_text = this.decensor(note_text, DISPLAY_CODE_REPLACE, display_code_matches, false)
 		note_text = this.decensor(note_text, INLINE_CODE_REPLACE, inline_code_matches, false)
-		note_text = converter.makeHtml(note_text)
+		note_text = renderAnkiMarkdown(note_text)
 		note_text = this.decensor(note_text, MATH_REPLACE, math_matches, true).trim()
 		// Remove unnecessary paragraph tag
 		if (note_text.startsWith(PARA_OPEN) && note_text.endsWith(PARA_CLOSE)) {

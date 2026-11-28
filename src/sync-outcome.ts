@@ -1,4 +1,5 @@
 /*! SPDX-License-Identifier: GPL-3.0-only */
+import type { ExportCardIssue } from './card-export-diagnostics'
 import type { UiText } from './interface-language'
 
 type CountForms = readonly [string, string, string]
@@ -53,9 +54,29 @@ export function unconfirmedNotes(count: number, t: UiText): string {
         'Не удалось подтвердить изменения для ' + count + ' ' + form(count, ['записи', 'записей', 'записей']) + '.')
 }
 
-export function skippedFiles(count: number, t: UiText): string {
-    return t('Some notes were skipped. Check ' + en(count, 'file') + '.',
-        'Часть записей пропущена. Проверьте ' + counted(count, file) + '.')
+export function isSkippedExportIssue(issue: ExportCardIssue): boolean {
+    return issue.code !== 'unconfirmed-response' && issue.code !== 'protected-block' && issue.code !== 'conflicting-deck-directive'
+}
+
+export function skippedExportNotes(duplicates: ReadonlySet<number>,
+    byPath: ReadonlyMap<string, readonly ExportCardIssue[]>, files: number, t: UiText): string {
+    const ids = new Set(duplicates)
+    let anonymous = 0
+    for (const issues of byPath.values()) {
+        const positions = new Set<string>()
+        for (const issue of issues) {
+            if (!isSkippedExportIssue(issue)) continue
+            if (issue.id !== undefined) ids.add(issue.id)
+            else positions.add((issue.source?.line ?? issue.line) + ':' + (issue.source?.startColumn ?? 0))
+        }
+        anonymous += positions.size
+    }
+    const count = ids.size + anonymous
+    const check = files ? t('Check ' + en(files, 'file') + '.', 'Проверьте ' + counted(files, file) + '.') : ''
+    if (!count) return check
+    const skipped = t('Skipped ' + en(count, 'note') + '.',
+        form(count, ['Пропущена', 'Пропущены', 'Пропущено']) + ' ' + counted(count, note) + '.')
+    return check ? skipped + ' ' + check : skipped
 }
 
 export type NoteChange = 'add' | 'edit' | 'delete' | 'cleanup' | 'link' | 'tags' | 'move' | 'suspend' | 'resume' | 'status'

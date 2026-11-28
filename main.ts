@@ -14,7 +14,7 @@ import { registerPageIdBulk } from './src/page-id-bulk-ui'
 import { registerPageFieldEditor } from './src/page-field-editor-ui'
 import { registerOpenCardInAnki } from './src/card-open-anki'
 import multimatch from 'multimatch'
-import { importLegacyScanScope } from './src/sync-profiles'
+import { importUpstreamSettings } from './src/sync-profiles'
 import { pauseForMigration } from './src/plugin-migration'
 import { refreshNoteTypes } from './src/note-type-refresh'
 import { registerSetupCommand } from './src/first-connection'
@@ -92,7 +92,7 @@ export default class RudoniumAnkiPlugin extends Plugin {
 			BIDIRECTIONAL_SYNC: false,
 			BIDIRECTIONAL_PREVIEW: false,
 			BIDIRECTIONAL_CONFLICT_POLICY: "latest",
-			SKIP_SYNC_ERRORS: false,
+			SKIP_SYNC_ERRORS: true,
 			INTERFACE_LANGUAGE: "en",
 			PAGE_ID_LOCATION: "yaml",
 			COLLAPSE_ANKI_IDS: false,
@@ -151,6 +151,7 @@ export default class RudoniumAnkiPlugin extends Plugin {
         const saved = await this.readSavedData()
         const defaults = await this.getDefaultSettings()
         if (!saved) {
+            defaults.QUICK_START_STATUS = 'pending'
             this.note_types = []
             this.fields_dict = {}
             this.added_media = []
@@ -167,7 +168,7 @@ export default class RudoniumAnkiPlugin extends Plugin {
         const tag = preferences.Tag ?? ""
         if (typeof tag !== "string") throw invalidPluginData(options)
         const values: DataRecord = { ...preferences, Tag: tag }
-        importLegacyScanScope(options, values)
+        importUpstreamSettings(options, values)
         if (!validSection(syntax, defaults.Syntax) || !validSection(values, defaults.Defaults)) throw invalidPluginData(options)
         for (const key of ["CUSTOM_REGEXPS", "FILE_LINK_FIELDS", "CONTEXT_FIELDS", "FOLDER_DECKS", "FOLDER_TAGS"]) {
             if (key in options && !isStringMap(options[key])) throw invalidPluginData(options)
@@ -259,8 +260,12 @@ export default class RudoniumAnkiPlugin extends Plugin {
         void this.loadRudonium().catch((error: unknown) => {
             if (this.rudoniumStopped) return
             console.error('[Rudonium] Could not start plugin', error)
-            new Notice(uiFor(this.settings)('Could not start Rudonium. See the console for details.',
-                'Не удалось запустить Rudonium. Подробности в консоли.'))
+            if (error instanceof Error && ['InvalidRudoniumPluginData', 'RudoniumSettingsReadError'].includes(error.name)) {
+                new Notice(error.message, 12000)
+            } else {
+                new Notice(uiFor(this.settings)('Could not start Rudonium. See the console for details.',
+                    'Не удалось запустить Rudonium. Подробности в консоли.'))
+            }
         })
     }
 
@@ -271,27 +276,24 @@ export default class RudoniumAnkiPlugin extends Plugin {
 
     private rudoniumInitialized = false
     private rudoniumStopped = false
+    private starting?: Promise<void>
 
     private async startRudonium(): Promise<void> {
-        if (this.rudoniumStopped) return
-        await this.initializeRudonium()
+        if (this.rudoniumStopped || this.rudoniumInitialized) return
+        this.starting ??= this.initializeRudonium().finally(() => { this.starting = undefined })
+        await this.starting
     }
 
     private async initializeRudonium(): Promise<void> {
         if (this.rudoniumStopped) return
 
-		addIcon('anki', ANKI_ICON)
-
         try {
             this.settings = await this.loadSettings()
         } catch (error) {
             if (this.rudoniumStopped) return
-            if (error instanceof Error && error.name === 'InvalidRudoniumPluginData') new Notice(error.message, 12000)
-            else {
-                console.error('[Rudonium] Could not load plugin settings', error)
-                new Notice(uiFor(this.settings)('Could not load Rudonium settings.', 'Не удалось загрузить настройки Rudonium.'))
-            }
-            return
+            if (error instanceof Error && error.name === 'InvalidRudoniumPluginData') throw error
+            const message = uiFor(this.settings)('Could not load Rudonium settings.', 'Не удалось загрузить настройки Rudonium.')
+            throw Object.assign(new Error(message, { cause: error }), { name: 'RudoniumSettingsReadError' })
         }
         if (this.rudoniumStopped) return
         this.note_types = Object.keys(this.settings.CUSTOM_REGEXPS)
@@ -318,17 +320,16 @@ export default class RudoniumAnkiPlugin extends Plugin {
 
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		this.addRibbonIcon('anki', uiFor(this.settings)('Obsidian_to_Anki - Scan Vault', 'Экспортировать хранилище в Anki'), async () => {
-			await this.scanVault()
-		})
-
 		this.addCommand({
 			id: 'anki-scan-vault',
-			name: uiFor(this.settings)('Scan Vault', 'Экспортировать хранилище в Anki'),
+			name: uiFor(this.settings)('Sync vault with Anki', 'Синхронизировать хранилище с Anki'),
 			callback: async () => {
 			 	await this.scanVault()
 			 }
 		})
+        addIcon('rudonium-anki-sync', ANKI_ICON)
+        this.addRibbonIcon('rudonium-anki-sync', uiFor(this.settings)('Rudonium — Sync vault with Anki', 'Rudonium — Синхронизировать хранилище с Anki'),
+            () => this.scanVault())
         this.rudoniumInitialized = true
     }
 

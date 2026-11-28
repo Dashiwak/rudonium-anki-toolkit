@@ -3,6 +3,7 @@
 Input must be the note text.
 Does NOT deal with finding the note in the file.*/
 
+import { blockFieldTagSignature, hasBlockFieldTags, readBlockFieldTags } from './block-field-tags'
 import { FormatConverter } from './format'
 import { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { FIELDS_DICT, FROZEN_FIELDS_DICT } from './interfaces/field-interface'
@@ -162,6 +163,13 @@ export class Note extends AbstractNote {
         for (let line of this.split_text.slice(1)) {
             [line, this.current_field] = this.fieldFromLine(line)
             fields[this.current_field] += line + "\n"
+        }
+        if (this.identifier && this.text.includes(blockFieldTagSignature) &&
+            hasBlockFieldTags(this.text.slice(this.text.lastIndexOf('\n') + 1))) {
+            const first = this.field_names[0]
+            const suffix = readBlockFieldTags(fields[first])
+            fields[first] = suffix.text
+            this.tags.push(...suffix.tags)
         }
         for (let key in fields) {
             fields[key] = this.formatter.format(

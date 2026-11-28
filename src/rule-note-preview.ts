@@ -9,7 +9,7 @@ import { pageCardExpression } from './card-format-presets'
 import { uiFor } from './interface-language'
 import type { UiText } from './interface-language'
 import { withRule } from './note-type-rules'
-import type { NoteTypeRule } from './note-type-rules'
+import type { NoteTypeRule, RuleSettings } from './note-type-rules'
 import { parsePortableMarkdown } from './portable-parser'
 import { settingToData } from './setting-to-data'
 import { scanProfileFreeSettings } from './sync-profiles'
@@ -68,8 +68,9 @@ export function compareRuleMatches(before: Candidate[], after: Candidate[], othe
 /** Each rule sees the same current editor snapshot, formatter and ID reader as export.
  * Independent parses reveal overlapping models that ordinary ordered export can mask. */
 export async function previewRuleOnNote(plugin: MyPlugin, rule: NoteTypeRule, signal: AbortSignal,
-    shouldStop?: () => boolean): Promise<Report> {
-    const { app, settings } = plugin
+    shouldStop?: () => boolean, ruleSettings: RuleSettings = plugin.settings, fields = plugin.fields_dict): Promise<Report> {
+    const { app } = plugin
+    const settings = { ...plugin.settings, ...ruleSettings }
     const t = uiFor(settings)
     const file = app.workspace.getActiveFile()
     if (!file || file.extension.toLowerCase() !== 'md') throw new Error(t('Open a Markdown note first.', 'Сначала откройте заметку Markdown.'))
@@ -79,7 +80,7 @@ export async function previewRuleOnNote(plugin: MyPlugin, rule: NoteTypeRule, si
     const ids = ankiIdNumberTokens(text)
     const metadata = editorPreviewMetadata(text, app.metadataCache.getCache(file.path))
     const next = { ...settings, ...withRule(settings, rule) }
-    const previousData = await settingToData(app, scanProfileFreeSettings(settings), plugin.fields_dict, [])
+    const previousData = await settingToData(app, scanProfileFreeSettings(settings), fields, [])
     const read = async (data: typeof previousData, model: string) => {
         if (signal.aborted || shouldStop?.()) throw new Error(t('Check cancelled.', 'Проверка отменена.'))
         // A marked whole page owns all its text, including examples matching an inline rule.
@@ -92,7 +93,7 @@ export async function previewRuleOnNote(plugin: MyPlugin, rule: NoteTypeRule, si
     const prior = settings.CUSTOM_REGEXPS?.[rule.model] ?? ''
     const same = prior === rule.expression && (settings.FILE_LINK_FIELDS?.[rule.model] ?? '') === rule.file &&
         (settings.CONTEXT_FIELDS?.[rule.model] ?? '') === rule.context
-    const nextData = same ? previousData : await settingToData(app, scanProfileFreeSettings(next), plugin.fields_dict, [])
+    const nextData = same ? previousData : await settingToData(app, scanProfileFreeSettings(next), fields, [])
     const after = await read(nextData, rule.model)
     const warnings: string[] = []
     const comparison = async (data: typeof previousData, model: string, warning: string) => {
@@ -109,7 +110,7 @@ export async function previewRuleOnNote(plugin: MyPlugin, rule: NoteTypeRule, si
     const others = new Map<string, Range[]>()
     if (after.length) {
         for (const [model, expression] of Object.entries(next.CUSTOM_REGEXPS)) {
-            if (model !== rule.model && expression && Object.prototype.hasOwnProperty.call(plugin.fields_dict, model)) {
+            if (model !== rule.model && expression && Object.prototype.hasOwnProperty.call(fields, model)) {
                 const peers = await comparison(nextData, model, t(`Could not check overlaps with “${model}”.`,
                     `Не удалось проверить пересечения с типом «${model}».`))
                 if (peers) others.set(model, peers.map(({ start, end }) => ({ start, end })))

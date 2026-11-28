@@ -129,3 +129,35 @@ test('a broken saved expression or peer cannot hide repaired matches or claim th
     await assert.rejects(review(plugin, {...draft, expression: '('}, new AbortController().signal))
     await assert.rejects(review(plugin, draft, AbortSignal.abort()))
 })
+
+test('a restricted Node loader still allows regex matching in the browser worker', async () => {
+    const blobs = new Map()
+    class WorkerURL extends URL {
+        static createObjectURL(blob) { blobs.set('blob:regexp-test', blob); return 'blob:regexp-test' }
+        static revokeObjectURL(url) { blobs.delete(url) }
+    }
+    class BrowserWorker extends EventTarget {
+        constructor(url) {
+            super()
+            this.blob = blobs.get(url)
+            assert.ok(this.blob)
+        }
+        async postMessage(value) {
+            const self = {
+                postMessage: data => this.dispatchEvent(new MessageEvent('message', { data })),
+                addEventListener: (name, handler) => { assert.equal(name, 'message'); handler({ data: value }) },
+            }
+            require('node:vm').runInNewContext(await this.blob.text(), { self })
+        }
+        terminate() {}
+    }
+    // The desktop host may expose process while blocking worker_threads in the renderer.
+    const env = { process: { getBuiltinModule() { throw new Error('Disabled in renderer') } },
+        Worker: BrowserWorker, Blob, URL: WorkerURL }
+    const modules = await load(['custom-regexp-worker'], {}, {}, env)
+    const worker = modules['custom-regexp-worker']
+    const pattern = { source: '^(.+) :: (.+)$', flags: 'gm' }
+    const result = await worker.matchCustomRegexps('Question :: Answer', [pattern])
+    const [match] = result.get(worker.customRegexpKey(pattern))
+    assert.deepEqual(Array.from(match).slice(1), ['Question', 'Answer'])
+})

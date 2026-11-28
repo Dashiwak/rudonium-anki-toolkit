@@ -128,7 +128,7 @@ function sameChoices(left: Choices | undefined | null, right: Choices): boolean 
             Object.prototype.hasOwnProperty.call(left, name) && left[name] === value)
 }
 
-function updatedChoices(settings: MyPlugin['settings'], names: readonly string[], fields: FieldMap,
+export function updatedChoices(settings: MyPlugin['settings'], names: readonly string[], fields: FieldMap,
     disabled?: RefreshResult['disabled'], conflicts?: string[]) {
     const active = new Map(Object.entries(settings.CUSTOM_REGEXPS ?? {}))
     const inactive = new Map(Object.entries(settings.INACTIVE_CUSTOM_REGEXPS ?? {}).filter(([, value]) => typeof value === 'string' && value.trim()))
@@ -212,14 +212,14 @@ export function refreshNoteTypes(plugin: MyPlugin): Promise<RefreshResult> {
 export function installNoteTypeRefresh(container: HTMLElement, fallback: HTMLElement, plugin: MyPlugin, redraw: () => void): void {
     const t = uiFor(plugin.settings)
     const target = container.querySelector<HTMLElement>('[data-anki-note-type-refresh]') ?? fallback
+    const setting = new Setting(target).setName(t('Anki note types', 'Типы записей Anki'))
+        .setDesc(t('Read the current note types and fields from Anki.', 'Считывает текущие типы записей и поля из Anki.'))
     const status = target.createEl('small', { attr: { role: 'status', 'aria-live': 'polite' } })
     const recent = lastStatus.get(plugin)
     status.setText(recent ? t(recent[0], recent[1]) : '')
-    const setting = new Setting(target).setName(t('Anki note types', 'Типы записей Anki'))
-        .setDesc(t('Read the current note types and fields from Anki.', 'Считывает текущие типы записей и поля из Anki.'))
     setting.addButton(button => {
         const label = t('Refresh', 'Обновить')
-        button.setButtonText(label).setClass('mod-cta')
+        button.setButtonText(label)
         const observe = async (work: Promise<RefreshResult>) => {
             button.setDisabled(true).setButtonText(t('Refreshing…', 'Обновляем…'))
             status.setText(t('Reading note types from Anki…', 'Читаем типы записей из Anki…'))

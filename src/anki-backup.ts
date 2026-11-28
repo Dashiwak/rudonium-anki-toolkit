@@ -38,7 +38,7 @@ function hasBuiltinLoader(value: unknown): value is { getBuiltinModule(name: str
 }
 
 function sqliteBackupApi(): OnlineSqlite {
-    const runtime: unknown = 'process' in globalThis ? globalThis.process : undefined
+    const runtime: unknown = typeof process === 'undefined' ? undefined : process
     const module = hasBuiltinLoader(runtime) ? runtime.getBuiltinModule('node:sqlite') : undefined
     if (module && typeof module === 'object' && 'DatabaseSync' in module && typeof module.DatabaseSync === 'function' &&
         'backup' in module && typeof module.backup === 'function') return module as OnlineSqlite
@@ -63,6 +63,12 @@ async function profileMediaPath(fs: NodeFiles, path: NodePath): Promise<string> 
         throw new Error('Anki backup needs a real collection.media folder on this computer.')
     }
     return fs.promises.realpath(value)
+}
+
+export async function ankiProfileDirectory(profile: string): Promise<string> {
+    const media = await profileMediaPath(fs, path)
+    await checkPinnedAnkiProfile(profile)
+    return path.dirname(media)
 }
 
 async function mediaFiles(fs: NodeFiles, path: NodePath, root: string): Promise<Map<string, MediaFile>> {
@@ -129,6 +135,40 @@ function verifyCollection(sqlite: OnlineSqlite, path: string): 'sqlite-quick-che
     } finally {
         copied.close()
     }
+}
+
+/** The caller owns the private staging folder and removes it on failure. */
+export async function backupAnkiDeck(outputArchive: string, deck: string, profile: string,
+    onProgress?: VaultZipProgressCallback): Promise<number> {
+    const names = await withAnkiDeadline(() => AnkiConnect.invoke('deckNames'), 'AnkiConnect deckNames', connectorTimeoutMs)
+    if (!Array.isArray(names) || !names.includes(deck)) throw new Error(`The backup deck “${deck}” is missing from the open Anki profile.`)
+    await checkPinnedAnkiProfile(profile)
+    // Wait for Anki to close the package before verifying it or removing the staging folder.
+    const exported = await AnkiConnect.invoke('exportPackage', { deck, path: outputArchive, includeSched: true })
+    if (exported !== true) throw new Error(`Anki could not export the backup deck “${deck}”.`)
+    await checkPinnedAnkiProfile(profile)
+    const info = await fs.promises.lstat(outputArchive).catch((error: unknown) => {
+        if (fileErrorCode(error) !== 'ENOENT') throw error
+        return undefined
+    })
+    if (!info?.isFile() || info.size <= 0) throw new Error('The exported Anki deck package is empty or missing.')
+    const sqliteMagic = new TextEncoder().encode('SQLite format 3\0')
+    const zstdMagic = [0x28, 0xb5, 0x2f, 0xfd]
+    let hasCollection = false
+    let hasMedia = false
+    await verifyVaultZip(outputArchive, onProgress, {
+        inspectFile(name, size, header) {
+            if (name === 'media') hasMedia = size > 0
+            if (name !== 'collection.anki2' && name !== 'collection.anki21' && name !== 'collection.anki21b') return
+            const magic = name === 'collection.anki21b' ? zstdMagic : sqliteMagic
+            if (size <= magic.length || !magic.every((byte, index) => header[index] === byte)) {
+                throw new Error('The Anki deck package has an invalid collection.')
+            }
+            hasCollection = true
+        },
+    })
+    if (!hasCollection || !hasMedia) throw new Error('The Anki deck package is missing its collection or media index.')
+    return info.size
 }
 
 export async function backupAnkiCollection(outputArchive: string, onProgress?: VaultZipProgressCallback,

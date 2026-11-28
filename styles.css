@@ -28,7 +28,7 @@
 .rudonium-settings-about .setting-item { padding-block: .55rem; }
 .anki-settings-disclosure[data-rudonium-settings-group] { margin-block: .75rem 1.25rem; }
 .anki-settings-disclosure[data-rudonium-settings-group] > summary { cursor: pointer; font-weight: var(--font-medium, 500); }
-.rudonium-settings-group-body .anki-note-type-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; margin-block: .6rem; }
+.rudonium-settings-group-body .anki-note-type-refresh { margin-block: .6rem .25rem; }
 .rudonium-settings-group-body .anki-note-type-refresh:empty { display: none; }
 
 .rudonium-settings-pane {
@@ -555,19 +555,55 @@
   width: min(58rem, calc(100vw - 2rem));
 }
 
+/* Keep Obsidian's section outlines while removing separators between settings. */
+:is(.rudonium-settings-section, .rudonium-settings-pane, .rudonium-quick-start) {
+  --setting-items-border-width: 0;
+}
+
+:is(.rudonium-settings-section, .rudonium-settings-pane, .rudonium-quick-start) .setting-item,
+.setting-item.rudonium-settings-section {
+  border-block: 0;
+  box-shadow: none;
+}
+
+:is(.rudonium-settings-section, .rudonium-settings-pane, .rudonium-quick-start) .setting-item::before,
+:is(.rudonium-settings-section, .rudonium-settings-pane, .rudonium-quick-start) .setting-item::after,
+.setting-item.rudonium-settings-section::before,
+.setting-item.rudonium-settings-section::after {
+  display: none;
+  content: none;
+}
+
+.rudonium-quick-start-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem 1rem;
+  margin-block-start: .5rem;
+}
+
 .rudonium-connection-status {
   display: flex;
   align-items: flex-start;
-  gap: .65rem;
-  padding: .8rem 1rem;
+  gap: .5rem;
+  padding: .5rem .7rem;
   border-radius: var(--radius-m);
   background: var(--background-secondary);
 }
 
 .rudonium-connection-status.is-offline,
 .rudonium-connection-status.is-problem {
+  color: var(--text-normal);
+}
+
+.rudonium-connection-status.is-offline,
+.rudonium-connection-status.is-problem,
+.rudonium-zip-import-line {
+  background-color: color-mix(in srgb, var(--text-error) 10%, var(--background-primary));
+}
+
+.rudonium-connection-status:is(.is-offline, .is-problem) > span {
   color: var(--text-error);
-  background: var(--background-modifier-error);
+  flex: none;
 }
 
 .rudonium-connection-status.is-connected {
@@ -575,7 +611,7 @@
 }
 
 .rudonium-connection-status p {
-  margin: .25rem 0 0;
+  margin: .125rem 0 0;
   color: var(--text-normal);
 }
 
@@ -631,9 +667,59 @@
   font-size: var(--font-ui-small);
 }
 
+.rudonium-first-connection-card small {
+  display: block;
+}
+
+.rudonium-first-connection-card div + small {
+  margin-block-start: .65rem;
+}
+
+/* A fieldset normally takes the min-content width of the longest example.
+   Keep the deck, model and format controls inside even a narrow dialog. */
 .rudonium-first-connection-form {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  margin: 0;
   border: 0;
   padding: 0;
+}
+.rudonium-quick-start-types {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  margin: .5rem 0;
+  padding: .25rem .8rem .8rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+.rudonium-quick-start-types > legend {
+  padding-inline: .35rem;
+  font-weight: var(--font-semibold);
+}
+.rudonium-first-connection-form :is(pre, legend) {
+  max-inline-size: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rudonium-first-connection-form .setting-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem .8rem;
+  padding-block: .6rem;
+}
+.rudonium-first-connection-form .setting-item-info {
+  flex: 1 1 9rem;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.rudonium-first-connection-form .setting-item-control {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+.rudonium-first-connection-form :is(select, textarea) {
+  max-inline-size: 100%;
 }
 
 .rudonium-folder-tree-search {
@@ -918,10 +1004,6 @@ button.rudonium-hidden,
   min-width: 0;
 }
 
-.rudonium-zip-import-line {
-  background-color: var(--background-modifier-error);
-}
-
 .rudonium-modal-72rem {
   width: min(72rem, calc(100vw - 2rem));
 }
@@ -952,4 +1034,138 @@ button.rudonium-hidden,
     flex-wrap: wrap;
     gap: var(--size-4-2);
     margin-block: var(--size-4-3);
+}
+
+.rudonium-rule-wizard-action {
+  margin-inline-start: auto;
+}
+
+.rudonium-first-run-preference {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-block: .75rem;
+}
+
+/* The note-type editor has the same columns for every control. They stack
+   automatically when a narrow modal cannot fit the label and input together. */
+.rudonium-rule-form {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  --setting-items-border-width: 0;
+}
+.rudonium-rule-form .setting-item {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+  gap: .4rem 1rem;
+  align-items: center;
+  padding-block: .65rem;
+  border: 0;
+  box-shadow: none;
+}
+.rudonium-rule-form .setting-item::before,
+.rudonium-rule-form .setting-item::after { display: none; }
+.rudonium-rule-form :is(.setting-item-info, .setting-item-control) {
+  min-inline-size: 0;
+  margin: 0;
+}
+.rudonium-rule-form .setting-item-control :is(input, select, textarea) {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+.rudonium-rule-form .modal-button-container { flex-wrap: wrap; }
+.rudonium-rule-tools { margin-block: .65rem; }
+.rudonium-rule-tools > summary { cursor: pointer; }
+.rudonium-rule-tools[open] > summary { margin-block-end: .65rem; }
+.rudonium-rule-example {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-block: .65rem;
+}
+.rudonium-rule-form [role="status"]:empty,
+.anki-note-type-refresh [role="status"]:empty { display: none; }
+.anki-note-type-refresh small {
+  display: block;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.rudonium-restore-facts,
+.rudonium-restore-destination > span {
+  overflow-wrap: anywhere;
+}
+
+.rudonium-restore-destination,
+.rudonium-restore-position,
+.rudonium-restore-line-label,
+.rudonium-restore-editor-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.rudonium-restore-destination {
+  justify-content: space-between;
+  margin-block: 1rem .75rem;
+}
+
+.rudonium-restore-position {
+  margin-block-end: 1rem;
+}
+
+.rudonium-restore-line-label input {
+  inline-size: 7em;
+}
+
+.rudonium-restore-context {
+  box-sizing: border-box;
+  flex-basis: 100%;
+  min-inline-size: 0;
+  padding: .35rem .6rem;
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+}
+
+.rudonium-restore-context-line {
+  min-block-size: 1.25em;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+.rudonium-restore-insertion {
+  margin-block: .2rem;
+  padding-inline-start: .5rem;
+  border-inline-start: 2px solid var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.rudonium-restore-editor-bar {
+  justify-content: space-between;
+}
+
+.rudonium-restore-editor textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 6rem;
+  margin-block: .25rem;
+  resize: vertical;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  line-height: 1.5;
+}
+
+.rudonium-restore-editor + details {
+  margin-block-start: .5rem;
 }

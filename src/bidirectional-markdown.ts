@@ -304,7 +304,8 @@ export function planExplicitBlockPatches(content: string, block: BidirectionalBl
         const space = value && (span.spaceWhenFilled || followsPageTag) ? ' ' : ''
         // A tag inside the old value must survive replacement of that value from Anki.
         const pageTag = span.pageSource === undefined ? '' : value ? ' #anki-page' : '#anki-page'
-        patches.push({ start: span.start, end: span.end, text: space + value.replace(/\n/gu, block.eol) + pageTag })
+        const tagSpace = span.spaceBeforeHashtagsWhenFilled && value ? ' ' : ''
+        patches.push({ start: span.start, end: span.end, text: space + value.replace(/\n/gu, block.eol) + pageTag + tagSpace })
     }
     if (Object.keys(additions).length) {
         const append = block.format === 'page' ? planPageFieldInsertion(content, block, additions) :

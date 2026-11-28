@@ -32,10 +32,13 @@ export function readRule(settings: RuleSettings, model: string): NoteTypeRule {
 
 export function configuredModels(settings: RuleSettings, fields: Record<string, string[]>): string[] {
     const saved = new Set(Array.isArray(settings.NOTE_TYPE_RULE_MODELS) ? settings.NOTE_TYPE_RULE_MODELS : [])
-    // Older versions initialized every model's source link to its first field, even without a rule.
+    // Obsidian_to_Anki showed the first field by default in both mapping columns.
+    // Keep the original mappings for export; infer a rule only from an actual selection.
     return Object.keys(fields).filter(model => {
         const rule = readRule(settings, model)
-        return saved.has(model) || !!rule.expression || !!rule.context || !!rule.file && rule.file !== fields[model][0]
+        const names = fields[model]
+        return saved.has(model) || !!rule.expression.trim() ||
+            names.indexOf(rule.file) > 0 || names.indexOf(rule.context) > 0
     })
 }
 
@@ -99,7 +102,7 @@ export function withRule(settings: RuleSettings, rule: NoteTypeRule, remove = fa
 }
 
 /** Restore both values and missing optional keys if writing settings fails. */
-export function applyRuleSettings(settings: RuleSettings, updated: Required<RuleSettings>): () => void {
+export function applyRuleSettings(settings: RuleSettings, updated: RuleSettings): () => void {
     const previous = { ...settings }
     const keys = Object.keys(updated) as Array<keyof RuleSettings>
     Object.assign(settings, updated)

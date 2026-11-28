@@ -6,10 +6,12 @@ Use this wizard when one Markdown file represents one Anki note with a question 
 
 Cards written for Obsidian To Anki use Rudonium’s normal export, including block and inline cards and the original Anki IDs. Import your original plugin settings to keep custom delimiters, regular expressions and field mappings. For existing Rudonium pages, select their Anki note type for the whole-page format and use normal export. For a lost page ID, use **Check cards without an ID** from the deck audit.
 
+When you first enable Rudonium in a vault that uses Obsidian_to_Anki, open **Settings → Community plugins** and turn off **Obsidian_to_Anki**. Rudonium detects the change and offers **Use existing settings**. Select it to copy your saved configuration and resume exporting from the ribbon. Closing the migration window leaves a **Switch to Rudonium** button in the ribbon so you can return to it.
+
 ## Start the wizard
 
 1. Save open Markdown edits. Disable the plugin that previously synchronized these files. Keep its settings and data in the vault for the backup. Keep Yanki disabled for migrated folders. If its own ID disappears, a later Yanki sync can delete and recreate an Anki note, losing its review history. [Yanki’s explanation of note IDs](https://github.com/kitschpatrol/yanki-obsidian#can-i-delete-the-noteid)
-2. Open the original Anki profile with AnkiConnect running. On a fresh Rudonium installation, open **Quick Start** from the command palette, choose **Migrate existing card files**, check the connection and choose **Continue to migration**. On an existing installation run **Migrate card files** from the command palette, or open **Card file migration → Set up migration** in Rudonium settings.
+2. Open the original Anki profile with AnkiConnect running. Run **Migrate card files** from the command palette, or open **Card file migration → Set up migration** in Rudonium settings.
 3. **Folder to search** starts at **Entire vault**. Click it and type part of a folder name or path, or expand the folder tree. Press Enter to select an exact path or a unique match. Use the arrow keys or click **Choose** for other matches. The wizard still checks for duplicate IDs across the vault. To detect Yanki IDs automatically, keep the disabled Yanki installation in the vault. To include unmarked Yanki files, select **Yanki** and its original folder. If that folder was the vault root, explicitly choose **Entire vault including unmarked Yanki files**. Folders suggested from existing `noteId` properties are search hints. A horizontal rule alone does not establish that a file was a flashcard.
 4. Choose the default Anki note type for new pages. If **Note type rules** already assigns `@page`, use that type. Otherwise the wizard can add page recognition alongside an existing regular expression. Select **Preview files**. Rudonium verifies the IDs already present and lists eligible files without an ID under **Not checked**.
 5. To include cards without an ID, choose **Check cards without an ID**. This searches once in the selected migration scope. Review any proposed links individually. In **Ready**, select the files to convert. If you select a file that was never exported, confirm that its first normal export can create an Anki note. **Needs review** explains why a file was set aside. **Already supported** lists native cards, including any foreign-looking file that already exports through an active note type rule.
@@ -42,7 +44,7 @@ The table covers the one-file layouts recognized by Rudonium. Source format deta
 
 **Better Flashcards.** This is a fork of Flashcards. For a file using their shared syntax, choose **Flashcards** and inspect the preview. The wizard checks that Better Flashcards is disabled before writing. Formats specific to the fork have not been tested separately. [Better Flashcards project](https://github.com/mihirpatel1112/better-flashcards#attribution)
 
-**Earlier settings and other writing styles.** Earlier Rudonium (`rupos-anki-toolkit`) and the original Export to Anki have a separate settings migration. RemNote and Neuracache are available as writing presets for new notes. [Card formats](card-formats.md)
+RemNote and Neuracache are available as writing presets for new notes. [Card formats](card-formats.md)
 
 ## What a converted file looks like
 

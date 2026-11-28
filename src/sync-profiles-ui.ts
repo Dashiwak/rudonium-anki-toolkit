@@ -317,7 +317,7 @@ export function installSyncProfileSettings(container: HTMLElement, plugin: MyPlu
                     const message = uiDiagnostic(error, t)
                     new Notice(t(`Could not select the sync profile. ${message}`, `Не удалось выбрать профиль папок. ${message}`))
                 } finally {
-                    const focused = root.contains(document.activeElement)
+                    const focused = root.contains(root.ownerDocument.activeElement)
                     render()
                     if (focused) root.querySelector('select')?.focus()
                 }

@@ -1,4 +1,6 @@
 /*! SPDX-License-Identifier: GPL-3.0-only */
+import type { UiText } from './interface-language'
+
 export const pageCardExpression = '@page'
 
 /** Match complete delimiter lines and leave an unfinished opening behind when a new block starts. */
@@ -21,8 +23,24 @@ export interface CardFormatPreset {
     back: string
 }
 
-const front = 'Capital of Austria?'
-const back = 'Vienna'
+const front = 'Which spacecraft carried Soviet cosmonaut Yuri Gagarin on the first human spaceflight on 12 April 1961?'
+const back = 'Vostok 1'
+
+export function tutorialFields(t: UiText): [string, string] {
+    return [t(front, 'На каком корабле космонавт СССР Юрий Гагарин совершил первый в истории полёт человека в космос 12 апреля 1961 года?'),
+        t(back, 'Восток-1')]
+}
+
+export function presetExample(preset: CardFormatPreset, t: UiText): string {
+    const [question, answer] = tutorialFields(t)
+    return preset.example.replace(front, () => question).replace(back, () => answer)
+}
+
+export function explicitExample(begin: string, end: string, model: string, fields: readonly string[], t: UiText): string {
+    const [question, answer] = tutorialFields(t)
+    return [begin, model, fields[0] + ': ' + question, fields[1] + ': ' + answer, end].join('\n')
+}
+
 const oneLine = String.raw`([^\s](?:[^\r\n]*?[^\s])?)`
 const end = String.raw`[ \t]*(?=\r?$)`
 const remValue = String.raw`(?!::)[^\s](?:(?:(?!::)[^\r\n])*?(?!::)[^\s])?`
@@ -142,7 +160,7 @@ export const cardFormatPresets: readonly CardFormatPreset[] = [
         example: 'START\nBasic\nFront: ' + front + '\nBack: ' + back + '\nEND', front, back },
     { id: 'remnote', en: 'RemNote · single line', ru: 'RemNote · одна строка',
         expression: remNoteExpression,
-        example: front + ' :: ' + back, front, back },
+        example: '- ' + front + ' :: ' + back, front, back },
     { id: 'neuracache', en: 'Neuracache · #flashcard', ru: 'Neuracache · #flashcard',
         expression: '^' + oneLine + String.raw`[ \t]+#flashcard[ \t]*\r?\n` + answer + end,
         example: front + ' #flashcard\n' + back, front, back },

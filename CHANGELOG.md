@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.13.3 · Note types and export results / Типы записей и результаты экспорта
+
+- Quick Start labels the configured note types. Export reports skipped notes and opens the audit for the configured deck.
+- В быстром старте выделен раздел типов записей. В результатах экспорта видно число пропущенных записей и можно сразу проверить колоду из настроек.
+
+[Release notes / Примечания к выпуску](docs/releases/0.13.3.md)
+
+## 0.13.2 · Quick Start and note recovery / Быстрый старт и восстановление записей
+
+- Quick Start checks the connection and lists configured note types. Deck audit can insert an edited Markdown draft at a selected line.
+- Быстрый старт проверяет соединение и показывает настроенные типы записей. В аудите колоды можно отредактировать черновик и вставить запись в выбранную строку.
+
+[Release notes / Примечания к выпуску](docs/releases/0.13.2.md)
+
+## 0.13.1 · Migration and source recovery / Перенос настроек и восстановление записей
+
+- Quick Start keeps deck and note type controls visible in narrow windows. Imported note type rules distinguish first-field defaults from custom file and context mappings.
+- В «Быстром старте» выбор колоды и типа записи помещается в узком окне. При переносе настроек учитываются собственные назначения полей File и Context.
+- Deck audit previews a missing Markdown block with its original Anki ID and file path. Copy the draft or restore a verified block to the selected file.
+- В аудите колоды можно посмотреть блок Markdown с прежним ID Anki и путём к заметке. Черновик можно скопировать, а проверенный блок — добавить в выбранный файл.
+
+[Release notes / Примечания к выпуску](docs/releases/0.13.1.md)
+
+## 0.13.0 · Switching from Obsidian_to_Anki / Переход с Obsidian_to_Anki
+
+- Resume setup after disabling the old plugin, keep block syntax and field assignments, and skip all missing-ID notices for the current scan. Backups can include a selected Anki deck.
+- После отключения старого плагина Rudonium продолжает настройку, сохраняет блочный формат и назначения полей. Уведомления о ненайденных ID можно пропустить до конца текущей проверки. В резервную копию можно включить выбранную колоду Anki.
+
+[Release notes / Примечания к выпуску](docs/releases/0.13.0.md)
+
 ## 0.12.4 · README
 
 - Updated the English and Russian README feature lists and replaced the first RemNote card and its illustrations with an example about Yuri Gagarin.

@@ -91,10 +91,10 @@ export function customRegexpKey({ source, flags }: CustomRegexpPattern): string 
 }
 
 function workerPort(): WorkerPort {
-    const runtime: unknown = 'process' in globalThis ? globalThis.process : undefined
-    const threads: unknown = hasBuiltinLoader(runtime) ? runtime.getBuiltinModule('worker_threads') : undefined
-    if (hasThreadWorker(threads)) {
-        try {
+    const runtime: unknown = typeof process === 'undefined' ? undefined : process
+    try {
+        const threads: unknown = hasBuiltinLoader(runtime) ? runtime.getBuiltinModule('worker_threads') : undefined
+        if (hasThreadWorker(threads)) {
             const worker = new threads.Worker(nodeWorkerProgram, { eval: true })
             worker.on('error', () => {})
             worker.unref()
@@ -107,9 +107,9 @@ function workerPort(): WorkerPort {
                 },
                 stop: () => { void worker.terminate().catch(() => undefined) },
             }
-        } catch {
-            // Electron may only allow browser workers in this window.
         }
+    } catch {
+        // Some Electron windows restrict the module lookup or the worker constructor.
     }
     if (typeof Worker === 'undefined' || typeof Blob === 'undefined' || typeof URL.createObjectURL !== 'function') {
         throw new Error('This Obsidian environment cannot isolate Custom Regexp. Update Obsidian or disable the expression.')

@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
+import { hasBlockFieldTags, readBlockFieldTags } from './block-field-tags'
 import { activeCardMarkdown } from './archived-card'
 import { explicitFieldLabel as fieldLabel, isBidirectionalFieldName } from './bidirectional-fields'
 import { readSuspendLine } from './suspend-label'
@@ -20,6 +21,7 @@ export interface ExplicitFieldSpan {
     end: number
     value: string
     spaceWhenFilled: boolean
+    spaceBeforeHashtagsWhenFilled?: boolean
     /** Original bytes when the page-selection tag sits inside the editable text. */
     pageSource?: string
 }
@@ -231,6 +233,18 @@ export function findBidirectionalBlocks(content: string, syntax: DuplicateMarker
         if (!parsed || !model) continue
         const { fields, tagsStart } = parsed
         const names = modelFields?.[model]
+        const idLine = lines[existing ? index - 1 : outside].text
+        if (hasBlockFieldTags(idLine)) {
+            const span = fields.get(names?.[0] ?? 'Front')
+            if (span) {
+                const suffix = readBlockFieldTags(content.slice(span.start, span.end))
+                if (suffix.tags.length) {
+                    span.end = span.start + suffix.text.length
+                    span.value = suffix.text.replace(/\r\n|\r/gu, '\n')
+                    span.spaceBeforeHashtagsWhenFilled = !span.value
+                }
+            }
+        }
         // Named blocks can spell the question and answer in the language of the Anki model.
         const pair: readonly [string, string] | undefined = names && names.length >= 2 &&
             !(fields.has('Front') && fields.has('Back')) && names[0] !== names[1] &&

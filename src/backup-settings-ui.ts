@@ -3,7 +3,9 @@
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { Modal, Notice, Setting } from 'obsidian'
-import type { ToggleComponent } from 'obsidian'
+import type { ButtonComponent, ToggleComponent } from 'obsidian'
+import { requireExpectedAnkiProfile } from './anki-profile'
+import { readSyncAuditDeckNames } from './sync-audit'
 import type MyPlugin from '../main'
 import { savePluginDataInOrder, withFastScanReadLock } from './fast-scan'
 import { createBackupNow, listVaultBackups, readBackupSettings, restoreVaultBackup } from './vault-backup'
@@ -80,6 +82,8 @@ class VaultRestoreModal extends Modal {
                 `${entry.scope === 'selected' ? 'Выбранные папки' : 'Полное хранилище'} · ${new Date(entry.completedAt).toLocaleString()} · ZIP Obsidian. ${entry.scope === 'selected' ? 'Доступны только файлы, вошедшие в эту копию.' : 'При переносе импортируются заметки и поддерживаемые вложения; настройки хранилища сохраняются.'}`)
                 : t('Choose Obsidian.zip or a regular vault ZIP. Different existing files require an explicit choice.',
                     'Выберите Obsidian.zip или обычный ZIP хранилища. Замена отличающихся файлов требует явного выбора.'))
+            if (entry?.deckName) details.append(t(` Anki deck package: ${entry.deckName} (Deck.apkg).`,
+                ` Пакет колоды Anki: ${entry.deckName} (Deck.apkg).`))
         }
         list.onchange = () => { if (list.value) input.value = list.value; update() }
         input.oninput = () => { list.value = ''; update() }
@@ -182,6 +186,11 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
         'Obsidian.zip подходит и для переноса. Копия содержит полный снимок выбранной области, даже если для переносимых пакетов включено «Только изменённые файлы».') })
     let auto!: ToggleComponent
     let anki!: ToggleComponent
+    let deckToggle!: ToggleComponent
+    let refreshDecks!: ButtonComponent
+    let deckNames: string[] = []
+    let listedProfile: string | undefined
+    let loadingDecks = false
     let selectedScope!: ToggleComponent
     let interval!: HTMLInputElement
     let directory!: HTMLInputElement
@@ -225,6 +234,43 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
     new Setting(section).setName(t('Include Anki collection', 'Включить коллекцию Anki'))
         .setDesc(t('Save the active Anki collection and its media alongside the vault backup.', 'Сохранить открытую коллекцию Anki и её медиафайлы рядом с копией хранилища.'))
         .addToggle(toggle => { anki = toggle; toggle.onChange(value => save({ includeAnki: value })) })
+    new Setting(section).setName(t('Include an Anki deck package', 'Сохранять отдельную колоду Anki'))
+        .setDesc(t('Save the selected deck with its review schedule as Deck.apkg alongside Obsidian.zip. Import the package in Anki to restore the deck.',
+            'Сохранять выбранную колоду с расписанием повторений в Deck.apkg рядом с Obsidian.zip. Для восстановления импортируйте пакет в Anki.'))
+        .addToggle(toggle => { deckToggle = toggle; toggle.onChange(value => save({ includeDeck: value })) })
+    const deckRow = new Setting(section).setName(t('Deck to back up', 'Колода для резервной копии'))
+        .setDesc(t('Use Rudonium’s default deck or load the decks from the open Anki profile to choose one.',
+            'Используйте колоду Rudonium по умолчанию или загрузите список колод из открытого профиля Anki.'))
+    const deckList = deckRow.controlEl.createEl('select', { cls: 'dropdown', attr: {
+        'aria-label': t('Deck to back up', 'Колода для резервной копии'),
+    } })
+    deckRow.addButton(button => {
+        refreshDecks = button.setButtonText(t('Load decks', 'Загрузить колоды')).onClick(async () => {
+            if (loadingDecks || backingUp || saving) return
+            loadingDecks = true
+            feedback = undefined
+            render()
+            try {
+                const profile = await requireExpectedAnkiProfile(plugin)
+                const names = await readSyncAuditDeckNames(undefined, 5000)
+                await requireExpectedAnkiProfile(plugin, profile)
+                listedProfile = profile
+                deckNames = [...new Set(names)].sort((a, b) => a.localeCompare(b))
+            } catch (error) {
+                listedProfile = undefined
+                deckNames = []
+                feedback = { message: uiDiagnostic(error, t), error: true }
+            } finally {
+                loadingDecks = false
+                render()
+            }
+        })
+    })
+    deckList.onchange = () => {
+        if (!deckList.value) { void save({ selectedDeck: undefined }); return }
+        const name = deckNames[Number(deckList.value)]
+        if (name && listedProfile) void save({ selectedDeck: { name, profile: listedProfile } })
+    }
     new Setting(section).setName(t('Backup options', 'Параметры копирования'))
         .addButton(button => {
             saveButton = button.setButtonText(t('Save Backup Options', 'Сохранить параметры')).buttonEl
@@ -290,7 +336,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
 
     function render(resetInputs = false): void {
         const settings = readBackupSettings(plugin.settings.VAULT_BACKUP)
-        const busy = saving || backingUp
+        const busy = saving || backingUp || loadingDecks
         if (resetInputs) {
             interval.value = String(settings.intervalDays)
             directory.value = settings.directory
@@ -299,6 +345,22 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
         auto.setDisabled?.(busy)
         anki.setValue(settings.includeAnki)
         anki.setDisabled?.(busy)
+        deckToggle.setValue(settings.includeDeck)
+        deckToggle.setDisabled(busy)
+        deckRow.settingEl.hidden = !settings.includeDeck
+        deckList.disabled = busy
+        refreshDecks.setDisabled(busy)
+        deckList.empty()
+        const defaultDeck = plugin.settings.Defaults.Deck
+        deckList.createEl('option', { value: '', text: t(`Rudonium default · ${defaultDeck}`, `По умолчанию в Rudonium · ${defaultDeck}`) })
+        const selected = settings.selectedDeck
+        if (selected && (selected.profile !== listedProfile || !deckNames.includes(selected.name))) {
+            deckList.createEl('option', { value: 'saved', text: `${selected.name} · ${selected.profile}` }).selected = true
+        }
+        deckNames.forEach((name, index) => {
+            const option = deckList.createEl('option', { value: String(index), text: name })
+            if (selected?.name === name && selected.profile === listedProfile) option.selected = true
+        })
         try {
             const archive = readArchiveSettings(plugin.settings.ARCHIVE_TRANSFER)
             selectedScope.setValue(archive.useForBackups)
@@ -334,6 +396,7 @@ export function installBackupSettings(container: HTMLElement, plugin: MyPlugin, 
         render()
         try {
             await withFastScanReadLock(plugin, () => savePluginDataInOrder(plugin, async () => {
+                if (patch.selectedDeck) await requireExpectedAnkiProfile(plugin, patch.selectedDeck.profile)
                 const settings = plugin.settings
                 const current = readBackupSettings(settings.VAULT_BACKUP)
                 const next = { ...current, ...patch }

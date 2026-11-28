@@ -2,6 +2,7 @@ import { FIELDS_DICT } from './field-interface'
 import { AnkiConnectNote } from './note-interface'
 
 export interface PluginSettings {
+    QUICK_START_STATUS?: "pending" | "complete" | "dismissed"
     NOTE_TYPE_RULE_MODELS?: string[]
     NOTE_TYPE_RULE_NAMES?: Record<string, string>
     INACTIVE_CUSTOM_REGEXPS?: Record<string, string>
@@ -25,6 +26,7 @@ export interface PluginSettings {
     ARCHIVE_TRANSFER?: import("../archive-settings").ArchiveTransferSettings
     EXPECTED_ANKI_PROFILE?: string
     REQUIRE_ANKI_PROFILE?: boolean
+    EDITOR_CARD_WARNINGS?: boolean
     COLLAPSE_ANKI_IDS?: boolean
     CLEAN_DELETED_BLOCKS?: boolean
     MARK_DELETED_BLOCKS?: boolean

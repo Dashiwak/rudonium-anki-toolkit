@@ -16,7 +16,7 @@ Configure a format for an Anki note type in **Note type rules**. The first two c
 
 ## Build a rule from a separator
 
-Select an Anki note type in **Quick Start**, or add or edit its rule in **Note type rules**. Open **Regular expression wizard**, choose the number of fields, enter a literal separator and try one Markdown line. For example, a four-field vocabulary note can use a colon:
+In **Quick Start** or **Note type rules**, choose **Add note type** or **Edit** beside a configured type. Expand **Rule tools**, open **Regular expression wizard**, choose the number of fields, enter a literal separator and try one Markdown line. For example, a four-field vocabulary note can use a colon:
 
 ```markdown
 Wirtshaus : inn : ein altes Wirtshaus : de_DE
@@ -178,7 +178,7 @@ Prompt: Capital of Austria?
 Reply: Vienna
 ```
 
-In Quick Start, enter the example in **Sample Markdown** and click **Test sample** to inspect the captured values. Preview a real saved note before exporting. Changing its format can change which text matches. Keep any existing Anki IDs alongside the matching records.
+To test a custom expression before saving, expand **Rule tools**, enter the example in **Sample Markdown** and click **Test sample**. You can also save a valid rule directly. Preview a real saved note before exporting. Changing its format can change which text matches. Keep any existing Anki IDs alongside the matching records.
 
 #### Clearing a linked answer
 

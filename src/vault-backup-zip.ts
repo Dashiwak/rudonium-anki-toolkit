@@ -4,8 +4,8 @@
  */
 import { files as fs, paths as path, bytes as binary } from './desktop-io'
 import type { DesktopPaths, FileStat, FileHandle, Bytes } from './desktop-io'
-import * as stream from 'stream'
-import * as zlib from 'zlib'
+import { pipeline } from 'node:stream/promises'
+import { createDeflateRaw, createInflateRaw } from 'node:zlib'
 
 export interface VaultZipResult {
     files: number
@@ -29,6 +29,8 @@ export interface VaultZipReadOptions {
     maxFiles?: number
     maxTotalBytes?: number
     maxEntryBytes?: number
+    /** Supplies up to the first 16 bytes of each regular file after its checksum passes. */
+    inspectFile?: (name: string, size: number, header: Uint8Array) => void
     signal?: AbortSignal
 }
 
@@ -171,7 +173,21 @@ async function enumerate(root: string, onProgress?: VaultZipProgressCallback,
     return { candidates, total }
 }
 
-async function writeAt(file: FileHandle, buffer: Bytes, position: number): Promise<void> {
+// Keep ownership of the handle here. Destroying an fs.ReadStream on pipeline cancellation
+// can close a borrowed descriptor even if autoClose was disabled.
+async function* readRange(file: FileHandle, position: number, length: number, signal?: AbortSignal) {
+    const end = position + length
+    while (position < end) {
+        checkZipCancellation(signal)
+        const buffer = binary.allocUnsafe(Math.min(64 * 1024, end - position))
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, position)
+        if (!bytesRead) throw error('The file ended before the expected ZIP data could be read.')
+        position += bytesRead
+        yield buffer.subarray(0, bytesRead)
+    }
+}
+
+async function writeAt(file: FileHandle, buffer: Uint8Array, position: number): Promise<void> {
     for (let at = 0; at < buffer.length;) {
         const { bytesWritten } = await file.write(buffer, at, buffer.length - at, position + at)
         if (!bytesWritten) throw error('The ZIP output stopped accepting bytes.')
@@ -306,34 +322,26 @@ export async function writeVaultZip(source: string, archive: string, onProgress?
                     let crc = 0xffffffff
                     let length = 0
                     if (stat.size) {
-                        const sourceStream = fs.createReadStream(diskPath, {
-                            fd: input.fd, autoClose: false, start: 0, end: stat.size - 1,
-                        })
-                        const checksum = new stream.Transform({
-                            transform(chunk: Bytes, _encoding, callback) {
-                                try {
-                                    crc = updateCrc(crc, chunk)
-                                    length += chunk.length
-                                    bytes += chunk.length
-                                    progress(files, bytes, candidate.path)
-                                    callback(null, chunk)
-                                } catch (failure) {
-                                    callback(failure instanceof Error ? failure : error(String(failure)))
-                                }
-                            },
-                        })
-                        const sink = new stream.Writable({
-                            write(chunk: Bytes, _encoding, callback) {
-                                void writeAt(output, chunk, position).then(() => {
-                                    position += chunk.length
-                                    callback()
-                                }, callback)
-                            },
-                        })
+                        const sourceStream = readRange(input, 0, stat.size)
+                        async function* checksum(chunks: AsyncIterable<Uint8Array>) {
+                            for await (const chunk of chunks) {
+                                crc = updateCrc(crc, chunk)
+                                length += chunk.length
+                                bytes += chunk.length
+                                progress(files, bytes, candidate.path)
+                                yield chunk
+                            }
+                        }
+                        const writeChunks = async (chunks: AsyncIterable<Uint8Array>): Promise<void> => {
+                            for await (const chunk of chunks) {
+                                await writeAt(output, chunk, position)
+                                position += chunk.length
+                            }
+                        }
                         if (method === deflated) {
-                            await stream.promises.pipeline(sourceStream, checksum, zlib.createDeflateRaw({ level: 1 }), sink)
+                            await pipeline(sourceStream, checksum, createDeflateRaw({ level: 1 }), writeChunks)
                         } else {
-                            await stream.promises.pipeline(sourceStream, checksum, sink)
+                            await pipeline(sourceStream, checksum, writeChunks)
                         }
                     }
                     if (length !== stat.size || !sameFile(stat, await input.stat())) {
@@ -579,34 +587,29 @@ async function readArchive(archive: string, destination: string | undefined,
             if (entry.directory && outputPath) await fs.promises.mkdir(outputPath, { recursive: true, mode: 0o700 })
             else if (outputPath) await fs.promises.mkdir(path.dirname(outputPath), { recursive: true, mode: 0o700 })
 
+            const header = options.inspectFile && !entry.directory ? new Uint8Array(Math.min(16, entry.size)) : undefined
             let expanded = 0
             let crc = 0xffffffff
             const output = outputPath && !entry.directory
                 ? await fs.promises.open(outputPath, 'wx', 0o600) : undefined
             try {
                 if (entry.compressed) {
-                    const source = fs.createReadStream(realArchive, {
-                        fd: file.fd, autoClose: false, start: entry.dataStart, end: entry.dataStart + entry.compressed - 1,
-                    })
-                    const sink = new stream.Writable({
-                        write(chunk: Bytes, _encoding, callback) {
-                            try {
-                                checkZipCancellation(options.signal)
-                                const position = expanded
-                                expanded += chunk.length
-                                if (expanded > entry.size) throw error(`ZIP entry exceeded its declared size: ${entry.safeName}`)
-                                crc = updateCrc(crc, chunk)
-                                bytes += chunk.length
-                                progress(files, bytes, entry.safeName)
-                                if (output) void writeAt(output, chunk, position).then(() => callback(), callback)
-                                else callback()
-                            } catch (failure) {
-                                callback(failure instanceof Error ? failure : error(String(failure)))
-                            }
-                        },
-                    })
-                    if (entry.method === deflated) await stream.promises.pipeline(source, zlib.createInflateRaw(), sink, { signal: options.signal })
-                    else await stream.promises.pipeline(source, sink, { signal: options.signal })
+                    const source = readRange(file, entry.dataStart, entry.compressed, options.signal)
+                    const readChunks = async (chunks: AsyncIterable<Uint8Array>): Promise<void> => {
+                        for await (const chunk of chunks) {
+                            checkZipCancellation(options.signal)
+                            const position = expanded
+                            expanded += chunk.length
+                            if (expanded > entry.size) throw error(`ZIP entry exceeded its declared size: ${entry.safeName}`)
+                            if (header && position < header.length) header.set(chunk.subarray(0, header.length - position), position)
+                            crc = updateCrc(crc, chunk)
+                            bytes += chunk.length
+                            progress(files, bytes, entry.safeName)
+                            if (output) await writeAt(output, chunk, position)
+                        }
+                    }
+                    if (entry.method === deflated) await pipeline(source, createInflateRaw(), readChunks, { signal: options.signal })
+                    else await pipeline(source, readChunks, { signal: options.signal })
                 }
                 if (expanded !== entry.size || ((crc ^ 0xffffffff) >>> 0) !== entry.crc) {
                     throw error(`ZIP checksum or length mismatch: ${entry.safeName}`)
@@ -615,6 +618,7 @@ async function readArchive(archive: string, destination: string | undefined,
                 await output?.close()
             }
             if (!entry.directory) {
+                if (header) options.inspectFile?.(entry.safeName, entry.size, header)
                 if (outputPath) {
                     const modified = restoredTime(entry)
                     await fs.promises.utimes(outputPath, modified, modified)

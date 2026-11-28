@@ -4,7 +4,7 @@ This is an independently maintained, modified derivative of **Obsidian_to_Anki /
 
 - Upstream repository: https://github.com/ObsidianToAnki/Obsidian_to_Anki
 - Build base: release 3.6.0; expected commit `2dd39fefd26f3141a4e02105b1172a5a3eb2611f`.
-- The fork builds on the earlier v16–v17 modifications to Export to Anki. The project adopted the Rudonium Anki Toolkit name in version 1.6.0. Version **0.12.4** was prepared on **2026-11-25**.
+- The fork builds on the earlier v16–v17 modifications to Export to Anki. The project adopted the Rudonium Anki Toolkit name in version 1.6.0. Version **0.13.3** was prepared on **2026-11-28**.
 - Rudonium additions copyright © 2026 **dashiwak**. [Project support](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
 ## License chosen for this distribution
@@ -17,7 +17,7 @@ The build records the exact upstream legal files, metadata, and source hashes be
 
 Match the version in `PROVENANCE.json` under `release.version` to the version in `manifest.json` when inspecting a distribution. A source checkout can still carry the previous release’s evidence until a new build has recorded the candidate’s source and artifact hashes. The verified installation ZIP contains the new record in the plugin directory.
 
-The source update for 0.12.4 retains dependency notices from the previous build. Its runtime dependency inventory is regenerated during the locked build.
+The source update for 0.13.3 retains dependency notices from the previous build. Its runtime dependency inventory is regenerated during the locked build.
 
 ## Changes and acknowledgements
 

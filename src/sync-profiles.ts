@@ -88,10 +88,24 @@ export function scanProfileFreeSettings<T extends FolderProfileSettings & Interf
 }
 
 interface LegacyScanOptions {
+    BIDIRECTIONAL_SYNC?: unknown
+    QUICK_START_STATUS?: unknown
+    EDITOR_CARD_WARNINGS?: unknown
+    VAULT_BACKUP?: unknown
     IGNORED_FILE_GLOBS?: unknown
     LEGACY_IGNORED_FILE_GLOBS?: unknown
     SYNC_FOLDER_PROFILES?: unknown
     ACTIVE_SYNC_FOLDER_PROFILE?: unknown
+}
+
+// Upstream 3.6.0 saves both scope keys, including the root folder as an empty string.
+export function importUpstreamSettings(options: LegacyScanOptions, preferences: { 'Scan Directory'?: unknown }): void {
+    if (options.BIDIRECTIONAL_SYNC === undefined && ('Scan Directory' in preferences || 'IGNORED_FILE_GLOBS' in options)) {
+        options.QUICK_START_STATUS ??= 'complete'
+        options.EDITOR_CARD_WARNINGS ??= false
+        options.VAULT_BACKUP ??= { enabled: false, includeAnki: false, includeDeck: false, intervalDays: 7, directory: '' }
+    }
+    importLegacyScanScope(options, preferences)
 }
 
 export function importLegacyScanScope(options: LegacyScanOptions, preferences: { 'Scan Directory'?: unknown }): void {

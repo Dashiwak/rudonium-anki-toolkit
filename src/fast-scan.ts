@@ -20,7 +20,6 @@ import { createDuplicateReviewLoader } from './duplicate-review'
 import { openDuplicateReview } from './duplicate-review-ui'
 import { uiFor } from './interface-language'
 import { hasActiveLegacyPlugin } from './plugin-identity'
-import type { UiText } from './interface-language'
 import { requireSettledZipImport } from './zip-import-guard'
 import { FileManager } from './files-manager'
 import { settingToData } from './setting-to-data'
@@ -54,7 +53,7 @@ import { sendExportBatches } from './export-batch'
 import { hasPendingAnkiWrite, pendingAnkiWriteMessage, withAnkiDeadline } from './anki-transport'
 import type { OneWayHistory } from './oneway-history'
 import { ExportOperationJournal, operationJournalPath } from './export-operation-journal'
-import { checkedCount, skippedFiles, SyncOutcome } from './sync-outcome'
+import { checkedCount, isSkippedExportIssue, skippedExportNotes, SyncOutcome } from './sync-outcome'
 import { showExportOperationJournal } from './export-operation-journal-ui'
 import { oneWayFieldChoice } from './export-plan'
 import { forgetConfirmedAnkiDeletions, hasPendingBidirectionalWrite, pendingBidirectionalWriteMessage, previewBidirectionalSync, runBidirectionalSync } from './bidirectional-sync'
@@ -901,7 +900,6 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
         else return previewBidirectionalSync(plugin, requestedPaths ? { paths: requestedPaths } : undefined)
         return
     }
-    if (!await prepareInitialSchema(plugin)) return
     if (hasPendingBidirectionalWrite(plugin.app)) {
         new Notice(t(pendingBidirectionalWriteMessage, 'Дождитесь завершения предыдущей операции двусторонней синхронизации.'))
         return
@@ -910,6 +908,7 @@ export async function previewVaultExport(plugin: MyPlugin, auditScope?: AuditedE
         plugin.fields_dict, syncScopeSignature(plugin.settings)] as const
     const getConfiguration = () => JSON.stringify(previewInputs())
     try {
+        if (!await prepareInitialSchema(plugin)) return
         const result = await withFastScanReadLock(plugin, async currentRevision => {
             const state = states.get(plugin)!
             if (!state.loaded) await loadIndex(plugin, state)
@@ -1102,16 +1101,18 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         return 'failed'
     }
     if (hasActiveLegacyPlugin(plugin.app)) {
-        new Notice(previousPluginMessage(t))
+        new Notice(previousPluginMessage(plugin.app, t))
         return 'stopped'
     }
     try { await requireSettledZipImport(plugin) }
     catch (error) { new Notice(String(error)); return 'stopped' }
-    if (previewProfile !== undefined && isAnkiProfileLockEnabled(plugin) && previewProfile !== expectedAnkiProfile(plugin)) {
-        const error = new AnkiProfileError('changed', previewProfile, expectedAnkiProfile(plugin))
+    const blockedBeforeWrite = (error: AnkiProfileError) => {
         if (control?.onProfileBlocked) control.onProfileBlocked(error)
         else showAnkiProfileProblem(plugin, error, 'before-write')
-        return 'blocked-profile'
+        return 'blocked-profile' as const
+    }
+    if (previewProfile !== undefined && isAnkiProfileLockEnabled(plugin) && previewProfile !== expectedAnkiProfile(plugin)) {
+        return blockedBeforeWrite(new AnkiProfileError('changed', previewProfile, expectedAnkiProfile(plugin)))
     }
     const cursor = control?.cursorCard
     const cursorRecovery = control?.cursorRecovery
@@ -1131,7 +1132,12 @@ export async function scanVaultFast(plugin: MyPlugin, scan: boolean | 'scheduled
         return runBidirectionalSync(plugin, { currentFile: current && currentPath ? { file: current, path: currentPath } : undefined,
             paths: onlyPaths, force, scheduled: scan === 'scheduled' })
     }
-    if (!await prepareInitialSchema(plugin)) return 'failed'
+    try {
+        if (!await prepareInitialSchema(plugin)) return 'failed'
+    } catch (error) {
+        if (error instanceof AnkiProfileError) return blockedBeforeWrite(error)
+        throw error
+    }
     if (hasPendingBidirectionalWrite(plugin.app)) {
         new Notice(t(pendingBidirectionalWriteMessage, 'Дождитесь завершения предыдущей операции двусторонней синхронизации.'))
         return 'busy'
@@ -1947,7 +1953,7 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
         if (issue.code === 'duplicate-first-field') rejected.push(card)
         const message = `${path}: ${issue.message}`
         if (issue.code === 'unconfirmed-response') unconfirmedCreations.add(message)
-        else recoverable.add(message)
+        else if (isSkippedExportIssue(issue)) recoverable.add(message)
     }
 
     const pathOf = (message: string): string | undefined => {
@@ -2000,9 +2006,7 @@ function showExportIssues(plugin: MyPlugin, errors: readonly string[], deferred:
             }
         }
         if (grouped.length || duplicates.size) {
-            const detail = skippedPaths.size
-                ? skippedFiles(skippedPaths.size, t)
-                : t(`Duplicate Anki IDs skipped: ${duplicates.size}.`, `Пропущено дубликатов ID Anki: ${duplicates.size}.`)
+            const detail = skippedExportNotes(duplicates, cardIssues, skippedPaths.size, t)
             show(`${detail}\n${t('Obsidian and Anki may be out of sync.', 'Данные в Obsidian и Anki могут различаться.')}`,
                 deckForMessages(grouped))
         }

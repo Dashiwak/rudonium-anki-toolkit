@@ -20,18 +20,20 @@ test("All desktop overlay modules link with their real local exports", async () 
     }
     // Pin the boundary to the upstream renderer and desktop APIs.
     const externals = {
-        "./anki": [],
+        "./anki": ["invoke"],
         "./constants": ["OBS_DISPLAY_CODE_REGEXP", "OBS_CODE_REGEXP", "OBS_DISPLAY_MATH_REGEXP", "OBS_INLINE_MATH_REGEXP", "escapeRegex"],
         "./file": ["AllFile"],
         "./files-manager": ["FileManager", "frontmatterTags", "mergeTags"],
         "./setting-to-data": ["settingToData"],
-        "obsidian": ["App", "ItemView", "MarkdownView", "Modal", "Notice",
+        "obsidian": ["App", "FuzzySuggestModal", "ItemView", "MarkdownView", "Modal", "Notice",
             "Setting", "TFile", "TFolder", "editorInfoField", "editorLivePreviewField",
             "parseLinktext", "parseYaml", "sanitizeHTMLToDom", "setIcon"],
         "@codemirror/language": ["syntaxTree", "syntaxTreeAvailable"],
         "@codemirror/state": ["Prec", "StateEffect"],
         "@codemirror/view": ["Decoration", "EditorView", "ViewPlugin", "WidgetType"],
         "ts-md5": ["Md5"],
+        "marked": ["Marked", "Renderer"],
+        "highlight.js": ["default"],
     };
     const hosts = new Map(Object.entries(externals).map(([id, names]) => [id, new SyntheticModule(names, () => {}, { identifier: id })]));
     const resolveModule = (id, importer) => {

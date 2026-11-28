@@ -3,7 +3,7 @@
  * Rudonium Anki Toolkit, modified 2026-11-19. See NOTICE.md for component attribution and licenses.
  */
 import { editorInfoField, parseLinktext } from 'obsidian'
-import { StateEffect } from '@codemirror/state'
+import { StateEffect, type Extension } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
 import { syntaxTree, syntaxTreeAvailable, type EditorSyntaxNode } from '@codemirror/language'
 import type MyPlugin from '../main'
@@ -52,6 +52,12 @@ function visibleLines(view: EditorView): EditorWarningLine[] {
         if (lines.length >= visibleLineLimit) break
     }
     return lines
+}
+
+const warningSettings = new WeakMap<MyPlugin, () => void>()
+
+export function refreshEditorCardWarnings(plugin: MyPlugin): void {
+    warningSettings.get(plugin)?.()
 }
 
 export function registerEditorCardWarnings(plugin: MyPlugin): void {
@@ -116,7 +122,16 @@ export function registerEditorCardWarnings(plugin: MyPlugin): void {
         const theme = EditorView.baseTheme({ [`.${warningClass}`]: {
             textDecoration: 'underline wavy var(--text-error)', cursor: 'pointer',
         } })
-        plugin.registerEditorExtension([extension, theme])
+        const enabled = [extension, theme]
+        const active: Extension[] = plugin.settings.EDITOR_CARD_WARNINGS === false ? [] : enabled.slice()
+        plugin.registerEditorExtension(active)
+        warningSettings.set(plugin, () => {
+            const show = plugin.settings.EDITOR_CARD_WARNINGS !== false
+            if (show === (active.length > 0)) return
+            active.splice(0, active.length, ...(show ? enabled : []))
+            plugin.app.workspace.updateOptions()
+        })
+        plugin.register(() => warningSettings.delete(plugin))
     } catch (error) {
         console.warn('[Rudonium Anki Toolkit] Диагностика редактора недоступна', error)
     }

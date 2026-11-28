@@ -4,9 +4,11 @@
 
 Your first export will send one card from a saved Markdown note to Anki.
 
-Already have card files from another plugin? From Quick Start choose **Migrate existing card files**. The [migration guide](migrate-card-files.md) explains the preview, source formats and full vault backup.
+Switching from Obsidian_to_Anki? You can copy your settings and keep your existing cards and IDs. [Switch from Obsidian_to_Anki](switch-from-obsidian-to-anki.md)
 
-Quick Start opens automatically when the vault has no configured format or complete block markers. You can reopen it from **Anki Connection → Quick Start → Set up sync** or the **Quick Start** command. Anki can be offline when the wizard opens.
+Already have a collection of card files from another plugin? Run **Migrate card files** from the command palette. The [migration guide](migrate-card-files.md) explains source formats, preview and backup.
+
+On a new installation, Quick Start opens when Rudonium starts and when you reopen its settings, until you save your setup or select **Don’t show Quick Start automatically**. If you imported your settings from Obsidian_to_Anki, your existing card format and file link and context fields are already configured. You can reopen it from **Anki Connection → Quick Start → Set up sync** or the **Quick Start** command. Anki can be offline when the wizard opens.
 
 ## Install or update
 
@@ -24,19 +26,23 @@ If Rudonium’s settings show a different version from the release you installed
    ```
 
 3. Save the configuration and restart Anki. Open the profile you want to study with and leave its collection open while using Rudonium. The plugin uses the local address `127.0.0.1`, port `8765` and the default AnkiConnect configuration with `apiKey` set to `null`.
-4. In **Quick Start**, click **Check Connection**. Check the profile name and choose an ordinary deck, a two-field note type such as **Basic**, and the **RemNote** format for the first example below. If the check fails, verify that AnkiConnect is enabled in Anki, the configured port is 8765 and the list contains the exact Obsidian origin.
-5. Compare the sample Markdown with the displayed front and back. **More options → Preview Anki template** shows how your Anki template renders the card. Choose **Save Setup**.
+4. Open **Quick Start**. It checks the connection on opening. If Anki is unavailable, start desktop Anki, open your profile and click **Check Connection**. If Anki is already running, check that AnkiConnect is enabled and allows the Obsidian origin. Once connected, verify the profile name and choose an ordinary deck.
+5. The **Note types** section lists the types you have configured. For the first example, choose **Add note type** and select **Basic**, or **Edit** next to its existing rule. Choose **RemNote · single line** in the rule window and compare the sample with its front and back. Click **Save rule**. Back in Quick Start, choose **Save Setup**. If you imported a working rule, you can keep it and save your deck selection directly.
 
 On a new installation, bidirectional sync is off and the default tag field is empty. Enter a tag if you want it added to exported notes. **Auto-scan interval (minutes)** controls how often your notes are checked for export. Leave it at 0 to run scans manually.
 
 In plugin settings, choose the default deck from the active Anki profile. A subdeck keeps its full name, such as `Knowledge::Deutsch`. If decks are unavailable, open Anki and refresh the list. To assign tags to a folder, use the arrow next to its parent or search by path. A button to show more folders appears only when expanded branches or search results contain more rows.
+
+## Start a sync from the left ribbon
+
+With Rudonium enabled and your Anki collection open, click ![Anki ribbon icon](../../Images/anki-ribbon-sync.png) on the far left of Obsidian. Its tooltip reads **Rudonium — Sync vault with Anki**. The command palette also has **Sync vault with Anki**. Both run the selected sync mode for the active folder profile. On a new installation that includes the entire vault. By default, Rudonium exports recognized Markdown cards to Anki. To test one card first, use the cursor action in the example below.
 
 ## Export one card
 
 In a Markdown note inside your selected folder, enter this line and save the note.
 
 ```markdown
-- Which lake in Siberia is the deepest on Earth? :: Lake Baikal
+- Which spacecraft carried Soviet cosmonaut Yuri Gagarin on the first human spaceflight on 12 April 1961? :: Vostok 1
 ```
 
 For a rule you can paste into the plugin settings, see the [RemNote regular expression](../../README.md#enter-the-remnote-rule-manually).
@@ -47,7 +53,7 @@ For a rule you can paste into the plugin settings, see the [RemNote regular expr
 
 The bidirectional preview checks notes that already have IDs. To add a new card, place the editor cursor inside it and choose **Preview new card at cursor** in the bidirectional preview. Review the card, choose **Sync this card** and confirm creation. Other drafts in the note stay available for later.
 
-Open **Sync settings**, enable **Bidirectional sync** and select **Sync now**. The ribbon button runs the same check. With preview off, verified changes are applied immediately. When the same linked field changes on both sides, sync uses the later version by default if the timestamps establish an order. To choose these values manually, turn off **Apply the newer edit**. Open the preview from the same section, choose a direction with the arrows beside the field and apply the selection.
+Open **Sync settings**, enable **Bidirectional sync** and select **Sync now**. With preview off, verified changes are applied immediately. Two preferences start on in **Sync settings**. **Skip recoverable card errors** lets two-way sync continue with the remaining cards and groups recoverable errors into one notice during one-way export. **Apply the newer edit** uses the later version of a linked field when both sides changed and the timestamps establish an order. To choose these values manually, turn off **Apply the newer edit**. Open the preview from the same section, choose a direction with the arrows beside the field and apply the selection.
 
 ## Sync one file
 
@@ -55,9 +61,9 @@ From the command palette, choose **Sync Current File with Anki**. One-way export
 
 ## Add another format
 
-To export a line with four fields separated by a colon, choose the note type, open **Regular expression wizard**, and enter a sample. The preview shows each value next to its Anki field. Choose **Use this format**, then save the setup. [Wizard example and supported direction](card-formats.md#build-a-rule-from-a-separator)
+To export a line with four fields separated by a colon, open the rule for the note type, expand **Rule tools**, choose **Regular expression wizard**, and enter a sample. The preview shows each value next to its Anki field. Choose **Use this format**, then save the setup. [Wizard example and supported direction](card-formats.md#build-a-rule-from-a-separator)
 
-In the plugin settings, open **Note type rules** and choose **Add rule**. Select a note type from the active Anki profile and pick a format or enter a custom expression. The optional file link and context fields belong here. Choose destination fields and enable the corresponding **Add File Link** or **Add Context** setting to include that information. Save the rule. To change a format already assigned to a type, edit that type’s rule. [Markdown format examples](card-formats.md)
+In the plugin settings, open **Note type rules** and choose **Add note type**. Select a note type from the active Anki profile and pick a format or enter a custom expression. The optional file link and context fields belong here. Choose destination fields and enable the corresponding **Add File Link** or **Add Context** setting to include that information. Save the rule. To change a format already assigned to a type, edit that type’s rule. [Markdown format examples](card-formats.md)
 
 For a **whole-page card**, select the page format for its Anki note type. Mark the note with `#anki-page` in normal Markdown, or add `anki-page` to the YAML `tags` property. Write the question in the first H1 and the answer below it. On first link the default ID location is the YAML property `anki-page-ID`. In the editor, **Add Anki page field…** lets you choose an extra field and enter a value. When upgrading a marked page that still has `rudonium-id`, rename that key to `anki-page-ID` and keep the original digits. [Page examples, optional fields and ID locations](card-formats.md#whole-page)
 
@@ -75,7 +81,7 @@ Under **Ready to restore**, each suggestion matches the question, answer, note t
 
 ## If Markdown has an ID but the Anki note is missing
 
-Confirm that the expected profile is open in Anki. Run **Check Default Deck with Anki → Check Deck Without Writing** and open the affected record. Choose **Review Repair** on a missing-ID notification to check the deck without writing and open repair for that specific ID. **Skip** moves to the next missing record. The audit report keeps the complete list. When you open the source line from the audit or repair view, the report stays alongside the editor. Use Previous and Next in repair to review one record at a time. Compare a candidate’s fields before choosing a replacement ID. [Support on GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
+Confirm that the expected profile is open in Anki. Run **Check Default Deck with Anki → Check Deck Without Writing** and open the affected record. Choose **Review Repair** on a missing-ID notification to check the deck without writing and open repair for that specific ID. **Skip** moves to the next missing record. **Skip All** closes the remaining missing-ID notices for this scan. The audit report keeps the complete list. When you open the source line from the audit or repair view, the report stays alongside the editor. Use Previous and Next in repair to review one record at a time. Compare a candidate’s fields before choosing a replacement ID. [Support on GitFlic](https://gitflic.ru/project/dashiwak/rudonium-anki-toolkit/issue)
 
 [Suspension, deletion and shared fields](card-controls.md)
 
@@ -94,3 +100,5 @@ If an export stopped after creating a note in Anki, open **Review Pending Anki C
 ## Back up and restore a vault
 
 Under **Vault Backup**, choose **Create Backup Now**, or enable **Automatic backup before export** and set an interval in days. The default destination is the `Obsidian Anki Backups` folder beside the vault. **Include Anki collection** also backs up the active profile when the local desktop runtime supports SQLite online backup. Select your vault ZIP and choose **Restore to New Folder**. Open that folder in Obsidian to check the restored notes before copying anything back.
+
+To save a deck separately, turn on **Include an Anki deck package**. Rudonium uses its default deck unless you select **Load decks** and choose another deck from the open Anki profile. Manual and scheduled backups save the chosen deck and its review schedule in `Deck.apkg` beside `Obsidian.zip`. Open or import `Deck.apkg` in Anki to restore it.

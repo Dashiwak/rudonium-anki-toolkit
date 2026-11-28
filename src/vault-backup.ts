@@ -7,7 +7,7 @@ import type { DesktopFileOperations, DesktopPaths, DirectoryEntry } from './desk
 import { Notice } from 'obsidian'
 import type { FileSystemAdapter } from 'obsidian'
 import type MyPlugin from '../main'
-import { activeAnkiBackupProfile, backupAnkiCollection } from './anki-backup'
+import { ankiProfileDirectory, backupAnkiCollection, backupAnkiDeck } from './anki-backup'
 import { AnkiProfileError, checkPinnedAnkiProfile, requireExpectedAnkiProfile } from './anki-profile'
 import { restoreVaultZip, verifyVaultZip, writeVaultZip } from './vault-backup-zip'
 import type { VaultZipProgress } from './vault-backup-zip'
@@ -29,6 +29,8 @@ export interface BackupSettings {
     intervalDays: number
     directory: string
     includeAnki: boolean
+    includeDeck: boolean
+    selectedDeck?: { profile: string; name: string }
 }
 
 export interface BackupCheck {
@@ -43,6 +45,7 @@ interface BackupManifest {
     profile?: string
     vaultBytes: number
     ankiBytes?: number
+    deck?: { profile: string; name: string; bytes: number }
     scope?: BackupScope
 }
 
@@ -60,6 +63,7 @@ export interface SavedVaultBackup {
     vaultRoot: string
     bytes: number
     includeAnki: boolean
+    deckName?: string
     selection?: {
         includeFolders: string[]
         excludeFolders: string[]
@@ -114,6 +118,10 @@ export function readBackupSettings(raw: unknown): BackupSettings {
         intervalDays: typeof days === 'number' && Number.isSafeInteger(days) && days >= 1 && days <= 365 ? days : 7,
         directory: typeof value.directory === 'string' ? value.directory.trim() : '',
         includeAnki: value.includeAnki !== false,
+        includeDeck: value.includeDeck === true,
+        ...(value.selectedDeck && typeof value.selectedDeck.name === 'string' && value.selectedDeck.name.trim() &&
+            typeof value.selectedDeck.profile === 'string' && value.selectedDeck.profile.trim()
+            ? { selectedDeck: { profile: value.selectedDeck.profile, name: value.selectedDeck.name } } : {}),
     }
 }
 
@@ -134,7 +142,7 @@ function missing(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
-async function destination(plugin: MyPlugin, settings: BackupSettings, create: boolean) {
+async function destination(plugin: MyPlugin, settings: BackupSettings, create: boolean, ankiRoot?: string) {
     const { fs, path, base } = desktop(plugin)
     const root = await fs.realpath(base)
     const configured = settings.directory || path.join(path.dirname(root), 'Obsidian Anki Backups', path.basename(root))
@@ -144,7 +152,9 @@ async function destination(plugin: MyPlugin, settings: BackupSettings, create: b
     for (let probe = folder;; probe = path.dirname(probe)) {
         try {
             const parent = await fs.realpath(probe)
-            if (isIn(path, root, path.resolve(parent, path.relative(probe, folder)))) {
+            const resolved = path.resolve(parent, path.relative(probe, folder))
+            if (ankiRoot && isIn(path, ankiRoot, resolved)) throw new Error('Choose a backup location outside the active Anki profile.')
+            if (isIn(path, root, resolved)) {
                 throw new Error('The backup folder resolves inside the vault.')
             }
             break
@@ -157,6 +167,7 @@ async function destination(plugin: MyPlugin, settings: BackupSettings, create: b
         if (!create && missing(error)) return folder
         throw error
     })
+    if (ankiRoot && isIn(path, ankiRoot, actual)) throw new Error('Choose a backup location outside the active Anki profile.')
     if (isIn(path, root, actual)) throw new Error('The backup folder resolves inside the vault.')
     return { fs, path, root, directory: actual }
 }
@@ -200,6 +211,9 @@ function checkedManifest(raw: unknown): BackupManifest | undefined {
         typeof value.vaultBytes !== 'number' || !Number.isSafeInteger(value.vaultBytes) || value.vaultBytes <= 0 ||
         (value.profile !== undefined && (typeof value.profile !== 'string' || !value.profile.trim() ||
             typeof value.ankiBytes !== 'number' || !Number.isSafeInteger(value.ankiBytes) || value.ankiBytes <= 0)) ||
+        (value.deck !== undefined && (!value.deck || typeof value.deck.name !== 'string' || !value.deck.name.trim() ||
+            typeof value.deck.profile !== 'string' || !value.deck.profile.trim() || !Number.isSafeInteger(value.deck.bytes) ||
+            value.deck.bytes <= 0 || (value.profile !== undefined && value.profile !== value.deck.profile))) ||
         value.scope !== undefined && !checkedBackupScope(value.scope)) return undefined
     return value as BackupManifest
 }
@@ -240,6 +254,7 @@ function savedBackupMetadata(archive: string, name: string, manifest: BackupMani
         name: `${manifest.scope ? t('Selected folders', 'Выбранные папки') : t('Full vault', 'Полное хранилище')} · ${name}`,
         scope: manifest.scope ? 'selected' : 'full', completedAt: manifest.completedAt,
         vaultRoot: manifest.vaultRoot, bytes: manifest.vaultBytes, includeAnki: Boolean(manifest.profile),
+        ...(manifest.deck ? { deckName: manifest.deck.name } : {}),
         ...(manifest.scope ? { selection: {
             includeFolders: [...manifest.scope.includeFolders], excludeFolders: [...manifest.scope.excludeFolders],
             includeAttachments: manifest.scope.includeAttachments,
@@ -293,13 +308,42 @@ async function* matchingBackups(loc: Awaited<ReturnType<typeof destination>>,
                 const anki = await fs.lstat(path.join(folder, 'Anki.zip'))
                 if (!anki.isFile() || anki.size !== manifest.ankiBytes) continue
             }
+            if (manifest.deck) {
+                const deck = await fs.lstat(path.join(folder, 'Deck.apkg'))
+                if (!deck.isFile() || deck.size !== manifest.deck.bytes) continue
+            }
             yield { path: archive, name: `${new Date(manifest.completedAt).toLocaleString()} · ${entry.name}`, manifest }
         } catch {
+            // A missing or incomplete snapshot cannot satisfy the backup interval.
+            continue
         }
     }
 }
 
-async function createSnapshot(loc: Awaited<ReturnType<typeof destination>>, profile: string | undefined, t: UiText,
+interface AnkiSnapshot {
+    profile: string
+    root: string
+    collection: boolean
+    deck?: string
+}
+
+async function ankiSnapshot(plugin: MyPlugin, settings: BackupSettings, pinned?: string): Promise<AnkiSnapshot | undefined> {
+    if (!settings.includeAnki && !settings.includeDeck) return undefined
+    const profile = await requireExpectedAnkiProfile(plugin, pinned)
+    const root = await ankiProfileDirectory(profile)
+    if (!settings.includeDeck) return { profile, root, collection: true }
+    const t = uiFor(plugin.settings)
+    const selection = settings.selectedDeck
+    if (selection && selection.profile !== profile) throw new Error(t(
+        `Backup deck “${selection.name}” belongs to Anki profile “${selection.profile}”. Open that profile or choose another backup deck.`,
+        `Колода «${selection.name}» для копирования выбрана в профиле Anki «${selection.profile}». Откройте этот профиль или выберите другую колоду.`))
+    const deck = selection?.name ?? plugin.settings.Defaults.Deck
+    if (!deck || !deck.trim()) throw new Error(t('Choose an Anki deck in the backup settings.',
+        'Выберите колоду Anki в настройках резервного копирования.'))
+    return { profile, root, collection: settings.includeAnki, deck }
+}
+
+async function createSnapshot(loc: Awaited<ReturnType<typeof destination>>, anki: AnkiSnapshot | undefined, t: UiText,
     scope?: BackupScope): Promise<string> {
     const { fs, path, root, directory } = loc
     const status = displayProgress(scope ? t('Backing up selected Obsidian folders', 'Создаём копию выбранных папок Obsidian')
@@ -317,7 +361,8 @@ async function createSnapshot(loc: Awaited<ReturnType<typeof destination>>, prof
             version: 1, completedAt: 0, vaultRoot: root, vaultBytes: (await fs.stat(vaultArchive)).size,
             ...(scope ? { scope } : {}),
         }
-        if (profile) {
+        if (anki?.collection) {
+            const profile = anki.profile
             status.update(t('Anki · making a consistent copy', 'Anki · создаём согласованную копию'))
             const ankiArchive = path.join(stage, 'Anki.zip')
             const result = await backupAnkiCollection(ankiArchive, p => status.update('Anki', p), profile)
@@ -325,6 +370,13 @@ async function createSnapshot(loc: Awaited<ReturnType<typeof destination>>, prof
             await checkPinnedAnkiProfile(profile)
             manifest.profile = profile
             manifest.ankiBytes = (await fs.stat(ankiArchive)).size
+        }
+        if (anki?.deck) {
+            status.update(t(`Anki · exporting deck “${anki.deck}”`, `Anki · экспортируем колоду «${anki.deck}»`))
+            const bytes = await backupAnkiDeck(path.join(stage, 'Deck.apkg'), anki.deck, anki.profile,
+                p => status.update(anki.deck, p))
+            manifest.deck = { profile: anki.profile, name: anki.deck, bytes }
+            await checkPinnedAnkiProfile(anki.profile)
         }
         manifest.completedAt = Date.now()
         await fs.writeFile(path.join(stage, 'backup.json'), JSON.stringify(manifest, null, 2), { flag: 'wx' })
@@ -348,19 +400,21 @@ export async function ensureScheduledBackup(plugin: MyPlugin, expectedProfile?: 
     const t = uiFor(plugin.settings)
     const scope = selectedBackupScope(plugin)
     try {
-        const profile = settings.includeAnki
-            ? expectedProfile ? await checkPinnedAnkiProfile(expectedProfile) : await activeAnkiBackupProfile() : undefined
-        const loc = await destination(plugin, settings, false)
+        const anki = await ankiSnapshot(plugin, settings, expectedProfile)
+        const profile = anki?.profile
+        const loc = await destination(plugin, settings, false, anki?.root)
         const now = Date.now()
         const cutoff = now - settings.intervalDays * dayMs
         const candidates = matchingBackups(loc, manifest => manifest.vaultRoot === loc.root &&
-            (!profile || manifest.profile === profile) && sameBackupScope(manifest.scope, scope) &&
+            (!anki?.collection || manifest.profile === profile) &&
+            (!anki?.deck || (manifest.deck?.profile === profile && manifest.deck?.name === anki.deck)) &&
+            sameBackupScope(manifest.scope, scope) &&
             manifest.completedAt <= now && manifest.completedAt > cutoff)
         let created: boolean
         try { created = (await candidates.next()).done === true }
         finally { await candidates.return(undefined) }
         if (created) {
-            const folder = await createSnapshot(await destination(plugin, settings, true), profile, t, scope)
+            const folder = await createSnapshot(await destination(plugin, settings, true, anki?.root), anki, t, scope)
             new Notice(t(`Backup verified. Continuing export.\n${folder}`,
                 `Резервная копия проверена. Продолжаем экспорт.\n${folder}`))
         }
@@ -391,8 +445,8 @@ export async function createFullMigrationBackup(plugin: MyPlugin, override?: str
 export function createBackupNow(plugin: MyPlugin): Promise<string> {
     return withFastScanReadLock(plugin, async () => {
         const settings = readBackupSettings(plugin.settings.VAULT_BACKUP)
-        const profile = settings.includeAnki ? await requireExpectedAnkiProfile(plugin) : undefined
-        return createSnapshot(await destination(plugin, settings, true), profile, uiFor(plugin.settings), selectedBackupScope(plugin))
+        const anki = await ankiSnapshot(plugin, settings)
+        return createSnapshot(await destination(plugin, settings, true, anki?.root), anki, uiFor(plugin.settings), selectedBackupScope(plugin))
     })
 }
 

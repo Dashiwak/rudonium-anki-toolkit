@@ -32,7 +32,6 @@ import { auditAttachmentPresence, hasAuditAttachmentSources, renderAttachmentCon
 import type { AuditAttachmentIssue } from './audit-attachment-check'
 import { auditCardRows, checkAuditNewCards, filterAuditCards } from './audit-card-status'
 import type { AuditCardRow, AuditCardStatus } from './audit-card-status'
-import { canReviewMissingSourceCards, openAuditStudyCards } from './anki-study-review-ui'
 import { isDuplicateFirstFieldErrorMessage } from './anki-transport'
 import { readAnkiDeckKind } from './anki-study-state'
 
@@ -836,17 +835,20 @@ class SyncAuditModal extends ReviewModal {
 
     private ankiButton(container: HTMLElement, id: number, auditProfile: SyncAuditAnkiProfile | undefined): void {
         const t = this.t
+        const label = t('Open in Anki', 'Открыть в Anki')
         const button = container.createEl('button', {
-            text: t('Open in Anki', 'Открыть в Anki'),
+            text: label,
             title: t(`Open Anki note ${id}`, `Открыть запись Anki ${id}`),
         })
         button.onclick = async () => {
             button.disabled = true
+            button.setText(t('Opening Anki…', 'Открываю Anki…'))
             try {
                 await openAuditAnkiNote(id, auditProfile, t)
             } catch (error) {
                 new Notice(error instanceof Error ? error.message : String(error))
             } finally {
+                button.setText(label)
                 button.disabled = false
             }
         }
@@ -863,13 +865,12 @@ class SyncAuditModal extends ReviewModal {
             }
         } else if ('ankiId' in action) {
             this.ankiButton(container, action.ankiId, result.ankiProfile)
-            this.studyCardsButton(container, result, action.ankiId)
             const profile = result.ankiProfile
             if (action.restoreSource && result.vaultInventoryComplete && result.ankiInventoryComplete && profile && 'active' in profile) {
                 const scope = { deck: result.deck }
                 container.createEl('button', {
-                    text: this.t('Restore Source in Obsidian', 'Восстановить источник в Obsidian'),
-                    title: this.t(`Preview source for Anki note ${action.ankiId}`, `Предпросмотр источника записи Anki ${action.ankiId}`),
+                    text: this.t('Restore Note in Obsidian', 'Восстановить запись в Obsidian'),
+                    title: this.t(`Preview Markdown for Anki note ${action.ankiId}`, `Предпросмотр Markdown для записи Anki ${action.ankiId}`),
                 }).onclick = () => openAnkiSourceRestore(this.plugin, action.ankiId, profile.active, result.deck, () => this.close(),
                     () => openSyncAudit(this.plugin, scope))
             }
@@ -887,12 +888,6 @@ class SyncAuditModal extends ReviewModal {
                 else this.reviewDuplicate(action.duplicateId)
             }
         }
-    }
-
-    private studyCardsButton(container: HTMLElement, result: SyncAuditResult, id: number): void {
-        if (!canReviewMissingSourceCards(result, id)) return
-        container.createEl('button', { text: this.t('Review Study Cards', 'Учебные карточки') }).onclick =
-            () => openAuditStudyCards(this.plugin, result, id)
     }
 
     private checkDeckButton(container: HTMLElement, deck: string): void {
@@ -1344,7 +1339,8 @@ export async function openAuditForExportIssue(plugin: MyPlugin, deck?: string, r
     await waitForFastScanIdle(plugin)
     if (auditsFromNotice.get(plugin) !== request) return
     auditsFromNotice.delete(plugin)
-    if (deck) showAuditModal(plugin, { deck }, { repair })
+    if (!repair && plugin.settings.Defaults.Deck?.trim()) showAuditModal(plugin, 'default-deck')
+    else if (deck?.trim()) showAuditModal(plugin, { deck }, { repair })
     else openSyncAuditDeckPicker(plugin, [], false, repair)
 }
 
